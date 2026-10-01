@@ -170,7 +170,7 @@ struct MainWindow: View {
                                 count: session.state.pendingApprovals.count)
             }
             .buttonStyle(.plain)
-            .keyboardShortcut("0", modifiers: .command)
+            .keyboardShortcut("1", modifiers: .command)
             .padding(.horizontal, 8)
             .padding(.bottom, 4)
             // One agent to talk to: its threads, what needs you on top, closed ones folded away.
