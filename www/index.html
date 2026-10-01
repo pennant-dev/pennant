@@ -1,0 +1,1990 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pennant · the open-source AI agent that does the work</title>
+<meta name="description" content="Pennant is one open-source AI agent that lives on your Mac. It runs your jobs on a schedule, remembers what you told it, uses your apps, writes code and connects to the services you use, with any model, and asks before it publishes, sends, deletes or spends.">
+<meta property="og:title" content="Pennant · the open-source AI agent that does the work">
+<meta property="og:description" content="One open-source AI agent on your Mac and iPhone. It runs your jobs on a schedule, remembers what you told it, uses your apps, writes code and connects to the services you use, with any model. Nothing is published, sent, deleted or paid for until you say so.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pennant.dev/">
+<meta property="og:image" content="https://pennant.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://pennant.dev/og.png">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151517" media="(prefers-color-scheme: dark)">
+<style>
+/* Pennant's own design tokens (PennantTheme), light and dark: quiet greys, one violet, colour only where it means something. */
+:root{
+  color-scheme:light;
+  --bg:#FFFFFF; --bg2:#F8F8FA; --side:#F5F5F7; --card:#F2F2F5; --elev:#FFFFFF; --field:#EEEEF2; --hover:#EBEBF0;
+  --line:#E4E4E9; --divider:#E9E9EE; --ink:#121214; --ink2:#6F6F78; --ink3:#A3A3AB;
+  --brand:#7A4FE6; --brand-hover:#6A3FD9; --brand-ink:#6A3FD9; --brand-soft:#EFE9FE; --ai:#F1F1F4;
+  --ok:#3DB553; --ok-ink:#1F8636; --ok-soft:rgba(61,181,83,.12); --warn:#F0A93B; --warn-ink:#9A5B06; --warn-soft:rgba(240,169,59,.15);
+  --bad:#E5484D; --bad-ink:#C4262C; --bad-soft:rgba(229,72,77,.1); --info:#2F80ED; --info-ink:#1F63C7; --orange:#EC7A36;
+  --shadow:0 1px 2px rgba(18,18,20,.05),0 30px 70px -36px rgba(40,20,90,.32);
+  --shadow-sm:0 1px 2px rgba(18,18,20,.05),0 12px 30px -20px rgba(40,20,90,.3);
+  --line2:var(--line); --blue:var(--info); --blue-ink:var(--info-ink); --you:var(--brand); --you-ink:var(--brand-ink); --you-soft:var(--brand-soft);
+  --text:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --display:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --round:ui-rounded,"SF Pro Rounded",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .shot .lit{display:none}}
+:root[data-theme="dark"] .shot .lit{display:none}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;
+  --bg:#151517; --bg2:#19191C; --side:#1C1C1F; --card:#232327; --elev:#26262B; --field:#27272C; --hover:#28282D;
+  --line:#303036; --divider:#2A2A30; --ink:#F3F3F5; --ink2:#9B9BA4; --ink3:#6C6C75;
+  --brand:#7C5CF0; --brand-hover:#8C6FF4; --brand-ink:#B9A5FF; --brand-soft:#2E2646; --ai:#26262B;
+  --ok-ink:#5FCE74; --ok-soft:rgba(61,181,83,.16); --warn-ink:#F0B55A; --warn-soft:rgba(240,169,59,.16); --bad-ink:#FF6B6F; --bad-soft:rgba(229,72,77,.16); --info-ink:#6AA8FF;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 30px 70px -30px rgba(0,0,0,.7); --shadow-sm:0 1px 2px rgba(0,0,0,.4),0 12px 30px -18px rgba(0,0,0,.6)}}
+:root[data-theme="dark"]{color-scheme:dark;
+  --bg:#151517; --bg2:#19191C; --side:#1C1C1F; --card:#232327; --elev:#26262B; --field:#27272C; --hover:#28282D;
+  --line:#303036; --divider:#2A2A30; --ink:#F3F3F5; --ink2:#9B9BA4; --ink3:#6C6C75;
+  --brand:#7C5CF0; --brand-hover:#8C6FF4; --brand-ink:#B9A5FF; --brand-soft:#2E2646; --ai:#26262B;
+  --ok-ink:#5FCE74; --ok-soft:rgba(61,181,83,.16); --warn-ink:#F0B55A; --warn-soft:rgba(240,169,59,.16); --bad-ink:#FF6B6F; --bad-soft:rgba(229,72,77,.16); --info-ink:#6AA8FF;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 30px 70px -30px rgba(0,0,0,.7); --shadow-sm:0 1px 2px rgba(0,0,0,.4),0 12px 30px -18px rgba(0,0,0,.6)}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+img{max-width:100%}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{background:var(--bg);scroll-behavior:smooth;scroll-padding-top:calc(env(safe-area-inset-top,0px) + 64px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.55 var(--text);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+.page{overflow-x:clip}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:8px}
+.ic{width:1em;height:1em;flex:none;vertical-align:-.125em}
+.wrap{max-width:1180px;margin-inline:auto;padding-inline:clamp(16px,4vw,40px)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+code{font-family:var(--mono);font-size:.9em}
+.ribbon{display:inline-block;flex:none}
+
+/* Nav */
+.nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:40;margin-bottom:-58px;border-bottom:1px solid transparent;transition:background .35s,border-color .35s}
+.nav.on-night{--ink:#FFFFFF;--ink2:rgba(236,236,245,.74)}
+.nav.on-night.scrolled{background:rgba(11,10,22,.5);backdrop-filter:saturate(160%) blur(14px);-webkit-backdrop-filter:saturate(160%) blur(14px);border-bottom-color:rgba(255,255,255,.1)}
+.nav.scrolled:not(.on-night){background:color-mix(in srgb,var(--bg) 84%,transparent);backdrop-filter:saturate(180%) blur(14px);-webkit-backdrop-filter:saturate(180%) blur(14px);border-bottom-color:var(--divider)}
+.nav .wrap{display:flex;align-items:center;gap:28px;height:58px}
+.brand{display:inline-flex;align-items:center;gap:9px;text-decoration:none;font:700 19px/1 var(--display);letter-spacing:-.02em;color:var(--ink)}
+.brand .ribbon{width:24px;height:24px}
+.nav-links{display:flex;gap:24px;margin-left:auto}
+.nav-links a{color:var(--ink2);text-decoration:none;font-size:14px;font-weight:500;transition:color .35s}
+.nav-links a:hover{color:var(--ink)}
+
+/* Buttons, as the app draws them */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;padding:0 20px;border-radius:999px;font:600 15px/1 var(--text);text-decoration:none;border:1px solid transparent;cursor:pointer;white-space:nowrap;transition:background-color .15s,border-color .15s}
+.btn .ic{width:16px;height:16px}
+.nav .btn{background:var(--ink);color:var(--bg)}
+.nav.on-night .btn{background:#fff;color:#121214}
+.btn-sm{height:36px;padding:0 15px;font-size:14px}
+.btn-primary{background:linear-gradient(100deg,#7A4FE6,#4F63EA);color:#fff;box-shadow:0 12px 28px -12px rgba(122,79,230,.8)}
+.btn-primary:hover{filter:brightness(1.08)}
+.btn-ghost{background:var(--elev);border-color:var(--line);color:var(--ink)}
+.btn-ghost:hover{background:var(--hover)}
+
+/* Hero */
+/* Sunrise: the hero holds still while the night shift turns into morning, then lets go into the daylit page.
+   The script sets --night, --dawn, --sun, --day and --lit (0 to 1) from the scroll; without it the hero stays at night. */
+.sunrise{position:relative;--night:1;--dawn:0;--sun:0;--day:0;--lit:0}
+.sunrise.pin{height:210vh}
+.sunrise.pin .hero{position:sticky;top:0;height:100vh;display:flex;align-items:center;padding-block:58px 24px}
+.sunrise.pin .hero>.wrap{width:100%}
+.hero{position:relative;overflow:hidden;color:var(--ink);background:var(--bg);padding-block:calc(58px + clamp(44px,6vw,84px)) clamp(64px,8vw,112px)}
+.sunrise:not(.is-day) .hero{color-scheme:dark;--bg2:rgba(255,255,255,.06);--elev:rgba(255,255,255,.08);--hover:rgba(255,255,255,.14);--line:rgba(255,255,255,.16);--divider:rgba(255,255,255,.12);--ink:#FFFFFF;--ink2:rgba(236,236,245,.74);--ink3:rgba(236,236,245,.55);--brand-ink:#C4B2FF}
+.hero :is(h1,.lede,.lede b,.eyebrow,.btn-ghost,.clock){transition:color .5s ease,background-color .5s ease,border-color .5s ease}
+.sky,.sky i{position:absolute;inset:0;pointer-events:none}
+.sky .dawn{background:linear-gradient(180deg,#1C1244 0%,#35206F 42%,#6E3A97 66%,#C2658F 86%,#F6A874 100%);opacity:var(--dawn)}
+.sky .sun{inset:auto;left:50%;bottom:0;width:130vmax;height:130vmax;border-radius:50%;background:radial-gradient(closest-side,rgba(255,214,150,.95),rgba(255,170,120,.5) 38%,rgba(255,150,170,.18) 62%,transparent 100%);opacity:calc(var(--sun) * (1 - var(--day)));transform:translate(-50%,calc(84% - var(--sun) * 36%))}
+.sky .night-sky{background:radial-gradient(1px 1px at 33.1% 12.3%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1px 1px at 80.8% 8.4%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1.6px 1.6px at 22.6% 7.8%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1px 1px at 25.1% 39.5%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1px 1px at 13.9% 17.2%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1px 1px at 58.2% 5.4%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1.6px 1.6px at 55.4% 11.1%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1px 1px at 53.9% 40.8%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 57.8% 45.4%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1px 1px at 54.6% 6.3%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1.6px 1.6px at 21.8% 48.3%,rgba(255,255,255,.7) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 46.7% 64.8%,rgba(255,255,255,.7) 50%,transparent 51%),radial-gradient(1px 1px at 25.8% 14.2%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 57.1% 37.7%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1px 1px at 45.1% 43.4%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 51.1% 13.2%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1px 1px at 91.6% 30.7%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 57.0% 61.5%,rgba(255,255,255,.7) 50%,transparent 51%),radial-gradient(1.6px 1.6px at 68.7% 42.4%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1.6px 1.6px at 82.6% 66.2%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 65.8% 6.1%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1.6px 1.6px at 57.5% 48.3%,rgba(255,255,255,.7) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 70.8% 62.3%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1px 1px at 92.3% 26.2%,rgba(255,255,255,.7) 50%,transparent 51%),radial-gradient(1px 1px at 7.7% 54.2%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1.6px 1.6px at 25.8% 28.6%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 18.0% 29.3%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 80.7% 60.8%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1.6px 1.6px at 41.9% 26.4%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1px 1px at 16.5% 14.0%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1px 1px at 24.4% 35.0%,rgba(255,255,255,.7) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 29.1% 11.9%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1px 1px at 56.4% 66.8%,rgba(255,255,255,.7) 50%,transparent 51%),radial-gradient(1.6px 1.6px at 88.4% 55.0%,rgba(255,255,255,.7) 50%,transparent 51%),radial-gradient(1.6px 1.6px at 40.3% 9.0%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1.6px 1.6px at 20.3% 69.0%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1px 1px at 12.6% 42.8%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 56.4% 38.5%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1.6px 1.6px at 4.4% 61.5%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 62.9% 67.0%,rgba(255,255,255,.7) 50%,transparent 51%),radial-gradient(1.6px 1.6px at 13.8% 59.7%,rgba(255,255,255,.7) 50%,transparent 51%),radial-gradient(1px 1px at 48.4% 7.8%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1px 1px at 34.9% 20.0%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 4.2% 66.7%,rgba(255,255,255,.5) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 68.2% 64.2%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(1.2px 1.2px at 84.9% 49.3%,rgba(255,255,255,.9) 50%,transparent 51%),radial-gradient(60% 50% at 70% 30%,#16123A,transparent 70%),#0B0A16;opacity:var(--night)}
+
+.swoosh{position:absolute;left:32%;top:14%;width:84%;height:92%;opacity:calc(.55 - var(--day) * .4);filter:blur(18px) saturate(1.2);pointer-events:none}
+.hero-grid{position:relative;display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);gap:clamp(36px,5vw,64px);align-items:center}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;padding:6px 12px 6px 10px;border-radius:999px;background:var(--elev);border:1px solid var(--line);font:500 13px/1 var(--text);color:var(--ink2)}
+.eyebrow .ribbon{width:16px;height:16px}
+.hero h1{margin:22px 0 0;font:800 clamp(44px,5.4vw,78px)/.98 var(--display);letter-spacing:-.045em;text-wrap:balance}
+.hero h1 em{font-style:normal;background:linear-gradient(100deg,#8B5CF6,#2F80ED);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lede{margin:22px auto 0;max-width:36em;font-size:clamp(17px,1.5vw,19.5px);line-height:1.6;color:var(--ink2)}
+.lede b{color:var(--ink);font-weight:600}
+.sunrise:not(.is-day) .hero h1 em{background-image:linear-gradient(100deg,#B69CFF,#6FA8FF)}
+.hero .lede{margin:22px 0 0;max-width:34em;font-size:clamp(17px,1.4vw,19px)}
+.cta-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px}
+.fine-line{margin:14px 0 0;font-size:13.5px;line-height:1.5;color:var(--ink3)}
+.fine-line code{font-size:11.5px;word-break:break-all;color:var(--ink2)}
+/* The Mac and the iPhone: the dashboard, and the same agent asking on the phone. The Mac runs off the right edge. */
+.duo{position:relative;width:calc(100% + 16vw);padding:0 0 56px 56px}
+.shot{position:relative;overflow:hidden}
+.shot img{display:block;width:100%;height:auto}
+.shot .lit{position:absolute;inset:0;opacity:var(--lit)}
+.duo-mac{border-radius:12px;border:1px solid var(--line);box-shadow:0 50px 100px -40px rgba(0,0,0,.9)}
+.duo-phone{position:absolute;left:0;bottom:0;width:24%;padding:5px;border-radius:30px;background:#1C1C1E;box-shadow:0 40px 80px -24px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.14)}
+.duo-phone .shot{border-radius:25px}
+/* The night, told by the hour */
+.clock{position:absolute;top:-22px;left:88px;z-index:2;display:flex;align-items:center;gap:9px;max-width:calc(100% - 120px);margin:0;padding:7px 14px 7px 8px;border-radius:999px;background:var(--elev);border:1px solid var(--line);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);font-size:13.5px;color:var(--ink2);white-space:nowrap;box-shadow:0 10px 30px -14px rgba(0,0,0,.6)}
+.clock-ic{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#8B5CF6,#2F80ED);color:#fff}
+.clock-ic .ic{width:14px;height:14px}
+.is-day .clock-ic{background:linear-gradient(135deg,#F0A93B,#EC7A36)}
+.clock b{font:600 13.5px/1 var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.clock [data-clock="s"]{overflow:hidden;text-overflow:ellipsis}
+.live-stage{margin-top:40px}
+.stage-note{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px 16px;margin-top:16px;font-size:13.5px;color:var(--ink3);text-align:center}
+.stage-note b{color:var(--ink2);font-weight:600}
+.stage-note .live{display:inline-flex;align-items:center;gap:6px}
+.stage-note .live i{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+
+/* The app, drawn: window, sidebar, dashboard */
+.app{position:relative;display:grid;grid-template-columns:250px minmax(0,1fr);grid-template-rows:minmax(0,1fr);height:720px;border-radius:16px;overflow:hidden;background:var(--bg);border:1px solid var(--line);box-shadow:var(--shadow);font-size:13px;text-align:left;color:var(--ink)}
+.side{display:flex;flex-direction:column;gap:2px;min-height:0;overflow:hidden;padding:12px 10px 10px;background:var(--side);border-right:1px solid var(--divider);min-width:0}
+.lights{display:flex;gap:7px;padding:2px 6px 12px}
+.lights i{width:11px;height:11px;border-radius:50%;background:var(--line)}
+.srow{display:flex;align-items:center;gap:9px;height:30px;padding:0 8px;border-radius:8px;color:var(--ink);font-size:13.5px;font-weight:500}
+.srow .ic{width:15px;height:15px;color:var(--ink2)}
+.srow.on{background:var(--brand-soft)}
+.srow .badge{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--orange);color:#fff;font:700 11px/18px var(--text);text-align:center}
+.search{display:flex;align-items:center;gap:8px;height:28px;margin:4px 0 8px;padding:0 9px;border-radius:8px;background:var(--field);color:var(--ink3);font-size:13px}
+.search .ic{width:13px;height:13px}
+.side-h{display:flex;align-items:center;gap:6px;padding:10px 8px 5px;font:700 10.5px/1 var(--text);letter-spacing:.07em;text-transform:uppercase;color:var(--ink3)}
+.side-h.brandy{color:var(--brand-ink)}
+.side-h span{margin-left:auto;font-weight:600}
+.needs{display:flex;flex-direction:column;gap:5px;padding:0 2px}
+.nrow{position:relative;padding:7px 9px 7px 12px;border-radius:9px;background:var(--elev);border:1px solid var(--line);font-size:12px;line-height:1.35;cursor:pointer;transition:opacity .35s,transform .35s}
+.nrow::before{content:"";position:absolute;left:4px;top:7px;bottom:7px;width:3px;border-radius:2px;background:var(--brand)}
+.nrow .top{display:block;color:var(--brand-ink);font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nrow b{display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nrow .sub{display:block;color:var(--ink3);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nrow.out{opacity:0;transform:translateX(-12px)}
+.clear{padding:8px 9px;border-radius:9px;color:var(--ink3);font-size:12px}
+.threads{display:flex;flex-direction:column;flex:1 1 0;min-height:0;overflow:hidden}
+.trow{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:2px 9px;align-items:center;padding:6px 8px;border-radius:8px;font-size:12.5px}
+.trow .ti{grid-row:span 2;width:22px;height:22px;border-radius:50%;background:var(--card);display:grid;place-items:center;color:var(--ink2)}
+.trow .ti .ic{width:12px;height:12px}
+.trow b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trow.unread b{font-weight:650}
+.trow time{font-size:10.5px;color:var(--ink3)}
+.trow .pv{grid-column:2/-1;color:var(--ink3);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trow.new{animation:rowIn .45s cubic-bezier(.2,.8,.2,1)}
+@keyframes rowIn{from{opacity:0;transform:translateY(-6px)}}
+.side-nav{display:flex;flex-direction:column;border-top:1px solid var(--divider);padding-top:6px;margin-top:6px}
+.side-nav .srow{height:26px;font-size:13px;font-weight:400}
+.side-foot{display:grid;grid-template-columns:26px minmax(0,1fr) 8px;gap:0 9px;align-items:center;padding:8px 8px 2px;margin-top:4px}
+.side-foot .ribbon{width:22px;height:22px;grid-row:span 2}
+.side-foot b{font-size:12.5px;font-weight:600}
+.side-foot span{grid-column:2;font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side-foot i{grid-row:1/span 2;grid-column:3;width:8px;height:8px;border-radius:50%;background:var(--ok)}
+
+.main{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg)}
+.mtop{display:flex;align-items:center;gap:10px;height:46px;padding:0 18px;border-bottom:1px solid var(--divider);font:650 14.5px/1 var(--text)}
+.mtop .pillo{margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 11px;border-radius:999px;background:var(--orange);color:#fff;font-size:12px;font-weight:650}
+.mtop .pillo .ic{width:13px;height:13px}
+.mtop .pillo.zero{display:none}
+.mtop .screen{color:var(--ink2);display:inline-flex}
+.mtop .screen .ic{width:17px;height:17px}
+.mbody{flex:1;min-height:0;overflow:hidden;padding:16px 18px 18px;display:flex;flex-direction:column;gap:16px}
+.greet{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;padding:12px 16px;border-radius:14px;border:1px solid color-mix(in srgb,var(--brand) 32%,transparent);background:var(--elev)}
+.greet small{display:block;font:650 10px/1 var(--text);letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)}
+.greet b{display:block;margin-top:5px;font:750 19px/1.1 var(--round);letter-spacing:-.01em}
+.greet .st{margin-left:auto;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px 16px;font-size:12.5px;color:var(--ink2);font-weight:500}
+.greet .st span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.greet .st .need{color:var(--brand-ink)}
+.greet .st .dot{width:7px;height:7px;border-radius:50%;background:var(--ink3)}
+.greet .st .ic{width:13px;height:13px}
+.h4{display:flex;align-items:baseline;gap:7px;margin:0 0 9px;font:700 15px/1 var(--display);letter-spacing:-.01em}
+.h4 span{color:var(--ink3);font-weight:500;font-size:13px}
+.h4 a{margin-left:auto;font:500 12.5px/1 var(--text);color:var(--brand-ink);text-decoration:none}
+.nycards{display:flex;gap:10px;overflow:hidden;min-height:128px}
+.nyc{flex:0 0 232px;display:flex;flex-direction:column;gap:5px;padding:11px 12px;border-radius:13px;border:1px solid color-mix(in srgb,var(--brand) 30%,var(--line));background:var(--elev);box-shadow:0 8px 20px -16px rgba(80,40,180,.5);transition:opacity .35s,transform .35s,flex-basis .4s .1s,padding .4s .1s,margin .4s .1s}
+.nyc .hd{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink2);font-weight:500}
+.nyc .chip{margin-left:auto;display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:999px;background:var(--brand-soft);color:var(--brand-ink);font-size:11px;font-weight:600}
+.nyc .chip .ic{width:11px;height:11px}
+.nyc b{font-size:13px;line-height:1.3}
+.nyc .ds{color:var(--ink2);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nyc .ft{margin-top:auto;display:flex;align-items:center;font-size:11px;color:var(--ink3)}
+.nyc .rv{margin-left:auto;display:inline-flex;align-items:center;gap:4px;border:0;background:none;padding:4px 2px;font:650 12px/1 var(--text);color:var(--brand-ink);cursor:pointer}
+.nyc .rv .ic{width:13px;height:13px}
+.nyc.out{opacity:0;transform:scale(.94);flex-basis:0;padding-inline:0;margin-right:-10px;border-width:0}
+.allclear{display:flex;align-items:center;gap:8px;color:var(--ink2);font-size:13px}
+.allclear .ic{color:var(--ok)}
+.cols{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:14px;min-height:0;overflow:hidden}
+.box{border:1px solid var(--line);border-radius:13px;background:var(--elev);overflow:hidden}
+.wrow{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:1px 10px;align-items:center;padding:8px 12px}
+.wrow+.wrow{border-top:1px solid var(--divider)}
+.wrow.child{padding-left:34px}
+.wrow .wi{grid-row:span 2;width:22px;height:22px;display:grid;place-items:center;border-radius:50%;color:var(--ink3)}
+.wrow .wi .ic{width:14px;height:14px}
+.wrow .wi.hand{background:var(--brand-soft);color:var(--brand-ink)}
+.wrow b{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wrow .who{font-size:11.5px;color:var(--ink3)}
+.wrow .who b{display:inline;font-size:11.5px;color:var(--ink2)}
+.wrow time{grid-row:span 2;font:500 11.5px/1 var(--mono);color:var(--ink3);font-variant-numeric:tabular-nums}
+.wrow.done .wi{color:var(--ok)}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid color-mix(in srgb,var(--ink3) 35%,transparent);border-top-color:var(--ink2);animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.today{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(0,1.6fr);align-items:center;gap:12px;padding:10px 14px}
+.today b{display:block;font:750 19px/1.1 var(--display);font-variant-numeric:tabular-nums}
+.today span{font-size:11.5px;color:var(--ink3)}
+.today svg{width:100%;height:40px;display:block}
+.toasts{position:absolute;right:14px;top:56px;z-index:4;display:flex;flex-direction:column;gap:8px;width:min(310px,70%);pointer-events:none}
+.toast{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:1px 10px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--elev);border:1px solid var(--line);box-shadow:var(--shadow-sm);font-size:12px;animation:toastIn .4s cubic-bezier(.2,.8,.2,1);transition:opacity .4s,transform .4s}
+.toast .pav{grid-row:span 2}
+.toast b{font-size:12.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.toast small{grid-column:2;color:var(--ink2);font-size:11.5px;line-height:1.35}
+.toast em{grid-column:3;grid-row:1/span 2;font-style:normal;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:var(--ok-soft);color:var(--ok-ink)}
+.toast em.watch{background:var(--warn-soft);color:var(--warn-ink)}
+.toast em.you{background:var(--brand-soft);color:var(--brand-ink)}
+.toast.out{opacity:0;transform:translateY(-6px)}
+@keyframes toastIn{from{opacity:0;transform:translateY(-8px)}}
+.crow.running em{display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--info) 13%,transparent);color:var(--info-ink)}
+.crow.running em .spin{width:10px;height:10px;border-width:1.5px;border-top-color:var(--info-ink)}
+.nyc.fresh{animation:cardIn .5s cubic-bezier(.2,.8,.2,1)}
+@keyframes cardIn{from{opacity:0;transform:translateY(8px) scale(.96)}}
+.stage-ctl{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:var(--elev);color:var(--ink2);font:600 12px/1 var(--text);cursor:pointer}
+.stage-ctl .ic{width:11px;height:11px}
+.auto-press{box-shadow:0 0 0 4px color-mix(in srgb,var(--brand) 30%,transparent)!important;transform:scale(.97)}
+.crow{display:flex;align-items:center;gap:9px;padding:8px 12px;font-size:12.5px;font-weight:500}
+.crow+.crow{border-top:1px solid var(--divider)}
+.crow .ic{width:14px;height:14px;color:var(--ink3)}
+.crow em{margin-left:auto;font-style:normal;padding:3px 8px;border-radius:999px;background:var(--brand-soft);color:var(--brand-ink);font-size:11px;font-weight:600;white-space:nowrap}
+
+/* The sheet a card opens in: "Waiting for your approval" */
+.sheet{position:absolute;inset:0;z-index:5;display:flex;align-items:flex-start;justify-content:center;padding:26px 18px;background:color-mix(in srgb,var(--bg) 55%,transparent);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);animation:fade .2s ease}
+@keyframes fade{from{opacity:0}}
+.sheet-in{width:min(560px,100%);max-height:100%;overflow:auto;border-radius:14px;background:var(--bg);border:1px solid var(--line);box-shadow:var(--shadow);animation:up .3s cubic-bezier(.2,.8,.2,1)}
+@keyframes up{from{opacity:0;transform:translateY(10px)}}
+.sheet-bar{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--divider);font-weight:650;font-size:13.5px}
+.sheet-bar .x{margin-left:auto;border:0;background:var(--card);width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:var(--ink2);cursor:pointer}
+.sheet-bar .x .ic{width:12px;height:12px}
+.sheet-bar .open{border:0;background:none;color:var(--brand-ink);font:600 12.5px/1 var(--text);cursor:default}
+
+/* An approval card, as in the app */
+.acard{margin:14px;padding:14px;border-radius:14px;border:1px solid var(--line);background:var(--elev);box-shadow:var(--shadow-sm);font-size:13px}
+.ahead{display:flex;align-items:center;gap:8px}
+.ahead b{font-size:13.5px}
+.ahead .ago{color:var(--ink3);font-size:12px}
+.ahead .needs{margin-left:auto;padding:3px 9px;border-radius:999px;background:var(--brand-soft);color:var(--brand-ink);font-size:11.5px;font-weight:600}
+.acard h5{margin:10px 0 3px;font:700 14.5px/1.3 var(--text)}
+.acard .dest{display:flex;align-items:center;gap:6px;color:var(--ink2);font-size:12px}
+.acard .dest .ic{width:12px;height:12px}
+.acard .lbl{margin:10px 0 2px;color:var(--ink3);font-size:11.5px}
+.acard .ttl{font-weight:650}
+.acard .body{margin-top:8px;padding:10px 12px;border-radius:10px;background:var(--card);line-height:1.5;white-space:pre-line}
+.acard .body.mono{font:12.5px/1.6 var(--mono);white-space:pre-wrap}
+.acard .meta{display:flex;justify-content:space-between;margin-top:8px;color:var(--ink3);font-size:11.5px}
+.acard .meta b{color:var(--ink);font-weight:500}
+.acard .tags{display:flex;gap:6px;margin-top:8px}
+.acard .tags span{padding:3px 8px;border-radius:999px;background:var(--card);color:var(--ink2);font-size:11.5px}
+.acard dl{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;margin:8px 0 0;font-size:12px}
+.acard dt{color:var(--ink3)}
+.acard dd{margin:0}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.acts button{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 13px;border-radius:999px;border:0;background:var(--card);color:var(--ink);font:600 12.5px/1 var(--text);cursor:pointer}
+.acts button:hover{background:var(--hover)}
+.acts button .ic{width:13px;height:13px}
+.acts .go{background:var(--brand);color:#fff}
+.acts .go:hover{background:var(--brand-hover)}
+.acts .no{background:var(--bad-soft);color:var(--bad-ink)}
+.acts .alt{background:var(--elev);border:1px solid var(--line)}
+.note-f{display:flex;gap:6px;margin-top:12px}
+.note-f input{flex:1;min-width:0;height:32px;padding:0 11px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:13px var(--text)}
+.decided{display:flex;flex-direction:column;gap:3px;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--ok-soft);font-size:12px;color:var(--ink2)}
+.decided b{display:inline-flex;align-items:center;gap:6px;color:var(--ok-ink);font-size:13px}
+.decided b span{color:var(--ink3);font-weight:400;font-size:12px}
+.decided.back{background:var(--warn-soft)}
+.decided.back b{color:var(--warn-ink)}
+.decided.no{background:var(--bad-soft)}
+.decided.no b{color:var(--bad-ink)}
+.pav{position:relative;display:inline-grid;place-items:center;width:24px;height:24px;border-radius:7px;background:var(--brand-soft);flex:none}
+.pav .ribbon{width:16px;height:16px}
+.pav::after{content:"";position:absolute;right:-2px;top:-2px;width:7px;height:7px;border-radius:50%;background:var(--brand);border:1.5px solid var(--elev)}
+
+/* Sections */
+.sec{padding-block:clamp(72px,9vw,120px) 0}
+.sec.tint{background:var(--bg2);padding-bottom:clamp(72px,9vw,120px);margin-top:clamp(72px,9vw,120px);border-block:1px solid var(--divider)}
+.sec-head{max-width:760px}
+.sec-head.c{margin-inline:auto;text-align:center}
+.kick,.sec-head .kick{margin:0 0 12px;font:700 12.5px/1 var(--text);letter-spacing:.08em;text-transform:uppercase;color:var(--brand-ink)}
+h2{margin:0;font:800 clamp(34px,4.8vw,58px)/1.02 var(--display);letter-spacing:-.045em;text-wrap:balance}
+.sec-head p{margin:16px 0 0;font-size:clamp(16.5px,1.35vw,18.5px);line-height:1.6;color:var(--ink2);max-width:40em}
+.sec-head.c p{margin-inline:auto}
+
+/* Jobs → threads */
+.jobs{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.9fr);gap:18px;margin-top:40px;align-items:start}
+.panel{border:1px solid var(--line);border-radius:16px;background:var(--bg);box-shadow:var(--shadow-sm);overflow:hidden;font-size:13px}
+.panel-h{display:flex;align-items:center;gap:10px;height:46px;padding:0 16px;border-bottom:1px solid var(--divider);font:650 14.5px/1 var(--text)}
+.panel-h small{color:var(--ink3);font-weight:500;font-size:12.5px}
+.panel-h .newjob{margin-left:auto;display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 11px;border-radius:999px;background:var(--brand);color:#fff;font-size:12px;font-weight:600}
+.panel-h .newjob .ic{width:12px;height:12px}
+.panel-b{padding:12px;display:flex;flex-direction:column;gap:8px;background:var(--bg2)}
+.job{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:2px 12px;align-items:start;padding:12px 12px 12px 12px;border-radius:13px;border:1px solid var(--line);background:var(--elev)}
+.job .ji{grid-row:span 4;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--ok-soft);color:var(--ok-ink)}
+.job .ji .ic{width:16px;height:16px}
+.job .ji.clock{background:color-mix(in srgb,var(--info) 12%,transparent);color:var(--info)}
+.job .ji.run{background:var(--brand-soft);color:var(--brand-ink)}
+.job b{font-size:14px;font-weight:650}
+.job .when{grid-column:2;color:var(--ink2);font-size:13px}
+.job .when code{padding:1px 5px;border-radius:5px;background:var(--card);font-size:11.5px;margin-left:4px}
+.job .line{grid-column:2;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:4px;font-size:12px;color:var(--ink2)}
+.job .line .pav{width:18px;height:18px;border-radius:5px}
+.job .line .pav .ribbon{width:12px;height:12px}
+.job .line .pav::after{width:5px;height:5px}
+.job .res{padding:2px 8px;border-radius:999px;background:var(--ok-soft);color:var(--ok-ink);font-size:11.5px;font-weight:500}
+.job .res.wait{background:var(--brand-soft);color:var(--brand-ink)}
+.job .res.run{background:color-mix(in srgb,var(--info) 12%,transparent);color:var(--info-ink)}
+.job .desc{grid-column:2;color:var(--ink3);font-size:12px;margin-top:3px}
+.job .play{grid-row:1/span 2;grid-column:3;display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--elev);color:var(--ink);font:600 12px/1 var(--text);cursor:pointer}
+.job .play:hover{background:var(--hover)}
+.job .play .ic{width:11px;height:11px}
+.job .play[disabled]{opacity:.45;cursor:default}
+.tlist{padding:6px 8px 10px}
+.tlist .side-h{padding-inline:6px}
+.tlist .trow{padding:7px 6px}
+.tlist .trow.closed{opacity:.55}
+.tlist .nrow{margin:0 0 5px}
+.jobs-note{margin-top:14px;font-size:14px;color:var(--ink2);line-height:1.55}
+.jobs-note b{color:var(--ink)}
+
+/* Tour */
+.tour{display:grid;grid-template-columns:minmax(0,280px) minmax(0,1fr);gap:22px;margin-top:40px;align-items:start}
+.t-tabs{display:flex;flex-direction:column;gap:4px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 76px)}
+.t-tab{display:grid;grid-template-columns:34px minmax(0,1fr);gap:2px 12px;align-items:center;text-align:left;padding:11px 13px;border-radius:14px;border:1px solid transparent;background:none;color:var(--ink);font:inherit;cursor:pointer}
+.t-tab .tico{grid-row:span 2;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--card);color:var(--ink2)}
+.t-tab .tico .ic{width:17px;height:17px}
+.t-tab b{font:600 15px/1.25 var(--text);letter-spacing:-.01em}
+.t-tab span{font-size:13px;line-height:1.35;color:var(--ink3)}
+.t-tab:hover{background:var(--bg2)}
+.t-tab[aria-selected="true"]{background:var(--elev);border-color:var(--line);box-shadow:var(--shadow-sm)}
+.t-tab[aria-selected="true"] .tico{background:var(--brand-soft);color:var(--brand-ink)}
+.t-tab[aria-selected="true"] span{color:var(--ink2)}
+.t-stage{background:var(--bg);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;min-width:0}
+.t-bar{display:flex;align-items:center;gap:10px;height:44px;padding:0 14px;border-bottom:1px solid var(--divider);background:var(--side);font-size:13px;color:var(--ink2)}
+.t-bar .dots{display:inline-flex;gap:6px}.t-bar .dots i{width:10px;height:10px;border-radius:50%;background:var(--line)}
+.t-bar b{color:var(--ink);font-weight:600}
+.t-live{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink3)}
+.t-live i{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.t-replay{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:999px;border:1px solid var(--line);background:var(--elev);font:600 12.5px/1 var(--text);color:var(--ink);cursor:pointer}
+.t-replay:hover{background:var(--hover)}
+.t-body{padding:18px;min-height:500px;position:relative}
+.t-note{display:flex;gap:10px;align-items:flex-start;padding:13px 18px;border-top:1px solid var(--divider);background:var(--bg2);font-size:13.5px;line-height:1.5;color:var(--ink2)}
+.t-note b{color:var(--ink);font-weight:600}
+.t-note .ic{color:var(--ok-ink);margin-top:3px}
+.t-in{animation:tIn .38s cubic-bezier(.2,.8,.2,1) both}
+@keyframes tIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.t-btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 13px;border-radius:999px;border:1px solid var(--line);background:var(--elev);font:600 13px/1 var(--text);color:var(--ink);cursor:pointer;white-space:nowrap}
+.t-btn:hover{background:var(--hover)}
+.t-btn.go{background:var(--brand);border-color:var(--brand);color:#fff}
+.t-btn.go:hover{background:var(--brand-hover)}
+.t-btn.you{background:var(--warn);border-color:var(--warn);color:#1b1206}
+.t-btn[disabled]{opacity:.45;cursor:default}
+.t-btn .ic{width:14px;height:14px}
+.t-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;background:var(--card);font-size:12px;font-weight:500;color:var(--ink2);white-space:nowrap}
+.t-chip.ok{background:var(--ok-soft);color:var(--ok-ink)}
+.t-chip.you{background:var(--brand-soft);color:var(--brand-ink)}
+.t-chip.warn{background:var(--warn-soft);color:var(--warn-ink)}
+.t-chip .ic{width:12px;height:12px}
+.t-mono{font-family:var(--mono);font-size:12px}
+.t-muted{color:var(--ink3)}
+.t-pulse{animation:tPulse 1.4s ease-in-out infinite}
+@keyframes tPulse{50%{opacity:.45}}
+.t-label{display:block;margin-bottom:8px;font:600 11px/1 var(--text);letter-spacing:.07em;text-transform:uppercase;color:var(--ink3)}
+
+/* A thread, as the app draws one */
+.thread{display:flex;flex-direction:column;gap:10px}
+.msg-me{align-self:flex-end;max-width:84%;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.msg-me small{font-size:11.5px;color:var(--ink3)}
+.msg-me p{margin:0;padding:9px 14px;border-radius:18px;background:var(--brand);color:#fff;font-size:14px;line-height:1.45}
+.msg-ai{align-self:flex-start;max-width:90%;padding:10px 14px;border-radius:16px;background:var(--ai);font-size:14px;line-height:1.5}
+.msg-ai .by{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:12px;font-weight:600;color:var(--ink2)}
+.msg-ai .by .ribbon{width:15px;height:15px}
+.msg-ai b{font-weight:650}
+.stamp{align-self:flex-start;font-size:11.5px;color:var(--ink3);margin-top:-6px}
+.tool{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;padding:5px 2px;font-size:13px;color:var(--ink2)}
+.tool .okc{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--ink3);display:grid;place-items:center;color:var(--ink3)}
+.tool .okc .ic{width:10px;height:10px}
+.tool .gly{display:inline-flex;gap:5px;color:var(--ink3)}
+.tool .gly .ic{width:13px;height:13px}
+.tool .t-muted{font-size:12px}
+.handoff{align-self:stretch;max-width:560px;padding:11px 13px;border:1.5px dashed var(--line);border-radius:14px;font-size:13px}
+.handoff .hh{display:flex;align-items:center;gap:8px;font-weight:650}
+.handoff .hh .ic{width:15px;height:15px;color:var(--brand-ink)}
+.handoff .hh .st{margin-left:auto;font-size:12px;font-weight:600}
+.handoff p{margin:6px 0 8px;color:var(--ink2);line-height:1.45}
+.handoff .go{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+.handoff .go .ic{width:13px;height:13px}
+.subthread{margin-left:18px;padding-left:14px;border-left:2px solid color-mix(in srgb,var(--brand) 35%,transparent);display:flex;flex-direction:column;gap:10px}
+.subthread .hd{font-size:12px;color:var(--ink3);display:flex;align-items:center;gap:6px}
+.subthread .hd .ic{width:13px;height:13px}
+.statusbar{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:12px;background:var(--bg2);border:1px solid var(--divider);font-size:13px}
+.statusbar .ic{width:14px;height:14px}
+.statusbar b{font-weight:600}
+.statusbar .end{margin-left:auto;display:flex;gap:6px}
+
+/* Memory */
+.t-mem{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+.mem{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--bg)}
+.mem-h{padding:10px 12px;border-bottom:1px solid var(--divider)}
+.mem-h .search{margin:0}
+.mem-h .stats{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px;font-size:12px;color:var(--ink2)}
+.mem-h .stats b{color:var(--ink)}
+.fact{display:grid;grid-template-columns:30px minmax(0,1fr);gap:2px 10px;padding:10px 12px;border-top:1px solid var(--divider);font-size:13px}
+.fact:first-of-type{border-top:0}
+.fact .fi{grid-row:span 3;width:30px;height:30px;border-radius:50%;background:var(--card);display:grid;place-items:center;color:var(--ink2)}
+.fact .fi .ic{width:14px;height:14px}
+.fact .nm{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-weight:650}
+.fact .nm span{padding:1px 7px;border-radius:999px;background:var(--card);color:var(--ink2);font-size:11px;font-weight:500}
+.fact .nm .as{background:var(--ok-soft);color:var(--ok-ink)}
+.fact .nm .inf{background:color-mix(in srgb,var(--info) 13%,transparent);color:var(--info-ink)}
+.fact .sm{color:var(--ink2);line-height:1.45}
+.fact .pr{color:var(--ink3);font-size:11.5px}
+.fact.gone .sm{text-decoration:line-through;color:var(--ink3)}
+.fact .acts{margin-top:8px;grid-column:2}
+.psg{margin:8px 12px 0;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--elev);font-size:12.5px;line-height:1.45}
+.psg:last-child{margin-bottom:12px}
+.psg .ph{display:flex;justify-content:space-between;gap:8px;margin-bottom:4px}
+.psg .ph b{font-size:13px}
+.psg .ph span{color:var(--ink3);font-size:11.5px}
+.psg .tx{color:var(--ink2)}
+.psg mark{background:var(--brand-soft);color:var(--ink);font-weight:650;border-radius:3px;padding:0 2px}
+.psg .oc{display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:12px;font-weight:600;color:var(--brand-ink)}
+.psg .oc .ic{width:12px;height:12px}
+
+/* Workers */
+.workers{border:1px solid var(--line);border-radius:14px;padding:12px;background:var(--elev)}
+.workers .wh{display:flex;align-items:center;gap:8px;font-size:13px}
+.workers .wh b{font-weight:650}
+.workers .wh .tok{margin-left:auto;color:var(--ink3);font-size:12px}
+.wlist{margin:10px 0 0 10px;padding-left:10px;border-left:2px solid var(--divider);display:flex;flex-direction:column;gap:6px}
+.wk{padding:10px 12px;border-radius:11px;background:var(--bg2)}
+.wk .l1{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px}
+.wk .l1 .s{margin-left:auto;font-size:12px}
+.wk .s.done{color:var(--ok-ink)}.wk .s.run{color:var(--info-ink)}.wk .s.pause{color:var(--warn-ink)}
+.wk .bar{display:flex;align-items:center;gap:10px;margin-top:8px}
+.wk .track{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.wk .track i{display:block;height:100%;width:0;background:var(--ok);border-radius:2px;transition:width .5s linear}
+.wk .num{font-size:11.5px;color:var(--ink3);white-space:nowrap;font-variant-numeric:tabular-nums}
+.wk .mdl{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:var(--ink3)}
+.wk .mdl .ic{width:12px;height:12px}
+.wk .out{margin-top:4px;font-size:12.5px;color:var(--ink2)}
+.t-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:14px;align-items:start}
+.t-seg{display:inline-flex;padding:3px;border-radius:999px;background:var(--card);gap:2px;flex-wrap:wrap}
+.t-seg button{height:30px;padding:0 12px;border-radius:999px;border:0;background:none;font:600 12.5px/1 var(--text);color:var(--ink2);cursor:pointer}
+.t-seg button[aria-pressed="true"]{background:var(--elev);color:var(--ink);box-shadow:0 1px 3px rgba(18,18,20,.12)}
+.t-cost{border:1px solid var(--line);border-radius:14px;padding:12px 14px;font-size:13.5px;background:var(--elev)}
+.t-cost .ln{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-variant-numeric:tabular-nums}
+.t-cost .ln+.ln{border-top:1px solid var(--divider)}
+.t-cost .tot{font-weight:700}
+.t-cost small{display:block;margin-top:6px;font-size:12px;color:var(--ink3)}
+
+/* Computer use (reused) */
+.t-comp{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr);gap:16px;align-items:start}
+.t-desk{position:relative;border-radius:14px;overflow:hidden;background:linear-gradient(160deg,#DCE7F7,#ECE5FA 55%,#F8ECE2);padding:36px 18px 20px}
+.t-menubar{position:absolute;left:0;right:0;top:0;height:22px;display:flex;align-items:center;gap:13px;padding:0 12px;background:rgba(255,255,255,.6);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);font:500 11px/1 var(--text);color:var(--ink);white-space:nowrap;overflow:hidden}
+.t-menubar b{font-weight:700}
+.t-menubar .using{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-weight:600;color:var(--you-ink)}
+.t-menubar .using i{width:6px;height:6px;border-radius:50%;background:var(--you);animation:tPulse 1.2s infinite}
+.t-win{background:var(--elev);border-radius:10px;box-shadow:0 24px 44px -24px rgba(18,18,20,.4),0 0 0 1px rgba(18,18,20,.06);overflow:hidden}
+.t-wbar{display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-bottom:1px solid var(--line);background:var(--bg2);font:11.5px var(--mono);color:var(--ink3);white-space:nowrap;overflow:hidden}
+.t-wbar .dots i{width:8px;height:8px}
+.t-inv{padding:12px 14px 14px;font-size:12.5px}
+.t-inv h5{display:flex;align-items:center;gap:8px;margin:0 0 8px;font:700 14px/1.2 var(--display)}
+.t-months{display:inline-flex;gap:4px;margin-left:auto}
+.t-months span{padding:4px 9px;border-radius:999px;background:var(--card);font:600 11px/1 var(--text);color:var(--ink2);transition:background .2s,color .2s}
+.t-months span.on{background:var(--ink);color:#fff}
+.t-irow{display:grid;grid-template-columns:16px minmax(0,1fr) auto;gap:9px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+.t-irow .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-irow .amt{font:12px var(--mono);color:var(--ink2);font-variant-numeric:tabular-nums}
+.t-box{width:14px;height:14px;border-radius:4px;border:1.5px solid var(--line2);display:grid;place-items:center;background:var(--elev);transition:background .2s,border-color .2s}
+.t-box.on{background:var(--blue);border-color:var(--blue)}
+.t-box.on::after{content:"";width:6px;height:3px;margin-top:-2px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg)}
+.t-dl{display:inline-flex;align-items:center;height:28px;margin-top:10px;padding:0 12px;border-radius:7px;background:var(--blue);color:#fff;font:600 12px/1 var(--text);transition:box-shadow .2s}
+.t-dl.hot{box-shadow:0 0 0 3px rgba(47,128,237,.3)}
+.t-hand{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;padding-bottom:12px;border:2px solid rgba(240,169,59,.8);border-radius:14px;background:rgba(240,169,59,.07);pointer-events:none}
+.t-hand span{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:999px;background:var(--elev);box-shadow:0 6px 18px -8px rgba(18,18,20,.35);font:600 12.5px/1 var(--text);color:var(--ink)}
+.t-hand .ic{color:var(--warn-ink)}
+.t-steps2{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.t-step{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;align-items:start;padding:7px 10px;border-radius:10px;background:var(--bg2);font-size:13px;line-height:1.4}
+.t-step .ic{width:14px;height:14px;margin-top:2px;color:var(--ink2)}
+.t-step.you{background:rgba(240,169,59,.12)}
+.t-step.you .ic{color:var(--warn-ink)}
+.t-step.look{background:rgba(47,128,237,.08)}
+.t-step.look .ic{color:var(--blue-ink)}
+.t-step.ok{background:rgba(61,181,83,.1);color:var(--ok-ink);font-weight:500}
+.t-step.ok .ic{color:var(--ok-ink)}
+
+/* Connections */
+.t-find{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.t-search{flex:1 1 200px;display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:10px;background:var(--field);color:var(--ink3)}
+.t-search input{flex:1;min-width:0;border:0;background:none;font:inherit;font-size:14px;color:var(--ink);outline:none}
+.t-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.t-svc{display:grid;grid-template-columns:36px minmax(0,1fr);gap:4px 11px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:13px;font-size:13px}
+.t-svc .mono{grid-row:span 2;width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font:700 14px/1 var(--display);color:#fff}
+.t-svc b{font-weight:600;font-size:14px}
+.t-svc .sub{color:var(--ink3);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-svc .row{grid-column:1/-1;display:flex;align-items:center;gap:8px;margin-top:6px;min-height:32px}
+.t-svc .row .t-btn{margin-left:auto}
+.t-svc .keyf{display:flex;gap:6px;align-items:center;width:100%}
+.t-svc .keyf input{flex:1;min-width:0;height:30px;border:1px solid var(--line2);border-radius:8px;padding:0 9px;font:12px var(--mono);background:var(--elev);color:var(--ink)}
+.t-svc.on{border-color:rgba(61,181,83,.35)}
+.t-empty{padding:30px 10px;text-align:center;color:var(--ink3);font-size:14px}
+.t-more{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px;font-size:13px;color:var(--ink2)}
+
+/* Skills */
+.t-skills{display:grid;grid-template-columns:minmax(0,230px) minmax(0,1fr);gap:16px}
+.t-slist{display:flex;flex-direction:column;gap:3px}
+.t-sitem{display:grid;grid-template-columns:34px minmax(0,1fr);gap:1px 10px;align-items:center;padding:8px 9px;border-radius:11px;border:0;background:none;text-align:left;font:inherit;color:var(--ink);cursor:pointer}
+.t-sitem:hover{background:var(--bg2)}
+.t-sitem[aria-pressed="true"]{background:var(--card)}
+.t-tile{grid-row:span 2;width:34px;height:34px;border-radius:9px;background:var(--card);border:1px solid var(--line);display:grid;place-items:center;color:var(--ink2)}
+.t-sitem[aria-pressed="true"] .t-tile{background:var(--elev)}
+.t-tile .ic{width:16px;height:16px}
+.t-sitem b{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-sitem span{font-size:12px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-sdetail{min-width:0}
+.t-shead{display:flex;gap:12px;align-items:flex-start}
+.t-shead .t-tile{width:44px;height:44px;border-radius:12px}
+.t-shead .t-tile .ic{width:20px;height:20px}
+.t-shead h4{margin:0;font:700 19px/1.2 var(--display);letter-spacing:-.02em}
+.t-shead p{margin:3px 0 0;font-size:13.5px;color:var(--ink2);line-height:1.45}
+.t-facts{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.t-fact{padding:7px 10px;border-radius:10px;background:var(--card);font-size:12px;color:var(--ink3);line-height:1.2}
+.t-fact b{display:block;color:var(--ink);font-size:13.5px;font-weight:600;margin-top:2px}
+.t-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;counter-reset:s}
+.t-steps li{display:grid;grid-template-columns:22px minmax(0,1fr);gap:9px;font-size:13.5px;line-height:1.45;counter-increment:s}
+.t-steps li::before{content:counter(s);width:22px;height:22px;border-radius:50%;border:1px solid var(--line2);display:grid;place-items:center;font:600 11px/1 var(--text);color:var(--ink2)}
+.t-vers{margin-top:14px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:13px}
+.t-vers .v{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.t-vers .v b{font-weight:700;font-variant-numeric:tabular-nums}
+.t-diff{margin:10px 0 0;padding:10px 12px;border-radius:10px;background:var(--bg2);font:12px/1.6 var(--mono);white-space:pre-wrap;overflow-x:auto}
+.t-diff .del{display:block;color:var(--bad-ink);background:rgba(229,72,77,.08)}
+.t-diff .add{display:block;color:var(--ok-ink);background:rgba(61,181,83,.1)}
+
+/* Teach */
+.t-teach{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:16px;align-items:start}
+.t-app{border:1px solid var(--line);border-radius:14px;overflow:hidden;position:relative}
+.t-app .url{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--bg2);font:12px var(--mono);color:var(--ink3)}
+.t-app .url .rec{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font:600 11.5px/1 var(--text);color:#C4262C;background:rgba(229,72,77,.1);padding:4px 8px;border-radius:999px}
+.t-app .url .rec i{width:7px;height:7px;border-radius:50%;background:#E5484D;animation:tPulse 1.2s infinite}
+.t-form{padding:16px;display:flex;flex-direction:column;gap:11px;font-size:13px}
+.t-form h5{margin:0;font:700 15px/1.2 var(--display)}
+.t-field{display:flex;flex-direction:column;gap:5px}
+.t-field span{font-size:12px;color:var(--ink3)}
+.t-field div{height:34px;border:1px solid var(--line2);border-radius:8px;padding:0 10px;display:flex;align-items:center;font-size:13.5px;transition:border-color .2s,box-shadow .2s}
+.t-field.hot div{border-color:var(--blue);box-shadow:0 0 0 3px rgba(47,128,237,.15)}
+.t-form .submit{align-self:flex-start;height:34px;padding:0 16px;border-radius:8px;background:var(--blue);color:#fff;font-weight:600;display:grid;place-items:center;transition:box-shadow .2s}
+.t-form .submit.hot{box-shadow:0 0 0 3px rgba(47,128,237,.25)}
+.t-cursor{position:absolute;left:0;top:0;width:18px;height:18px;pointer-events:none;transition:transform .7s cubic-bezier(.3,.7,.2,1);z-index:2}
+.t-caps{display:flex;flex-direction:column;gap:6px}
+.t-cap{display:grid;grid-template-columns:20px minmax(0,1fr);gap:8px;align-items:start;padding:7px 10px;border-radius:10px;background:var(--bg2);font-size:13px;line-height:1.4}
+.t-cap .ic{width:14px;height:14px;margin-top:2px;color:var(--ink2)}
+.t-cap .t-mono{color:var(--ink2)}
+.t-cap.priv{background:rgba(240,169,59,.1)}
+.t-cap.priv .ic{color:var(--warn-ink)}
+.t-draft{margin:0;padding:12px 14px;border-radius:12px;background:#17171A;color:#E9E9EE;font:12px/1.6 var(--mono);white-space:pre-wrap;overflow-x:auto}
+.t-draft .k{color:#9FC5FF}.t-draft .v{color:#F7C98A}.t-draft .c{color:#8C8C96}
+
+/* Night: the hero and the close sit on the night shift's dark ground in both themes; children follow through the tokens. */
+.night{position:relative;isolation:isolate;color-scheme:dark;color:var(--ink);--bg2:rgba(255,255,255,.06);--elev:rgba(255,255,255,.08);--hover:rgba(255,255,255,.14);--line:rgba(255,255,255,.16);--divider:rgba(255,255,255,.12);--ink:#FFFFFF;--ink2:rgba(236,236,245,.74);--ink3:rgba(236,236,245,.55);--brand-ink:#C4B2FF;--shadow:0 30px 70px -30px rgba(0,0,0,.7);background:#0B0A16}
+.open.night{background:radial-gradient(50% 90% at 88% 0%,rgba(122,79,230,.42),transparent 70%),radial-gradient(40% 80% at 0% 100%,rgba(47,128,237,.26),transparent 70%),#0B0A16}
+
+/* Films */
+.films{display:grid;grid-template-columns:minmax(0,2.1fr) minmax(0,1fr);gap:18px;margin-top:36px;align-items:start}
+.player{position:relative}
+.player video{display:block;width:100%;height:auto;aspect-ratio:16/9;border-radius:16px;background:#2a1f6b;box-shadow:var(--shadow)}
+.film-ctl{position:absolute;right:14px;top:14px;background:rgba(18,18,20,.72);border-color:transparent;color:#fff}
+.film-list{display:flex;flex-direction:column;gap:8px}
+.fl{position:relative;display:grid;grid-template-columns:120px minmax(0,1fr);gap:12px;align-items:center;padding:8px;border-radius:14px;border:1px solid transparent;background:none;text-align:left;font:inherit;color:var(--ink);cursor:pointer;overflow:hidden}
+.fl:hover{background:var(--bg2)}
+.fl[aria-selected="true"]{background:var(--elev);border-color:var(--line);box-shadow:var(--shadow-sm)}
+.fl img{display:block;width:120px;height:auto;aspect-ratio:16/9;border-radius:9px;object-fit:cover}
+.fl .t b{display:block;font:650 14.5px/1.25 var(--text)}
+.fl .t span{display:block;margin-top:3px;font-size:12.5px;line-height:1.35;color:var(--ink3)}
+.fl .prog{position:absolute;left:8px;right:8px;bottom:4px;height:3px;border-radius:2px;background:transparent;overflow:hidden}
+.fl[aria-selected="true"] .prog{background:var(--divider)}
+.fl .prog i{display:block;height:100%;width:0;background:var(--brand);border-radius:2px}
+
+/* Sign-offs */
+.acard .decided.live{animation:fade .3s ease}
+.asks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:40px}
+.ask{display:flex;flex-direction:column;gap:12px}
+.ask h3{margin:0;font:700 20px/1.2 var(--display);letter-spacing:-.02em}
+.ask p{margin:0;color:var(--ink2);font-size:14.5px;line-height:1.55}
+.ask .acard{margin:0;flex:1}
+.runs-free{margin-top:26px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:14px;color:var(--ink2)}
+.runs-free span{padding:5px 11px;border-radius:999px;background:var(--elev);border:1px solid var(--line);font-size:13px}
+
+/* Fixes */
+.fixes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:clamp(24px,3vw,44px);margin-top:44px}
+.fix{display:flex;flex-direction:column;gap:9px;padding:24px 0 34px;border-top:1px solid var(--divider)}
+.fix s{font:500 12.5px/1.35 var(--mono);color:var(--ink3);text-decoration-color:var(--bad)}
+.fix h3{margin:0;font:700 21px/1.18 var(--display);letter-spacing:-.025em}
+.fix p{margin:0;color:var(--ink2);font-size:15px;line-height:1.58}
+.fix .ui{margin-top:auto;padding-top:10px}
+.uichip{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding:7px 11px;border-radius:10px;background:var(--elev);border:1px solid var(--line);font-size:12.5px;color:var(--ink)}
+.uichip code{font:500 12px/1.2 var(--mono);color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uichip .ok{color:var(--ok-ink)} .uichip .am{color:var(--warn-ink)} .uichip .vi{color:var(--brand-ink)} .uichip .mu{color:var(--ink3)}
+.minibtns{display:flex;gap:6px;flex-wrap:wrap}
+.minibtns span{height:30px;padding:0 12px;display:inline-flex;align-items:center;gap:6px;border-radius:999px;font-size:12px;font-weight:600;background:var(--card);color:var(--ink)}
+.minibtns .go{background:var(--brand);color:#fff}
+.minibtns .no{background:var(--bad-soft);color:var(--bad-ink)}
+
+/* Models */
+.models{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:22px;margin-top:40px;align-items:start}
+.node{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 14px;align-items:center;padding:14px 16px;border-radius:14px;background:var(--elev);border:1px solid var(--line)}
+.node .role{grid-column:1/-1;font:600 11px/1 var(--text);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:6px}
+.node .icn{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--card);color:var(--ink2)}
+.node .icn .ic{width:17px;height:17px}
+.node b{display:block;font-size:15px;font-weight:600}
+.node small{display:block;font-size:12.5px;color:var(--ink2)}
+.node .price{font:500 12px/1.4 var(--mono);color:var(--ink2);text-align:right}
+.hop{position:relative;padding:11px 0 11px 56px;font:500 12px/1.45 var(--mono);color:var(--warn-ink)}
+.hop::before{content:"";position:absolute;left:33px;top:0;bottom:0;border-left:1.5px dashed var(--line)}
+.usage .ug-h{display:flex;flex-wrap:wrap;gap:8px;padding:12px 14px;border-bottom:1px solid var(--divider)}
+.usage .ug-h span{padding:5px 11px;border-radius:999px;background:var(--card);font-size:12.5px;font-weight:500;color:var(--ink)}
+.usage .ug-h span.on{background:var(--brand);color:#fff}
+.ug-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px 14px}
+.ug-tiles div{padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--elev)}
+.ug-tiles small{display:block;color:var(--ink2);font-size:11.5px}
+.ug-tiles b{display:block;margin-top:2px;font:700 20px/1.1 var(--display);font-variant-numeric:tabular-nums}
+.ug-tiles em{display:block;font-style:normal;color:var(--ink3);font-size:11px}
+.ug-list{padding:4px 14px 12px}
+.ug-list .t-label{margin:8px 0 6px}
+.ug-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:2px 14px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--divider);font-size:13px;font-variant-numeric:tabular-nums}
+.ug-row small{color:var(--ink3);font-size:11.5px;margin-left:6px}
+.ug-row .c{font-weight:600}
+.ug-row .k{color:var(--ink3);font-size:11.5px;min-width:3.4em;text-align:right}
+.ug-row i{grid-column:1/-1;display:block;height:4px;border-radius:2px;background:var(--brand);opacity:.75}
+.ug-row.tot{border-bottom:0;font-weight:700}
+.providers{display:flex;flex-wrap:wrap;gap:8px;margin-top:28px}
+.providers span{font-size:13px;color:var(--ink2);background:var(--elev);border:1px solid var(--line);border-radius:999px;padding:6px 12px}
+.providers .local{background:var(--ok-soft);border-color:transparent;color:var(--ok-ink)}
+.probe{margin-top:16px;display:flex;align-items:center;gap:10px;font-size:14px;color:var(--ink2)}
+
+/* iPhone */
+.phones{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:clamp(28px,5vw,80px);align-items:center;margin-top:10px}
+.devices{display:flex;justify-content:center;align-items:flex-start;gap:clamp(12px,2vw,24px)}
+.device{width:min(250px,44vw);padding:9px;border-radius:44px;background:#1C1C1E;box-shadow:var(--shadow)}
+.device img{display:block;width:100%;height:auto;border-radius:36px}
+.device:nth-child(2){margin-top:60px}
+.checks{list-style:none;margin:26px 0 0;padding:0;display:grid;gap:14px}
+.checks li{display:grid;grid-template-columns:22px minmax(0,1fr);gap:12px;font-size:16px;line-height:1.55;color:var(--ink2)}
+.checks li b{color:var(--ink);font-weight:600}
+.checks .ic{width:22px;height:22px;color:var(--ok-ink)}
+
+/* Compare */
+.cmp-wrap{margin-top:40px;overflow-x:auto;border:1px solid var(--line);border-radius:16px;background:var(--elev)}
+.cmp{width:100%;min-width:1060px;border-collapse:separate;border-spacing:0;font-size:13px}
+.cmp tbody th,.cmp thead th:first-child{position:sticky;left:0;z-index:1;background:var(--elev)}
+.cmp th,.cmp td{padding:13px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--divider)}
+.cmp tr:last-child th,.cmp tr:last-child td{border-bottom:0}
+.cmp thead th{font:700 14.5px/1.2 var(--display);letter-spacing:-.015em;background:var(--bg2);vertical-align:bottom}
+.cmp thead th small{display:block;margin-top:4px;font:500 11.5px/1.3 var(--text);letter-spacing:0;color:var(--ink3)}
+.cmp tbody th{font-weight:600;width:17%}
+.cmp td{color:var(--ink2)}
+.cmp .us{background:color-mix(in srgb,var(--brand) 5%,var(--elev))}
+.cmp thead .us{background:color-mix(in srgb,var(--brand) 11%,var(--elev))}
+.mk{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;margin-right:7px;font-size:11px;font-weight:700;vertical-align:-3px}
+.mk.y{background:var(--ok-soft);color:var(--ok-ink)}
+.mk.n{background:var(--bad-soft);color:var(--bad-ink)}
+.mk.p{background:var(--warn-soft);color:var(--warn-ink)}
+.cmp small{display:block;margin-top:3px;color:var(--ink3);font-size:12px;line-height:1.4}
+.sources{margin-top:14px;color:var(--ink3);font-size:13px}
+.sources summary{cursor:pointer;color:var(--ink2);font-weight:500}
+.sources ol{margin:12px 0 0;padding-left:22px;display:grid;gap:5px}
+.sources a{color:var(--brand-ink);word-break:break-word}
+
+/* Open source */
+.open{margin-top:clamp(72px,9vw,120px);padding-block:clamp(64px,8vw,104px)}
+.open-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(28px,5vw,72px);align-items:center}
+.open h2{font-size:clamp(36px,5vw,60px)}
+.open .lede{margin-left:0;text-align:left}
+.term{background:var(--elev);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--shadow)}
+.term-h{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--divider);font:500 12.5px/1 var(--mono);color:var(--ink3)}
+.term-h .dots{display:inline-flex;gap:6px}.term-h .dots i{width:10px;height:10px;border-radius:50%;background:var(--line)}
+.term pre{margin:0;padding:18px 20px 22px;overflow-x:auto;font:13.5px/1.95 var(--mono);color:var(--ink)}
+.term .pr{color:var(--ink3);user-select:none}
+.term .cm{color:var(--ink3)}
+.reqs{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.reqs span{font-size:13px;color:var(--ink2);background:var(--elev);border:1px solid var(--line);border-radius:999px;padding:6px 12px}
+
+/* Footer */
+.foot{padding-block:36px 52px;border-top:1px solid var(--divider);color:var(--ink3);font-size:13.5px}
+.foot .wrap{display:grid;grid-template-columns:auto 1fr auto;gap:16px 32px;align-items:center}
+.foot .dom{font:500 13px/1 var(--mono);color:var(--ink2)}
+.foot nav{display:flex;flex-wrap:wrap;gap:8px 22px;justify-self:end}
+.foot nav a{color:var(--ink2);text-decoration:none}
+.foot nav a:hover{color:var(--ink)}
+.foot .fine{grid-column:1/-1;margin:0;font-size:12.5px;line-height:1.6;max-width:62em}
+
+/* Responsive */
+@media (max-width:1060px){
+  .hero-grid,.jobs,.models,.phones,.open-grid,.films{grid-template-columns:minmax(0,1fr)}
+  .duo{width:100%;padding-left:40px}
+  .film-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .fixes{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .asks{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:900px){
+  .nav-links{display:none}
+  .nav .btn{margin-left:auto}
+  .app{grid-template-columns:minmax(0,1fr);height:auto;min-height:600px}
+  .side{display:none}
+  .cols{grid-template-columns:minmax(0,1fr)}
+  .tour{grid-template-columns:minmax(0,1fr)}
+  .t-tabs{position:static;flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:4px;scrollbar-width:none}
+  .t-tabs::-webkit-scrollbar{display:none}
+  .t-tab{flex:none;grid-template-columns:28px auto;padding:8px 12px;border-color:var(--line)}
+  .t-tab .tico{grid-row:auto;width:28px;height:28px}
+  .t-tab span{display:none}
+  .t-body{min-height:0}
+  .t-mem,.t-split{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:640px){
+  .duo{padding:0 0 36px 28px}
+  .clock{left:40px;font-size:12.5px}
+  .duo-phone{width:30%;border-radius:22px;padding:4px}
+  .duo-phone img{border-radius:18px}
+  .film-list{grid-template-columns:minmax(0,1fr)}
+  .fixes{grid-template-columns:minmax(0,1fr)}
+  .greet{flex-direction:column;align-items:flex-start;gap:8px}
+  .greet .st{margin-left:0;justify-content:flex-start}
+  .mbody{padding:12px}
+  .t-live{display:none}
+  .t-body{padding:14px}
+  .foot .wrap{grid-template-columns:minmax(0,1fr)}
+  .foot nav{justify-self:start}
+  .device:nth-child(2){margin-top:30px}
+  .ug-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="ribbonGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8B5CF6"/><stop offset="1" stop-color="#2F80ED"/></linearGradient>
+    <symbol id="ribbon" viewBox="0 0 24 24"><path d="M1.00 4.12 L1.37 4.51 L1.73 4.91 L2.10 5.32 L2.47 5.75 L2.83 6.18 L3.20 6.62 L3.57 7.06 L3.93 7.50 L4.30 7.94 L4.67 8.38 L5.03 8.81 L5.40 9.22 L5.77 9.63 L6.13 10.02 L6.50 10.40 L6.87 10.76 L7.23 11.09 L7.60 11.41 L7.97 11.69 L8.33 11.96 L8.70 12.19 L9.07 12.40 L9.43 12.58 L9.80 12.72 L10.17 12.84 L10.53 12.93 L10.90 12.98 L11.27 13.01 L11.63 13.00 L12.00 12.96 L12.37 12.90 L12.73 12.80 L13.10 12.68 L13.47 12.54 L13.83 12.37 L14.20 12.17 L14.57 11.96 L14.93 11.73 L15.30 11.48 L15.67 11.22 L16.03 10.95 L16.40 10.67 L16.77 10.39 L17.13 10.10 L17.50 9.81 L17.87 9.52 L18.23 9.24 L18.60 8.96 L18.97 8.69 L19.33 8.44 L19.70 8.20 L20.07 7.99 L20.43 7.79 L20.80 7.61 L21.17 7.46 L21.53 7.34 L21.90 7.25 L22.27 7.19 L22.63 7.18 L23.00 7.25 L23.00 7.90 L22.63 8.20 L22.27 8.49 L21.90 8.79 L21.53 9.11 L21.17 9.45 L20.80 9.81 L20.43 10.19 L20.07 10.59 L19.70 11.00 L19.33 11.43 L18.97 11.86 L18.60 12.31 L18.23 12.76 L17.87 13.22 L17.50 13.68 L17.13 14.15 L16.77 14.60 L16.40 15.06 L16.03 15.50 L15.67 15.94 L15.30 16.36 L14.93 16.76 L14.57 17.15 L14.20 17.52 L13.83 17.87 L13.47 18.20 L13.10 18.50 L12.73 18.77 L12.37 19.02 L12.00 19.23 L11.63 19.42 L11.27 19.57 L10.90 19.70 L10.53 19.79 L10.17 19.85 L9.80 19.88 L9.43 19.87 L9.07 19.84 L8.70 19.77 L8.33 19.68 L7.97 19.56 L7.60 19.41 L7.23 19.24 L6.87 19.04 L6.50 18.82 L6.13 18.58 L5.77 18.33 L5.40 18.06 L5.03 17.77 L4.67 17.48 L4.30 17.18 L3.93 16.87 L3.57 16.57 L3.20 16.26 L2.83 15.95 L2.47 15.65 L2.10 15.36 L1.73 15.08 L1.37 14.81 L1.00 14.56 Z" fill="url(#ribbonGrad)"/></symbol>
+  </defs>
+</svg>
+
+<div class="page">
+
+<nav class="nav on-night" aria-label="Main">
+  <div class="wrap">
+    <a class="brand" href="#top"><svg class="ribbon" aria-hidden="true"><use href="#ribbon"/></svg>Pennant</a>
+    <div class="nav-links">
+      <a href="#watch">Watch</a>
+      <a href="#jobs">Jobs</a>
+      <a href="#tour">See it work</a>
+      <a href="#asks">Asks first</a>
+      <a href="#models">Models</a>
+      <a href="#iphone">iPhone</a>
+      <a href="#compare">Compare</a>
+      <a href="#open">Open source</a>
+    </div>
+    <a class="btn btn-sm" href="#open"><i data-ic="download"></i>Download</a>
+  </div>
+</nav>
+
+<div class="sunrise">
+<header class="hero" id="top">
+  <div class="sky" aria-hidden="true"><i class="dawn"></i><i class="sun"></i><i class="night-sky"></i></div>
+  <svg class="swoosh" viewBox="0 0 24 24" preserveAspectRatio="none" aria-hidden="true"><use href="#ribbon" width="24" height="24"/></svg>
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <span class="eyebrow"><svg class="ribbon" aria-hidden="true"><use href="#ribbon"/></svg>Open source · for Mac and iPhone</span>
+      <h1>The AI agent that <em>does the work</em>.</h1>
+      <p class="lede">Pennant is one open-source agent that lives on your Mac. It runs your jobs on a schedule, remembers what you told it, uses your apps the way you do, writes and ships code, splits big jobs across workers and connects to the services you use, with any model you choose. <b>Anything it would publish, send, delete or pay for waits for your OK.</b></p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.1.0/Pennant-0.1.0.dmg"><i data-ic="download"></i>Download for Mac</a>
+        <a class="btn btn-ghost" href="https://github.com/pennant-dev/pennant"><i data-ic="code"></i>Get the source</a>
+      </div>
+      <p class="fine-line">Version 0.1.0, a preview · free · macOS 15 or later, Apple silicon or Intel</p>
+    </div>
+    <div class="duo">
+      <p class="clock"><span class="clock-ic"><i data-ic="moon"></i></span><b data-clock="t">1:11 AM</b><span data-clock="s">Product demo: prep split across 3 workers</span></p>
+      <div class="shot duo-mac"><img src="assets/shots/home-dark.avif" width="2880" height="1800" alt="Pennant's dashboard on the Mac: three cards need you, three jobs are working, five are coming up, and today's six tasks cost $0.73"><img class="lit" src="assets/shots/home.avif" width="2880" height="1800" alt=""></div>
+      <div class="duo-phone"><div class="shot"><img src="assets/shots/phone-approval-dark.avif" width="1206" height="2622" alt="The same agent on iPhone: the LinkedIn post waiting, with Approve &amp; post"><img class="lit" src="assets/shots/phone-approval.avif" width="1206" height="2622" alt=""></div></div>
+    </div>
+  </div>
+</header>
+</div>
+
+<main>
+
+<section class="sec" id="live" aria-labelledby="live-h">
+  <div class="wrap">
+    <div class="sec-head c">
+      <p class="kick">Live</p>
+      <h2 id="live-h">By morning, the work is done.</h2>
+      <p>This is Pennant’s dashboard after a fictional company’s night, still running. Press Review on any card to decide it yourself.</p>
+    </div>
+    <div class="live-stage">
+    <div class="app" id="app" aria-label="Pennant's dashboard, working. Press Review on a card.">
+      <aside class="side" aria-hidden="true">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <div class="srow on"><i data-ic="grid"></i>Dashboard<span class="badge" data-n="badge">3</span></div>
+        <div class="search"><i data-ic="search"></i>Search threads</div>
+        <div class="side-h brandy">Needs you <span data-n="count">3</span></div>
+        <div class="needs" id="sideNeeds"></div>
+        <div class="side-h">Threads <span>7</span></div>
+        <div class="threads" id="sideThreads"></div>
+        <div class="side-nav">
+          <div class="srow"><i data-ic="target"></i>Goals</div>
+          <div class="srow"><i data-ic="doc"></i>Reports</div>
+          <div class="srow"><i data-ic="brain"></i>Memory</div>
+          <div class="srow"><i data-ic="calendar"></i>Schedules</div>
+          <div class="srow"><i data-ic="sparkles"></i>Skills</div>
+          <div class="srow"><i data-ic="more"></i>More</div>
+        </div>
+        <div class="side-foot"><svg class="ribbon" aria-hidden="true"><use href="#ribbon"/></svg><b>Studio Mac</b><span>Default model: deepseek-v4.1-flash</span><i></i></div>
+      </aside>
+      <div class="main">
+        <div class="mtop">Dashboard<span class="pillo" id="pillo"><i data-ic="seal"></i><span data-n="pill">3 approvals</span></span><span class="screen"><i data-ic="display"></i></span></div>
+        <div class="mbody">
+          <div class="greet">
+            <div><small id="gDate">Wednesday, September 30</small><b id="gHello">Good morning, Maya</b></div>
+            <div class="st"><span id="gRun"><i class="dot"></i>All quiet</span><span class="need" id="gNeed">3 need you</span><span><i data-ic="clock"></i><span id="gNext">Next run in 1 h 12 m</span></span></div>
+          </div>
+          <div>
+            <div class="h4">Needs you <span data-n="count">3</span><a>History</a></div>
+            <div class="nycards" id="nyCards"></div>
+          </div>
+          <div class="cols">
+            <div><div class="h4">Working now <span id="wCount">3</span></div><div class="box" id="working"></div></div>
+            <div><div class="h4">Coming up</div><div class="box" id="coming"></div></div>
+          </div>
+          <div><div class="h4">Today</div><div class="box today"><div><b>6</b><span>tasks done</span></div><div><b>179k</b><span>new tokens</span></div><div><b>$0.73</b><span>spent</span></div><svg viewBox="0 0 240 40" preserveAspectRatio="none" aria-hidden="true"><path d="M0 34 L40 26 L80 12 L120 30 L160 36 L200 36 L240 36 L240 40 L0 40Z" fill="var(--brand-soft)"/><path d="M0 34 L40 26 L80 12 L120 30 L160 36 L200 36 L240 36" fill="none" stroke="var(--brand)" stroke-width="2"/></svg></div></div>
+        </div>
+        <div class="sheet" id="sheet" hidden></div>
+      </div>
+    </div>
+    <p class="stage-note"><span class="live"><i></i>Playing by itself</span><button class="stage-ctl" id="shiftCtl" type="button" aria-pressed="false"><i data-ic="pause"></i><span>Pause</span></button></p>
+    </div>
+  </div>
+</section>
+<section class="sec" id="watch" aria-labelledby="watch-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kick">Watch</p>
+      <h2 id="watch-h">Hand it the work. Keep the final say.</h2>
+      <p>It drafts the launch post and waits for your yes, answers from what you told it last week, works in Safari until you reach for the mouse, and fixes the bug overnight.</p>
+    </div>
+    <div class="films">
+      <div class="player">
+        <video id="film" muted playsinline preload="metadata" poster="assets/film/asks-first.jpg" aria-label="Film"></video>
+        <button class="stage-ctl film-ctl" id="filmCtl" type="button" aria-pressed="false"><i data-ic="pause"></i><span>Pause</span></button>
+      </div>
+      <div class="film-list" role="tablist" aria-label="Films">
+        <button class="fl" role="tab" type="button" data-film="asks-first" aria-selected="true"><img src="assets/film/asks-first-thumb.jpg" alt="" width="320" height="180"><span class="t"><b>It asks first</b><span>Nothing goes out until you say so.</span></span><i class="prog"><i></i></i></button>
+        <button class="fl" role="tab" type="button" data-film="memory" aria-selected="false" tabindex="-1"><img src="assets/film/memory-thumb.jpg" alt="" width="320" height="180"><span class="t"><b>Memory with receipts</b><span>It remembers, and says where you said it.</span></span><i class="prog"><i></i></i></button>
+        <button class="fl" role="tab" type="button" data-film="computer" aria-selected="false" tabindex="-1"><img src="assets/film/computer-thumb.jpg" alt="" width="320" height="180"><span class="t"><b>It uses your Mac, and lets go</b><span>Grab the mouse and it stops.</span></span><i class="prog"><i></i></i></button>
+        <button class="fl" role="tab" type="button" data-film="code" aria-selected="false" tabindex="-1"><img src="assets/film/code-thumb.jpg" alt="" width="320" height="180"><span class="t"><b>Fix it while you sleep</b><span>Deleting anything still waits for you.</span></span><i class="prog"><i></i></i></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="jobs" aria-labelledby="jobs-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kick">Jobs and threads</p>
+      <h2 id="jobs-h">Give it jobs. Every run gets a thread of its own.</h2>
+      <p>Tell Pennant what to do and when, in plain words or cron. Each run happens in its own thread, so two jobs never land in the same conversation. A run with nothing to say closes itself; anything that needs you goes to the top of the list. Press a job's Run.</p>
+    </div>
+    <div class="jobs">
+      <div class="panel" aria-label="Schedules">
+        <div class="panel-h">Schedules <small>5 jobs</small><span class="newjob"><i data-ic="plus"></i>New job</span></div>
+        <div class="panel-b" id="jobList"></div>
+      </div>
+      <div>
+        <div class="panel" aria-label="Threads">
+          <div class="panel-h">Threads</div>
+          <div class="tlist" id="threadPanel"></div>
+        </div>
+        <p class="jobs-note"><b>Pennant is the only one you talk to.</b> Each job follows a skill, a folder of instructions and scripts you can read and change. Big jobs bring in workers on a cheaper model. Code changes go to Claude Code in your folder.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="tour" aria-labelledby="tour-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kick">See it work</p>
+      <h2 id="tour-h">Memory, your Mac, your code. Live.</h2>
+      <p>Pick one. These are the app's own screens and words, playing out with a fictional company; the buttons work.</p>
+    </div>
+    <div class="tour">
+      <div class="t-tabs" role="tablist" aria-label="Capabilities">
+        <button class="t-tab" role="tab" id="tt-0" aria-controls="tp-0" aria-selected="true" type="button"><span class="tico"><i data-ic="brain"></i></span><b>Memory</b><span>Remembers what you said, and where you said it.</span></button>
+        <button class="t-tab" role="tab" id="tt-1" aria-controls="tp-1" aria-selected="false" tabindex="-1" type="button"><span class="tico"><i data-ic="display"></i></span><b>Computer</b><span>Uses your apps. Stops the moment you take over.</span></button>
+        <button class="t-tab" role="tab" id="tt-2" aria-controls="tp-2" aria-selected="false" tabindex="-1" type="button"><span class="tico"><i data-ic="code"></i></span><b>Coding runs</b><span>Claude Code in your folder, in a thread of its own.</span></button>
+        <button class="t-tab" role="tab" id="tt-3" aria-controls="tp-3" aria-selected="false" tabindex="-1" type="button"><span class="tico"><i data-ic="people"></i></span><b>Workers</b><span>Big jobs split across workers on a cheaper model.</span></button>
+        <button class="t-tab" role="tab" id="tt-4" aria-controls="tp-4" aria-selected="false" tabindex="-1" type="button"><span class="tico"><i data-ic="sparkles"></i></span><b>Skills</b><span>Folders you own, with every version kept.</span></button>
+        <button class="t-tab" role="tab" id="tt-5" aria-controls="tp-5" aria-selected="false" tabindex="-1" type="button"><span class="tico"><i data-ic="hand"></i></span><b>Teach</b><span>Do it once; Pennant drafts the skill.</span></button>
+        <button class="t-tab" role="tab" id="tt-6" aria-controls="tp-6" aria-selected="false" tabindex="-1" type="button"><span class="tico"><i data-ic="plug"></i></span><b>Connections</b><span>45 services, one Connect button each.</span></button>
+      </div>
+      <div class="t-stage">
+        <div class="t-bar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><b id="tTitle">Harbor 2.0 launch</b><span class="t-live"><i></i>Example run</span><button class="t-replay" id="tReplay" type="button">Replay</button></div>
+        <div class="t-body">
+          <div class="t-panel" role="tabpanel" id="tp-0" aria-labelledby="tt-0"></div>
+          <div class="t-panel" role="tabpanel" id="tp-1" aria-labelledby="tt-1" hidden></div>
+          <div class="t-panel" role="tabpanel" id="tp-2" aria-labelledby="tt-2" hidden></div>
+          <div class="t-panel" role="tabpanel" id="tp-3" aria-labelledby="tt-3" hidden></div>
+          <div class="t-panel" role="tabpanel" id="tp-4" aria-labelledby="tt-4" hidden></div>
+          <div class="t-panel" role="tabpanel" id="tp-5" aria-labelledby="tt-5" hidden></div>
+          <div class="t-panel" role="tabpanel" id="tp-6" aria-labelledby="tt-6" hidden></div>
+        </div>
+        <div class="t-note" id="tNote"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec tint" id="asks" aria-labelledby="asks-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kick">Asks first</p>
+      <h2 id="asks-h">Three things always wait for you.</h2>
+      <p>Whatever a skill says and whatever the model decides, the harness stops these at a card. You can edit the text, send it back with a note or reject it; approving runs exactly what the card shows.</p>
+    </div>
+    <div class="asks">
+      <div class="ask">
+        <h3>Publishing or sending email</h3>
+        <p>A post on the company page, a reply to a customer, a video going public.</p>
+        <article class="acard"><div class="ahead"><span class="pav"><svg class="ribbon" aria-hidden="true"><use href="#ribbon"/></svg></span><b>Pennant</b><span class="ago">· 8 hr. ago</span><span class="needs">Needs you</span></div>
+          <h5>Reply to Jonas Lindqvist</h5><p class="dest"><i data-ic="arrow"></i>Outlook · reply to Jonas Lindqvist (Northwind)</p>
+          <div class="body">Hi Jonas,
+
+Shared views are live for every Northwind workspace from today. Priya's team can turn them on under Settings › Views; nothing to install.</div>
+          <div class="acts" aria-hidden="true"><button type="button" class="go" tabindex="-1"><i data-ic="check"></i>Approve &amp; send</button><button type="button" tabindex="-1">Request changes</button><button type="button" class="no" tabindex="-1">Reject</button></div></article>
+      </div>
+      <div class="ask">
+        <h3>Deleting</h3>
+        <p>Files, branches, records, emails, posts, cloud resources, whether through a connector or a command.</p>
+        <article class="acard"><div class="ahead"><span class="pav"><svg class="ribbon" aria-hidden="true"><use href="#ribbon"/></svg></span><b>Pennant</b><span class="ago">· 6 min. ago</span><span class="needs">Needs you</span></div>
+          <h5>Delete: run a command</h5><p class="dest"><i data-ic="arrow"></i>Coding · ~/code/harbor-web</p>
+          <div class="body mono">git push origin --delete fix/safari-popup-workaround</div>
+          <dl><dt>Tool</dt><dd>Bash</dd></dl>
+          <div class="acts" aria-hidden="true"><button type="button" class="go" tabindex="-1"><i data-ic="check"></i>Allow</button><button type="button" class="alt" tabindex="-1">Allow for the rest of this task</button><button type="button" class="no" tabindex="-1">Reject</button></div></article>
+      </div>
+      <div class="ask">
+        <h3>Spending money</h3>
+        <p>Buying, subscribing, paying: a domain, a plan, a ticket.</p>
+        <article class="acard"><div class="ahead"><span class="pav"><svg class="ribbon" aria-hidden="true"><use href="#ribbon"/></svg></span><b>Pennant</b><span class="ago">· now</span><span class="needs">Needs you</span></div>
+          <h5>Spend money: Pennant wants to run a command</h5><p class="dest"><i data-ic="arrow"></i>shell</p>
+          <div class="body mono">aws route53domains register-domain --domain-name harbor-status.com --duration-in-years 1 …</div>
+          <dl><dt>Why</dt><dd>Pennant asks before anything it spends money. Approving runs exactly this.</dd></dl>
+          <div class="acts" aria-hidden="true"><button type="button" class="go" tabindex="-1"><i data-ic="check"></i>Approve</button><button type="button" tabindex="-1">Request changes</button><button type="button" class="no" tabindex="-1">Reject</button></div></article>
+      </div>
+    </div>
+    <div class="runs-free"><b style="color:var(--ink)">Everything else just runs:</b><span>reading</span><span>searching</span><span>drafting</span><span>researching</span><span>building and testing</span><span>pushing a branch as its own GitHub App</span><span>tidying its own memory and schedules</span></div>
+  </div>
+</section>
+
+<section class="sec" id="fixes" aria-labelledby="fixes-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kick">Built for failure</p>
+      <h2 id="fixes-h">Built for the ways agents actually fail.</h2>
+      <p>Demos stop at the happy path. Pennant was built around the unhappy ones, because every one of these happened to us first.</p>
+    </div>
+    <div class="fixes">
+      <div class="fix">
+        <s>Sends first, apologizes later</s>
+        <h3>It asks before it acts.</h3>
+        <p>Publishing, sending email, deleting and spending always stop at a card, whatever the skill or the model says. Approving runs exactly what the card shows. You can also edit the text, send it back with a note, or reject it.</p>
+        <div class="ui"><div class="minibtns"><span class="go"><i data-ic="check"></i>Approve &amp; send</span><span>Request changes</span><span class="no">Reject</span></div></div>
+      </div>
+      <div class="fix">
+        <s>Forty tool calls in your face</s>
+        <h3>Quiet while it works.</h3>
+        <p>Tool calls fold into one line you can open. A run ends in a report card with a verdict, the numbers and a table, not a wall of text.</p>
+        <div class="ui"><span class="uichip"><span class="ok"><i data-ic="check"></i></span>Used 18 tools<code>41 s</code><span class="mu"><i data-ic="mail"></i> <i data-ic="search"></i> <i data-ic="file"></i></span></span></div>
+      </div>
+      <div class="fix">
+        <s>One 429 and the run is gone</s>
+        <h3>Rate limits don't end the run.</h3>
+        <p>On a 429, Pennant backs off, then pauses the task and resumes it on its own, even after a restart. When a provider goes down, that model rests for three minutes and the task moves to your next one.</p>
+        <div class="ui"><span class="uichip"><span class="am"><i data-ic="pause"></i></span>Rate limited<code>resumes in 1:52</code></span></div>
+      </div>
+      <div class="fix">
+        <s>The surprise bill</s>
+        <h3>Every run has a price.</h3>
+        <p>Tokens and dollars for every run, job and model, with cache hits counted and big runs flagged. Prompts are built so providers can cache them: 82% of input tokens on our daily runs.</p>
+        <div class="ui"><span class="uichip"><b>$0.01</b><code>41k tokens · 82% cached</code></span></div>
+      </div>
+      <div class="fix">
+        <s>API keys pasted into prompts</s>
+        <h3>Secrets stay out of the chat.</h3>
+        <p>The vault hands credentials to a skill's scripts as environment variables, never to the model, and scrubs them from everything the scripts print.</p>
+        <div class="ui"><span class="uichip"><span class="vi"><i data-ic="key"></i></span><code>$PENNANT_VAULT_GITHUB_TOKEN → [redacted]</code></span></div>
+      </div>
+      <div class="fix">
+        <s>Two jobs, one agent, chaos</s>
+        <h3>Schedules that don't collide.</h3>
+        <p>Every run gets its own thread, so a job that fires while Pennant is busy never lands in the middle of another. A job whose last run is still going skips its turn and says why.</p>
+        <div class="ui"><span class="uichip"><span class="mu"><i data-ic="clock"></i></span>Skipped<code>previous run still going</code></span></div>
+      </div>
+      <div class="fix">
+        <s>Keeps clicking after you grab the mouse</s>
+        <h3>Hands off when you take over.</h3>
+        <p>One owner of the desktop at a time. Touch the mouse and the agent pauses; before its next click, it looks at the screen again.</p>
+        <div class="ui"><span class="uichip"><span class="am"><i data-ic="hand"></i></span>You took over<code>agent paused</code></span></div>
+      </div>
+      <div class="fix">
+        <s>Retries the payment. Twice.</s>
+        <h3>It never guesses twice.</h3>
+        <p>If Pennant stops in the middle of an action, the action is marked uncertain, and the same call is refused until the agent has checked what actually happened.</p>
+        <div class="ui"><span class="uichip"><span class="am"><i data-ic="alert"></i></span>Uncertain<code>checking before retrying</code></span></div>
+      </div>
+      <div class="fix">
+        <s>Remembers wrong, confidently</s>
+        <h3>Memory with receipts.</h3>
+        <p>Every fact keeps where it came from and when. Something Pennant inferred never overwrites something you said, and a fact you forget stays forgotten.</p>
+        <div class="ui"><span class="uichip"><span class="ok"><i data-ic="book"></i></span>Asserted<code>by you · Sep 12</code></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="models" aria-labelledby="models-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kick">Models and cost</p>
+      <h2 id="models-h">Any model. Your Mac. Every cent accounted for.</h2>
+      <p>Point Pennant at an API, a GPU box on your desk, a local model through Ollama, or Apple's on-device model. Give it a primary model, fallbacks and a cheaper one for workers, and it routes around rate limits, outages and spent quotas. Everything it knows stays in one folder on your Mac and moves to your next one with a single export.</p>
+    </div>
+    <div class="models">
+      <div>
+        <div class="node"><span class="role">Primary</span><span class="icn"><i data-ic="cloud"></i></span><div><b>DeepSeek V4.1 Flash</b><small>Azure AI Foundry · vision tested</small></div><span class="price">$0.04 in<br>$0.60 out</span></div>
+        <div class="hop">503 twice → that model rests 3 min, the task moves on</div>
+        <div class="node"><span class="role">Fallback</span><span class="icn"><i data-ic="server"></i></span><div><b>Qwen on your own GPU box</b><small>vLLM or SGLang on your network</small></div><span class="price">$0<br>local</span></div>
+        <div class="hop">429 with nowhere to go → pause, resume on its own</div>
+        <div class="node"><span class="role">Workers</span><span class="icn"><i data-ic="laptop"></i></span><div><b>Gemma 4 · this Mac</b><small>Ollama, for well-specified sub-tasks</small></div><span class="price">$0<br>local</span></div>
+        <p class="probe"><i data-ic="eye"></i>Vision is tested, not guessed: Pennant shows the model a picture and checks the answer.</p>
+      </div>
+      <div class="panel usage" aria-label="Usage, last 7 days">
+        <div class="panel-h">Usage</div>
+        <div class="ug-h"><span>Today</span><span class="on">7 days</span><span>30 days</span><span>This month</span></div>
+        <div class="ug-tiles"><div><small>Cost</small><b>$0.80</b><em>23 runs</em></div><div><small>Input tokens</small><b>1.2M</b><em>79% from cache</em></div><div><small>Output tokens</small><b>55k</b><em>57 model calls</em></div></div>
+        <div class="ug-list"><span class="t-label">By job</span>
+          <div class="ug-row"><span>Coding runs<small>1 run · 88% cached</small></span><span class="c">$0.70</span><span class="k">633k</span><i style="width:100%"></i></div>
+          <div class="ug-row"><span>Inbox drafts<small>2 runs · 75% cached</small></span><span class="c">$0.03</span><span class="k">158k</span><i style="width:4.3%"></i></div>
+          <div class="ug-row"><span>Harbor 2.0 launch<small>3 runs · 73% cached</small></span><span class="c">$0.02</span><span class="k">135k</span><i style="width:2.9%"></i></div>
+          <div class="ug-row"><span>Service check<small>10 runs · 75% cached</small></span><span class="c">$0.02</span><span class="k">126k</span><i style="width:2.9%"></i></div>
+          <div class="ug-row"><span>Product demo<small>4 runs · 52% cached</small></span><span class="c">$0.01</span><span class="k">125k</span><i style="width:1.4%"></i></div>
+          <div class="ug-row tot"><span>Total<small>23 runs · 79% cached</small></span><span class="c">$0.80</span><span class="k">1.3M</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="providers" aria-label="Where models can come from">
+      <span>OpenAI</span><span>Anthropic</span><span>Google AI Studio</span><span>Azure AI Foundry</span><span>xAI</span><span>Mistral</span><span>DeepSeek</span><span>Moonshot</span><span>Z.ai</span><span>Alibaba Model Studio</span><span>OpenRouter</span><span>Groq</span><span>Together</span><span>Fireworks</span><span>Perplexity</span><span class="local">Ollama</span><span class="local">LM Studio</span><span class="local">vLLM</span><span class="local">Apple on-device</span>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="iphone" aria-labelledby="iphone-h">
+  <div class="wrap phones">
+    <div class="devices">
+      <div class="device"><picture><source srcset="assets/shots/phone-home-dark.avif" media="(prefers-color-scheme: dark)"><img src="assets/shots/phone-home.avif" alt="Pennant on iPhone: Good morning, Maya; three cards need you; what's working now and what's coming up" width="1206" height="2622"></picture></div>
+      <div class="device"><picture><source srcset="assets/shots/phone-approval-dark.avif" media="(prefers-color-scheme: dark)"><img src="assets/shots/phone-approval.avif" alt="An approval card on iPhone: LinkedIn post: Harbor 2.0 is live, with Approve &amp; post" width="1206" height="2622"></picture></div>
+    </div>
+    <div>
+      <p class="kick">iPhone</p>
+      <h2 id="iphone-h">Everything that needs you, in your pocket.</h2>
+      <p class="lede" style="margin-left:0;text-align:left">The iPhone app signs in to your own Mac, with an email and password or Microsoft, Google or GitHub. No cloud of ours sits in between.</p>
+      <ul class="checks">
+        <li><i data-ic="checkc"></i><span><b>Approve, edit or send back</b> any card. Your Mac does the rest.</span></li>
+        <li><i data-ic="checkc"></i><span><b>Every thread and report</b>, and a new thread from anywhere.</span></li>
+        <li><i data-ic="checkc"></i><span><b>Watch the Mac's screen live</b>, and take over by touch.</span></li>
+        <li><i data-ic="checkc"></i><span><b>Search memory</b>; a passage opens the conversation it came from.</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="compare" aria-labelledby="compare-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kick">Compare</p>
+      <h2 id="compare-h">How Pennant compares.</h2>
+      <p>Straight answers as of September 2026, taken from each product’s own docs, linked below. If something here is out of date, open an issue and we’ll fix it.</p>
+    </div>
+    <div class="cmp-wrap"><table class="cmp"><thead><tr><th scope="col"><span class="sr">Capability</span></th><th scope="col" class="us">Pennant<small>Open source · Mac + iPhone</small></th><th scope="col">OpenClaw<small>Open-source gateway</small></th><th scope="col">Hermes Agent<small>Nous Research</small></th><th scope="col">Claude Cowork<small>Anthropic</small></th><th scope="col">ChatGPT &amp; Codex<small>OpenAI</small></th><th scope="col">Perplexity Computer<small>Perplexity</small></th><th scope="col">Goose<small>Block · AAIF</small></th></tr></thead><tbody><tr><th scope="row">Open source</th><td class="us"><span class="mk y">✓</span>Yes<small>Apache-2.0</small></td><td><span class="mk y">✓</span>Yes<small>MIT</small></td><td><span class="mk y">✓</span>Yes<small>MIT</small></td><td><span class="mk n">✕</span>No</td><td><span class="mk p">~</span>Codex CLI only<small>Apache-2.0</small></td><td><span class="mk n">✕</span>No</td><td><span class="mk y">✓</span>Yes<small>Apache-2.0</small></td></tr><tr><th scope="row">Where it runs</th><td class="us"><span class="mk y">✓</span>Your Mac<small>Host, Mac app, iPhone app</small></td><td><span class="mk y">✓</span>Your machine or server</td><td><span class="mk y">✓</span>Your machine or server<small>Hosted option too</small></td><td><span class="mk p">~</span>Partly<small>Desktop app; models and web version in Anthropic’s cloud</small></td><td><span class="mk p">~</span>OpenAI’s cloud<small>Codex also runs locally</small></td><td><span class="mk p">~</span>Mostly cloud<small>Mac edition is hybrid</small></td><td><span class="mk y">✓</span>Your machine</td></tr><tr><th scope="row">Choice of model</th><td class="us"><span class="mk y">✓</span>Any, local too<small>Falls back on outages and rate limits</small></td><td><span class="mk y">✓</span>Any, local too<small>With failover</small></td><td><span class="mk y">✓</span>Any, local too</td><td><span class="mk n">✕</span>Claude only</td><td><span class="mk p">~</span>OpenAI<small>Local models through the Codex CLI</small></td><td><span class="mk p">~</span>Hosted models<small>Local only in the on-device edition</small></td><td><span class="mk y">✓</span>Any, local too<small>15+ providers</small></td></tr><tr><th scope="row">Asks before acting on the outside world</th><td class="us"><span class="mk y">✓</span>Always<small>Publishing, email, deleting and spending wait for a card, enforced by the harness</small></td><td><span class="mk p">~</span>Shell commands only<small>Off by default</small></td><td><span class="mk p">~</span>Shell commands only<small>An LLM approves by default</small></td><td><span class="mk p">~</span>Manual or auto mode</td><td><span class="mk p">~</span>Automated review<small>Scheduled Codex runs skip approval</small></td><td><span class="mk p">~</span>Opt-in, per tool</td><td><span class="mk p">~</span>Acts without asking by default<small>Per-tool permissions available</small></td></tr><tr><th scope="row">Approve from your phone</th><td class="us"><span class="mk y">✓</span>iPhone app<small>Approvals, reports, threads and the Mac's screen</small></td><td><span class="mk y">✓</span>iPhone app<small>Since June 2026</small></td><td><span class="mk p">~</span>Through chat apps</td><td><span class="mk y">✓</span>Claude apps</td><td><span class="mk y">✓</span>ChatGPT apps<small>Codex Remote</small></td><td><span class="mk y">✓</span>Perplexity apps</td><td><span class="mk n">✕</span>No<small>Mobile access removed</small></td></tr><tr><th scope="row">Schedules</th><td class="us"><span class="mk y">✓</span>Cron<small>Each run in its own thread; an overrunning job skips its turn</small></td><td><span class="mk y">✓</span>Cron, heartbeat</td><td><span class="mk y">✓</span>Cron</td><td><span class="mk y">✓</span>Recurring tasks</td><td><span class="mk y">✓</span>Tasks, automations</td><td><span class="mk y">✓</span>Schedules, triggers</td><td><span class="mk y">✓</span>Cron recipes</td></tr><tr><th scope="row">What each run costs</th><td class="us"><span class="mk y">✓</span>Per run, job and model<small>Cache hits counted; big runs flagged</small></td><td><span class="mk p">~</span>Usage command<small>No spend cap</small></td><td><span class="mk p">~</span>Estimates</td><td><span class="mk p">~</span>Plan meters<small>Claude Code shows dollars</small></td><td><span class="mk p">~</span>Plan limits</td><td><span class="mk y">✓</span>Per task<small>With a spend cap</small></td><td><span class="mk p">~</span>Estimates</td></tr><tr><th scope="row">Secrets</th><td class="us"><span class="mk y">✓</span>Vault<small>Scripts get environment variables; output is scrubbed</small></td><td><span class="mk p">~</span>Plaintext by default</td><td><span class="mk p">~</span>.env file, vault references</td><td><span class="mk p">~</span>No vault documented</td><td><span class="mk p">~</span>Codex cloud: setup time only</td><td><span class="mk p">~</span>Vendor holds OAuth tokens</td><td><span class="mk p">~</span>Keychain<small>Plaintext fallback</small></td></tr><tr><th scope="row">Price</th><td class="us"><span class="mk y">✓</span>Free<small>You pay for your models</small></td><td><span class="mk y">✓</span>Free<small>You pay for your models</small></td><td><span class="mk y">✓</span>Free<small>Hosted from $0.56/day</small></td><td><span class="mk n">✕</span>From $20/mo</td><td><span class="mk p">~</span>Free tier<small>Plus from $20/mo</small></td><td><span class="mk n">✕</span>$20/mo plus credits</td><td><span class="mk y">✓</span>Free</td></tr></tbody></table></div>
+    <details class="sources"><summary>Sources for the table</summary><ol><li><a href="https://raw.githubusercontent.com/openclaw/openclaw/main/LICENSE" target="_blank" rel="noopener">OpenClaw license</a></li><li><a href="https://docs.openclaw.ai/tools/exec-approvals" target="_blank" rel="noopener">OpenClaw exec approvals</a></li><li><a href="https://9to5mac.com/2026/06/29/openclaw-just-launched-an-official-app-for-iphone-details-here/" target="_blank" rel="noopener">OpenClaw iPhone app (9to5Mac)</a></li><li><a href="https://docs.openclaw.ai/concepts/usage-tracking" target="_blank" rel="noopener">OpenClaw usage tracking</a></li><li><a href="https://docs.openclaw.ai/gateway/secrets" target="_blank" rel="noopener">OpenClaw secrets</a></li><li><a href="https://github.com/NousResearch/hermes-agent" target="_blank" rel="noopener">Hermes Agent repository</a></li><li><a href="https://hermes-agent.nousresearch.com/docs/user-guide/security" target="_blank" rel="noopener">Hermes Agent security</a></li><li><a href="https://hermes-agent.nousresearch.com/docs/user-guide/secrets/" target="_blank" rel="noopener">Hermes Agent secrets</a></li><li><a href="https://portal.nousresearch.com/cloud" target="_blank" rel="noopener">Nous Portal hosting</a></li><li><a href="https://support.claude.com/en/articles/13345190-get-started-with-claude-cowork" target="_blank" rel="noopener">Claude Cowork: get started</a></li><li><a href="https://claude.com/blog/cowork-web-mobile" target="_blank" rel="noopener">Claude Cowork on web and mobile</a></li><li><a href="https://code.claude.com/docs/en/permission-modes" target="_blank" rel="noopener">Claude Code permission modes</a></li><li><a href="https://claude.com/pricing" target="_blank" rel="noopener">Claude pricing</a></li><li><a href="https://github.com/openai/codex" target="_blank" rel="noopener">Codex repository</a></li><li><a href="https://learn.chatgpt.com/docs/agent-approvals-security" target="_blank" rel="noopener">ChatGPT agent approvals</a></li><li><a href="https://learn.chatgpt.com/docs/remote" target="_blank" rel="noopener">Codex Remote</a></li><li><a href="https://chatgpt.com/pricing" target="_blank" rel="noopener">ChatGPT pricing</a></li><li><a href="https://www.perplexity.ai/hub/blog/introducing-perplexity-computer" target="_blank" rel="noopener">Perplexity Computer</a></li><li><a href="https://www.perplexity.ai/hub/blog/personal-computer-is-available-to-all-mac-users" target="_blank" rel="noopener">Perplexity Computer for Mac</a></li><li><a href="https://www.perplexity.ai/help-center/en/articles/13838041-how-credits-work-on-perplexity" target="_blank" rel="noopener">How Perplexity credits work</a></li><li><a href="https://github.com/aaif-goose/goose" target="_blank" rel="noopener">Goose repository</a></li><li><a href="https://goose-docs.ai/docs/getting-started/providers/" target="_blank" rel="noopener">Goose providers</a></li><li><a href="https://goose-docs.ai/docs/guides/managing-tools/goose-permissions/" target="_blank" rel="noopener">Goose permissions</a></li><li><a href="https://goose-docs.ai/docs/experimental/remote-access/mobile-access/" target="_blank" rel="noopener">Goose mobile access</a></li></ol></details>
+  </div>
+</section>
+
+<section class="open night" id="open" aria-labelledby="open-h">
+  <div class="wrap open-grid">
+    <div>
+      <h2 id="open-h">Free. Open source. Yours to change.</h2>
+      <p class="lede">Pennant is about 61,000 lines of Swift: a host that runs the agent, a native Mac app, an iPhone app and a command line. No sign-up, no telemetry, no server of ours in the middle. Build it, read it, fork it.</p>
+      <div class="cta-row"><a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.1.0/Pennant-0.1.0.dmg"><i data-ic="download"></i>Download Pennant</a><a class="btn btn-ghost" href="https://github.com/pennant-dev/pennant"><i data-ic="code"></i>View on GitHub</a></div>
+      <p class="fine-line">Version 0.1.0, a preview. Signed and notarized by Apple; it updates itself once you allow it. SHA-256 <code>b4c23fdba02f1b3660109097f4942053d5158a906e61e3b3b36c2aed0ae18ab3</code></p>
+      <div class="reqs"><span>macOS 15 or later</span><span>Apple silicon or Intel</span><span>Build it: Xcode 27</span><span>iPhone app: iOS 18 or later</span><span>Any OpenAI-compatible endpoint, or Ollama</span></div>
+    </div>
+    <div class="term">
+      <div class="term-h"><span class="dots"><i></i><i></i><i></i></span>Terminal</div>
+<pre><span class="pr">$ </span>git clone https://github.com/pennant-dev/pennant
+<span class="pr">$ </span>cd pennant &amp;&amp; Scripts/build-release.sh --open
+<span class="cm"># builds, signs and opens Pennant.app</span>
+
+<span class="cm"># no API key yet? start local</span>
+<span class="pr">$ </span>ollama pull gemma4:e2b-it-qat
+
+<span class="cm"># let it write code in your repository</span>
+<span class="pr">$ </span>pennant coding folder ~/code/your-app</pre>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <a class="brand" href="#top"><svg class="ribbon" aria-hidden="true"><use href="#ribbon"/></svg>Pennant</a>
+    <span class="dom">pennant.dev</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/pennant-dev/pennant">GitHub</a><a href="https://github.com/pennant-dev/pennant/tree/main/docs">Docs</a><a href="https://github.com/pennant-dev/pennant/security/policy">Security</a><a href="https://github.com/pennant-dev/pennant/blob/main/CONTRIBUTING.md">Contribute</a>
+    </nav>
+    <p class="fine">Pennant is independent open-source software. The people and companies in the demos (Maya Okafor, Harbor, Northwind) are fictional. Product and company names on this page belong to their owners and are used only to identify them. Numbers marked as examples are illustrative.</p>
+  </div>
+</footer>
+
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* Icons (line icons in the spirit of SF Symbols) */
+  const P = window.PENNANT_ICONS = {
+    code: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
+    down: '<path d="M12 5v14M19 12l-7 7-7-7"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    checkc: '<circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16 9.5"/>',
+    x: '<path d="M18 6 6 18M6 6l12 12"/>',
+    grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+    target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>',
+    doc: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+    brain: '<path d="M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 6 1V6a2 2 0 0 0-3-2zM15 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-6 1"/>',
+    calendar: '<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17"/>',
+    sparkles: '<path d="M10 3.5 11.8 9l5.2 1.8-5.2 1.8L10 18l-1.8-5.4L3 10.8 8.2 9z"/><path d="M18 13.5l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z"/>',
+    more: '<circle cx="12" cy="12" r="9"/><path d="M8 12h.01M12 12h.01M16 12h.01"/>',
+    seal: '<path d="M12 2.5 14.3 4l2.7-.2 1 2.5 2.4 1.3-.5 2.7 1.3 2.4-1.9 2 .1 2.8-2.7.6-1.4 2.4-2.6-.9-2.5 1.3-1.9-2-2.8-.3-.5-2.7L2.5 13l1.3-2.4L3.3 8l2.4-1.3 1-2.5 2.7.2z"/><path d="m8.5 12 2.4 2.4 4.6-4.8"/>',
+    display: '<rect x="3" y="4" width="18" height="12.5" rx="2"/><path d="M9 20h6M12 16.5V20"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"/>',
+    hand: '<path d="M18 11V6a2 2 0 0 0-4 0v4M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"/>',
+    pause: '<path d="M9 6v12M15 6v12"/>',
+    moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    play: '<path d="m7 4 13 8-13 8z" fill="currentColor" stroke="none"/>',
+    resume: '<path d="m8 5 11 7-11 7z"/>',
+    arrow: '<path d="M7 17 17 7M9 7h8v8"/>',
+    right: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6"/>',
+    plug: '<path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0zM12 17v5"/>',
+    person: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    building: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 7h.01M15 7h.01M9 11h.01M15 11h.01M9 15h.01M15 15h.01M10 21v-3h4v3"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    chip: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+    wrench: '<path d="M14.7 6.3a4 4 0 0 0 5 5L22 14l-8 8-2.3-2.3a4 4 0 0 0-5-5L4 12l8-8z"/>',
+    doc2: '<path d="M8 3h8l4 4v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M4 7v12a2 2 0 0 0 2 2"/>',
+    mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+    file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/>',
+    alert: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+    book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>',
+    cloud: '<path d="M17.5 19a4.5 4.5 0 1 0-1.4-8.8A6 6 0 0 0 4.5 12 3.5 3.5 0 0 0 6 19z"/>',
+    server: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+    laptop: '<rect x="4" y="5" width="16" height="11" rx="2"/><path d="M2 19h20"/>',
+    eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    video: '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="m10 9 5 3-5 3z"/>',
+    megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+    cursor: '<path d="m4 3 7 17 2.5-7.5L21 10z"/>',
+    lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+    type: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
+    list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+    clip: '<path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L15.5 7"/>',
+    spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>',
+    download: '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>',
+    dollar: '<path d="M12 2v20M17 6.5C17 4.6 14.8 3.5 12 3.5S7 4.6 7 6.8c0 5 10 2.7 10 8 0 2.4-2.3 3.7-5 3.7s-5-1.2-5-3.4"/>',
+    pulse: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+    replay: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+    fork: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 4-4 5-9.5 6"/>',
+    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  };
+  const ic = window.PENNANT_IC = n => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${P[n] || ''}</svg>`;
+  const rib = window.PENNANT_RIB = (cls = 'ribbon') => `<svg class="${cls}" aria-hidden="true" focusable="false"><use href="#ribbon"/></svg>`;
+  const pav = window.PENNANT_PAV = () => `<span class="pav">${rib()}</span>`;
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  $$('[data-ic]').forEach(el => { el.outerHTML = ic(el.dataset.ic); });
+
+  /* Sunrise: while the hero holds still, the scroll runs the night into morning. The sky's layers, the screens and
+     the nav follow --night, --dawn, --sun, --day and --lit; the clock names what finished at each hour. */
+  const nav = $('.nav'), sunrise = $('.sunrise'), heroEl = $('.hero'), clockIc = $('.clock-ic');
+  const HOURS = [
+    [0, '1:11 AM', 'Product demo: prep split across 3 workers', 'moon'],
+    [.3, '3:40 AM', 'Storyboard ready, checked before use', 'moon'],
+    [.55, '5:30 AM', 'Service check: all green, thread closed', 'moon'],
+    [.66, '7:30 AM', 'Morning brief: 3 things need you', 'sun'],
+  ];
+  const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  let hour = -1, ticking = false;
+  function pin() {
+    const fits = $('.hero-grid').offsetHeight + 110 <= innerHeight;
+    sunrise.classList.toggle('pin', !reduce && innerWidth > 1060 && fits);
+  }
+  function sky() {
+    ticking = false;
+    const r = sunrise.getBoundingClientRect();
+    const span = sunrise.classList.contains('pin') ? r.height - innerHeight : heroEl.offsetHeight * .8;
+    const p = Math.min(1, Math.max(0, -r.top / span));
+    const st = sunrise.style;
+    st.setProperty('--night', (1 - smooth(.1, .5, p)).toFixed(3));
+    st.setProperty('--dawn', (smooth(.06, .4, p) * (1 - smooth(.55, .92, p))).toFixed(3));
+    st.setProperty('--sun', (reduce ? .6 : smooth(.12, .82, p)).toFixed(3));
+    st.setProperty('--day', smooth(.5, .84, p).toFixed(3));
+    st.setProperty('--lit', smooth(.58, .68, p).toFixed(3));
+    const day = p > .62;
+    sunrise.classList.toggle('is-day', day);
+    nav.classList.toggle('on-night', !day && r.bottom > 58);
+    nav.classList.toggle('scrolled', scrollY > 8);
+    const h = HOURS.reduce((n, x, i) => p >= x[0] ? i : n, 0);
+    if (h !== hour) {
+      hour = h;
+      $('[data-clock="t"]').textContent = HOURS[h][1];
+      $('[data-clock="s"]').textContent = HOURS[h][2];
+      clockIc.innerHTML = ic(HOURS[h][3]);
+    }
+  }
+  const onScroll = () => { if (!ticking) { ticking = true; requestAnimationFrame(sky); } };
+  addEventListener('scroll', onScroll, { passive: true });
+  addEventListener('resize', () => { pin(); onScroll(); });
+  pin();
+  sky();
+
+  /* ---------- The dashboard in the hero ---------- */
+  const now = new Date();
+  const hr = now.getHours();
+  $('#gDate').textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  $('#gHello').textContent = (hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening') + ', Maya';
+
+  const CARDS = [
+    { id: 'code', side: 'Approve · Coding · ~/code/harbor-web', sub: 'Checkout has failed in Safari since this mornin…', title: 'Delete: run a command', dest: 'Coding · ~/code/harbor-web', ago: '6 min. ago', kind: 'code' },
+    { id: 'mail', side: 'Approve · Outlook · reply to Jonas Lindqvist (…', sub: 'Inbox drafts · Sep 29 at 5:30 PM', title: 'Reply to Jonas Lindqvist', dest: 'Outlook · reply to Jonas Lindqvist (Northwind)', ago: '8 hr. ago', kind: 'mail' },
+    { id: 'post', side: 'Approve · Harbor · LinkedIn company page', sub: 'Company post · Sep 29 at 9:30 AM', title: 'LinkedIn post: Harbor 2.0 is live', dest: 'Harbor · LinkedIn company page', ago: '16 hr. ago', kind: 'post' },
+  ];
+  let open = CARDS.slice();
+  const THREADS = [
+    { i: 'clock', t: 'Product demo · Sep 30 at 1:11 AM', p: 'The storyboard is ready. Splitting the prep…', at: '1:49 AM' },
+    { i: 'clock', t: 'Morning brief · Sep 29 at 7:30 AM', p: 'Three things need Maya today.', at: '1:49 AM' },
+    { i: 'clock', t: 'Inbox drafts · Sep 29 at 5:30 PM', p: 'Jonas asked when Northwind can switch…', at: '1:49 AM', u: 1 },
+    { i: 'clock', t: 'Company post · Sep 29 at 9:30 AM', p: 'Launch day, so the post leads with the i…', at: '1:49 AM', u: 1 },
+    { i: 'chat', t: 'Harbor 2.0 launch', p: "I've started a coding run in harbor-web. It w…", at: '1:49 AM' },
+  ];
+  let WORK = [
+    { id: 'w-code', st: 'wait', t: "Checkout has failed in Safari since this morning's 9:05 release", who: 'Pennant', s: 25 * 60 + 6 },
+    { id: 'w-demo', st: 'pause', t: 'Product demo · Sep 30 at 1:11 AM', who: 'Pennant', s: 40 * 60 + 6 },
+    { id: 'w-cap', st: 'pause', t: 'Check the captions against the script', who: 'Helper', s: 39 * 60 + 6, child: 1 },
+  ];
+  const COMING = [['Service check', 'in 1 h 12 m'], ['Morning brief', 'in 5 h 37 m'], ['Inbox drafts', 'in 6 h 37 m'], ['Company post', 'in 7 h 37 m'], ['Product demo', 'Tue 10:00 AM']];
+  const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+  function paintCounts() {
+    const n = open.length;
+    $$('[data-n="count"]').forEach(e => e.textContent = n);
+    $$('[data-n="badge"]').forEach(e => { e.textContent = n; e.hidden = n === 0; });
+    $('[data-n="pill"]').textContent = `${n} approval${n === 1 ? '' : 's'}`;
+    $('#pillo').classList.toggle('zero', n === 0);
+    $('#gNeed').textContent = n ? `${n} need${n === 1 ? 's' : ''} you` : '';
+    const running = WORK.filter(w => w.st === 'run').length;
+    $('#gRun').innerHTML = running ? `<span class="spin"></span>${running} running` : '<i class="dot"></i>All quiet';
+  }
+  function paintSide() {
+    $('#sideNeeds').innerHTML = open.length ? open.map(c => `<div class="nrow" data-id="${c.id}"><span class="top">${esc(c.side)}</span><b>${esc(c.title)}</b><span class="sub">${esc(c.sub)}</span></div>`).join('') : '<div class="clear">Nothing needs you.</div>';
+    $('#sideThreads').innerHTML = THREADS.map(t => `<div class="trow${t.u ? ' unread' : ''}"><span class="ti">${ic(t.i)}</span><b>${esc(t.t)}</b><time>${t.at}</time><span class="pv">${esc(t.p)}</span></div>`).join('');
+  }
+  function cardHTML(c) {
+    return `<div class="nyc${c.fresh ? ' fresh' : ''}" data-id="${c.id}"><div class="hd">${pav()}Pennant<span class="chip">${ic('seal')}Approval</span></div><b>${esc(c.title)}</b><span class="ds">${esc(c.dest)}</span><div class="ft">${c.ago}<button class="rv" type="button" data-review="${c.id}">Review${ic('right')}</button></div></div>`;
+  }
+  function paintCards() {
+    $('#nyCards').innerHTML = open.length ? open.map(cardHTML).join('') : `<div class="allclear">${ic('checkc')}All clear — nothing needs you right now.</div>`;
+    open.forEach(c => { c.fresh = false; });
+  }
+  function paintWork() {
+    const icon = w => w.st === 'wait' ? `<span class="wi hand">${ic('hand')}</span>` : w.st === 'run' ? '<span class="wi"><span class="spin"></span></span>' : w.st === 'done' ? `<span class="wi">${ic('checkc')}</span>` : `<span class="wi">${ic('pause')}</span>`;
+    const word = { wait: 'waiting for you', pause: 'paused', run: 'working', done: 'done' };
+    $('#working').innerHTML = WORK.map(w => `<div class="wrow${w.child ? ' child' : ''}${w.st === 'done' ? ' done' : ''}" data-w="${w.id}">${icon(w)}<b>${esc(w.t)}</b><time>${mmss(w.s)}</time><span class="who"><b>${w.who}</b> ${word[w.st]}</span></div>`).join('');
+    $('#wCount').textContent = WORK.length;
+  }
+  const upcoming = COMING.map(([n, w]) => ({ n, w, running: false }));
+  function paintComing() {
+    $('#coming').innerHTML = upcoming.map(u => `<div class="crow${u.running ? ' running' : ''}">${ic('clock')}${u.n}<em>${u.running ? '<span class="spin"></span>running' : u.w}</em></div>`).join('');
+    const next = upcoming.find(u => !u.running && u.w.startsWith('in '));
+    $('#gNext').textContent = next ? `Next run ${next.w}` : 'Nothing scheduled soon';
+  }
+  paintComing();
+  paintSide(); paintCards(); paintWork(); paintCounts();
+  setInterval(() => { WORK.forEach(w => { if (w.st !== 'done') w.s++; }); $$('#working .wrow').forEach(r => { const w = WORK.find(x => x.id === r.dataset.w); if (w) r.querySelector('time').textContent = mmss(w.s); }); }, 1000);
+
+  const POST = `Harbor 2.0 is live. 🚢
+
+Imports that took an afternoon now take four minutes. We rebuilt the pipeline from the ground up, so 50,000 rows arrive while your coffee is still hot.
+
+Also new: shared views for your whole team, and a pricing page with annual plans.
+
+Thank you to the 400 beta testers who broke it before you could. Release notes: harbor.example/2-0`;
+  const TEASER = `One board, the whole team.
+
+Harbor 2.0 brings shared views: save a filter once and everyone sees the same thing. Priya's design team at Northwind switched them on first.
+
+Settings › Views, and you're done.`;
+  const MAIL = `Hi Jonas,
+
+Shared views are live for every Northwind workspace from today. Priya's team can turn them on under Settings › Views; nothing to install.
+
+I'll send the final launch checklist on Friday, as promised. Shall we walk through the partner rollout on Thursday at 3?`;
+  function sheetBody(c) {
+    const head = `<div class="ahead">${pav()}<b>Pennant</b><span class="ago">· ${c.ago}</span><span class="needs">Needs you</span></div><h5>${esc(c.title)}</h5><p class="dest">${ic('arrow')}${esc(c.dest)}</p>`;
+    if (c.kind === 'post') return head + `<p class="lbl">Title</p><div class="ttl">Harbor 2.0 is live</div><div class="body">${esc(POST)}</div><div class="meta"><span>357 characters</span><b>Edit text</b></div><div class="tags"><span>#launch</span><span>#productupdate</span></div><dl><dt>When</dt><dd>As soon as you approve</dd><dt>Length</dt><dd>74 words</dd></dl>`
+      + `<div class="acts" data-acts><button class="go" data-d="go" type="button">${ic('check')}Approve &amp; post</button><button data-d="back" type="button">Request changes</button><button class="no" data-d="no" type="button">Reject</button></div>`;
+    if (c.kind === 'teaser') return head + `<p class="lbl">Title</p><div class="ttl">Shared views are here</div><div class="body">${esc(TEASER)}</div><div class="meta"><span>228 characters</span><b>Edit text</b></div><div class="tags"><span>#productupdate</span></div><dl><dt>When</dt><dd>Tomorrow at 9:30 AM</dd><dt>Length</dt><dd>41 words</dd></dl>`
+      + `<div class="acts" data-acts><button class="go" data-d="go" type="button">${ic('check')}Approve &amp; post</button><button data-d="back" type="button">Request changes</button><button class="no" data-d="no" type="button">Reject</button></div>`;
+    if (c.kind === 'mail') return head + `<div class="body">${esc(MAIL)}</div><div class="meta"><span>312 characters</span><b>Edit text</b></div>`
+      + `<div class="acts" data-acts><button class="go" data-d="go" type="button">${ic('check')}Approve &amp; send</button><button data-d="back" type="button">Request changes</button><button class="no" data-d="no" type="button">Reject</button></div>`;
+    return head + `<div class="body mono">git push origin --delete fix/safari-popup-workaround</div><dl><dt>Tool</dt><dd>Bash</dd></dl>`
+      + `<div class="acts" data-acts><button class="go" data-d="go" type="button">${ic('check')}Allow</button><button class="alt" data-d="go" type="button">${ic('checkc')}Allow for the rest of this task</button><button data-d="back" type="button">Request changes</button><button class="no" data-d="no" type="button">Reject</button></div>`;
+  }
+  const sheet = $('#sheet');
+  let lastFocus = null;
+  function openSheet(id) {
+    const c = open.find(x => x.id === id);
+    if (!c) return;
+    lastFocus = document.activeElement;
+    sheet.innerHTML = `<div class="sheet-in" role="dialog" aria-modal="true" aria-label="Waiting for your approval"><div class="sheet-bar">Waiting for your approval<span class="open">Open thread</span><button class="x" type="button" aria-label="Close" data-close>${ic('x')}</button></div><article class="acard">${sheetBody(c)}</article></div>`;
+    sheet.hidden = false;
+    const first = $('[data-acts] button', sheet); if (first) first.focus();
+    sheet.onclick = e => {
+      if (e.target === sheet || e.target.closest('[data-close]')) return closeSheet();
+      const b = e.target.closest('[data-d]'); if (!b) return;
+      const d = b.dataset.d;
+      if (d === 'back') {
+        $('[data-acts]', sheet).outerHTML = `<form class="note-f" data-note><label class="sr" for="noteIn">What should change?</label><input id="noteIn" placeholder="What should change?" value="Shorter, and lead with shared views"><button class="t-btn go" type="submit">Send back</button></form>`;
+        const f = $('[data-note]', sheet); $('input', f).focus(); $('input', f).select();
+        f.onsubmit = ev => { ev.preventDefault(); decide(c, 'back', $('input', f).value); };
+        return;
+      }
+      decide(c, d, '', b.textContent.includes('rest'));
+    };
+  }
+  function closeSheet() { sheet.hidden = true; sheet.innerHTML = ''; if (lastFocus && lastFocus.focus) lastFocus.focus(); }
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !sheet.hidden) closeSheet(); });
+  function decide(c, how, note, rest) {
+    const t = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const what = c.kind === 'post' || c.kind === 'teaser' ? 'Publishing…' : c.kind === 'mail' ? 'Sending…' : 'Running it now.';
+    const band = how === 'go' ? `<div class="decided"><b>${ic('seal')}${rest ? 'Approved for the rest of this task' : 'Approved'} <span>today at ${t}</span></b>${what}</div>`
+      : how === 'no' ? `<div class="decided no"><b>${ic('x')}Rejected <span>today at ${t}</span></b>Nothing went out.</div>`
+      : `<div class="decided back"><b>${ic('replay')}Changes requested <span>today at ${t}</span></b>“${esc(note || 'Please revise')}”</div>`;
+    const a = $('[data-acts], [data-note]', sheet); if (a) a.outerHTML = band;
+    setTimeout(() => {
+      closeSheet();
+      $$(`[data-id="${c.id}"]`).forEach(el => el.classList.add('out'));
+      setTimeout(() => {
+        open = open.filter(x => x.id !== c.id);
+        if (c.kind === 'code') {
+          const w = WORK.find(x => x.id === 'w-code');
+          if (w) { w.st = how === 'no' ? 'done' : 'run'; paintWork(); paintCounts(); setTimeout(() => { w.st = 'done'; paintWork(); paintCounts(); }, reduce ? 0 : 3200); }
+        } else if (how === 'back') {
+          WORK.unshift({ id: 'w-' + c.id, st: 'run', t: c.kind === 'post' ? 'Company post · revising the launch post' : 'Inbox drafts · revising the reply to Jonas', who: 'Pennant', s: 0 });
+          paintWork();
+        }
+        paintSide(); paintCards(); paintCounts();
+      }, 420);
+    }, reduce ? 300 : 1500);
+  }
+  $('#app').addEventListener('click', e => { const r = e.target.closest('[data-review]'); if (r) openSheet(r.dataset.review); });
+
+  /* The night shift, playing by itself: a job starts from Coming up, runs in Working now with its own thread, and ends
+     as a quiet close, a report or a new card in Needs you. It waits while you use the dashboard and when it's off
+     screen, and the Pause button stops it. */
+  const app = $('#app');
+  let heroVisible = false, lastTouch = 0, paused = reduce, busy = false, step = 0;
+  if ('IntersectionObserver' in window) new IntersectionObserver(es => { heroVisible = es[0].isIntersecting; }, { threshold: .3 }).observe(app);
+  ['pointerdown', 'keydown'].forEach(ev => app.addEventListener(ev, () => { lastTouch = Date.now(); }));
+  const ctl = $('#shiftCtl');
+  const paintCtl = () => { ctl.setAttribute('aria-pressed', String(paused)); ctl.innerHTML = paused ? `${ic('resume')}<span>Play</span>` : `${ic('pause')}<span>Pause</span>`; };
+  ctl.addEventListener('click', () => { paused = !paused; paintCtl(); });
+  paintCtl();
+  const toastBox = document.createElement('div');
+  toastBox.className = 'toasts'; toastBox.setAttribute('aria-live', 'polite');
+  $('.main', app).appendChild(toastBox);
+  function note(title, sub, tag, tone) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.innerHTML = `${pav()}<b>${esc(title)}</b><small>${esc(sub)}</small><em class="${tone || ''}">${esc(tag)}</em>`;
+    toastBox.prepend(el);
+    while (toastBox.children.length > 2) toastBox.lastElementChild.remove();
+    setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 450); }, 4200);
+  }
+  const clock = () => new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const SHIFT = [
+    { job: 'Service check', ms: 3200, end: 'quiet', next: 'in 1 h' },
+    { job: 'Inbox drafts', ms: 4200, end: 'report', next: 'in 4 h 30 m', report: ['Inbox drafts · report', 'Nothing needs you: 9 newsletters and receipts archived.', 'Good', ''] },
+    { job: 'Company post', ms: 4400, end: 'card', next: 'tomorrow 9:30 AM', card: { id: 'teaser', kind: 'teaser', title: 'LinkedIn post: Shared views are here', dest: 'Harbor · LinkedIn company page', side: 'Approve · Harbor · LinkedIn company page', ago: 'now' } },
+    { job: 'Morning brief', ms: 3600, end: 'report', next: 'tomorrow 7:30 AM', report: ['Morning brief · report', 'Three things need Maya today.', 'Heads-up', 'watch'] },
+  ];
+  function runShift(ev) {
+    busy = true;
+    const u = upcoming.find(x => x.n === ev.job);
+    const at = clock();
+    const w = { id: 'shift-' + Date.now(), st: 'run', t: `${ev.job} · today at ${at}`, who: 'Pennant', s: 0 };
+    const th = { i: 'clock', t: `${ev.job} · today at ${at}`, p: `Scheduled job "${ev.job}": working…`, at };
+    if (u) u.running = true;
+    WORK.unshift(w); THREADS.unshift(th); if (THREADS.length > 7) THREADS.pop();
+    paintComing(); paintWork(); paintSide(); paintCounts();
+    setTimeout(() => {
+      w.st = 'done'; if (u) { u.running = false; u.w = ev.next; upcoming.push(upcoming.splice(upcoming.indexOf(u), 1)[0]); }
+      if (ev.end === 'quiet') { th.p = 'All green · closed itself'; note(`${ev.job} · all green`, 'Nothing to report, so the thread closed itself.', 'Closed', ''); THREADS.splice(THREADS.indexOf(th), 1); }
+      else if (ev.end === 'report') { th.p = ev.report[1]; note(ev.report[0], ev.report[1], ev.report[2], ev.report[3]); }
+      else if (ev.end === 'card' && !open.some(c => c.id === ev.card.id) && open.length < 4) {
+        th.p = 'Waiting for your approval'; th.u = 1;
+        open.unshift(Object.assign({ sub: `${ev.job} · today at ${at}`, fresh: true }, ev.card));
+        note('Needs you', ev.card.title, 'Approval', 'you');
+      } else { th.p = 'Done'; }
+      paintComing(); paintWork(); paintSide(); paintCards(); paintCounts();
+      setTimeout(() => { WORK.splice(WORK.indexOf(w), 1); paintWork(); paintCounts(); busy = false; }, 1600);
+    }, ev.ms);
+  }
+  setInterval(() => {
+    if (paused || busy || !heroVisible || !sheet.hidden || Date.now() - lastTouch < 9000) return;
+    runShift(SHIFT[step++ % SHIFT.length]);
+  }, 2600);
+
+  /* ---------- The film and the three sign-off cards, live while on screen ---------- */
+  const film = $('#film'), filmCtl = $('#filmCtl'), filmTabs = $$('.fl');
+  let filmPaused = reduce, filmVisible = false, filmIdx = 0;
+  const paintFilm = () => { filmCtl.setAttribute('aria-pressed', String(filmPaused)); filmCtl.innerHTML = filmPaused ? `${ic('resume')}<span>Play</span>` : `${ic('pause')}<span>Pause</span>`; };
+  const syncFilm = () => { if (!filmPaused && filmVisible) film.play().catch(() => {}); else film.pause(); };
+  function pickFilm(i, focus) {
+    filmIdx = i;
+    filmTabs.forEach((t, j) => { t.setAttribute('aria-selected', String(j === i)); t.tabIndex = j === i ? 0 : -1; $('.prog i', t).style.width = '0'; });
+    const key = filmTabs[i].dataset.film;
+    film.poster = `assets/film/${key}.jpg`;
+    film.src = `assets/film/${key}.mp4`;
+    film.setAttribute('aria-label', 'Film: ' + $('b', filmTabs[i]).textContent);
+    if (focus) filmTabs[i].focus();
+    syncFilm();
+  }
+  filmTabs.forEach((t, i) => {
+    t.addEventListener('click', () => { if (filmPaused) { filmPaused = false; paintFilm(); } pickFilm(i); });
+    t.addEventListener('keydown', e => { const d = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0; if (d) { e.preventDefault(); pickFilm((i + d + filmTabs.length) % filmTabs.length, true); } });
+  });
+  film.addEventListener('timeupdate', () => { if (film.duration) $('.prog i', filmTabs[filmIdx]).style.width = (film.currentTime / film.duration * 100).toFixed(1) + '%'; });
+  film.addEventListener('ended', () => pickFilm((filmIdx + 1) % filmTabs.length));
+  filmCtl.addEventListener('click', () => { filmPaused = !filmPaused; paintFilm(); syncFilm(); });
+  paintFilm();
+  pickFilm(0);
+  if ('IntersectionObserver' in window) new IntersectionObserver(es => { filmVisible = es[0].isIntersecting; syncFilm(); }, { threshold: .4 }).observe(film);
+  const asks = $$('#asks .ask .acard');
+  const BANDS = [['Approved', 'Sending…'], ['Approved', 'Deleted fix/safari-popup-workaround.'], ['Approved', 'Registering harbor-status.com…']];
+  let asksVisible = false;
+  if ('IntersectionObserver' in window) new IntersectionObserver(es => { asksVisible = es[0].isIntersecting; }, { threshold: .3 }).observe($('#asks .asks'));
+  asks.forEach((card, k) => {
+    const acts = $('.acts', card), original = acts.innerHTML;
+    const cycle = () => {
+      if (reduce || !asksVisible) return setTimeout(cycle, 2000);
+      const go = $('.go', acts);
+      if (go) go.classList.add('auto-press');
+      setTimeout(() => {
+        acts.hidden = true;
+        const band = document.createElement('div');
+        band.className = 'decided live';
+        band.innerHTML = `<b>${ic('seal')}${BANDS[k][0]} <span>just now</span></b>${BANDS[k][1]}`;
+        acts.after(band);
+        setTimeout(() => { band.remove(); acts.hidden = false; acts.innerHTML = original; setTimeout(cycle, 4200); }, 3400);
+      }, 600);
+    };
+    setTimeout(cycle, 1500 + k * 1900);
+  });
+
+  /* ---------- Jobs → threads ---------- */
+  const JOBS = [
+    { n: 'Service check', w: 'Every hour', last: 'Last 52 min. ago', r: 'completed: All green.', d: 'Check the API, the web app and the import queue.', ends: 'quiet', out: 'All green.' },
+    { n: 'Morning brief', w: 'Weekdays at 7:30 AM', last: 'Last 18 hr. ago', r: 'completed: Three things need Maya today.', d: 'Tell Maya what needs her today.', ends: 'report', out: 'Three things need Maya today.' },
+    { n: 'Inbox drafts', w: '<code>30 8,12,17 * * 1–5</code>', last: 'Last 8 hr. ago', r: 'completed: 14 read, 1 reply waiting.', d: 'Sort the new mail, archive the noise and draft the replies that need Maya.', ends: 'report', out: 'Nothing needs you: 9 newsletters and receipts archived.' },
+    { n: 'Company post', w: 'Weekdays at 9:30 AM', last: 'Last 16 hr. ago', r: 'completed: The launch post is up for approval.', d: 'Draft today’s post for the Harbor company page.', ends: 'card', out: 'Waiting for your approval' },
+    { n: 'Product demo', w: 'Weekly on Tue at 10:00 AM', last: 'Never run', r: '', d: 'Record this week’s demo: what’s new in Harbor.', ends: 'long', out: 'Splitting the prep across 3 workers…' },
+  ];
+  const panelThreads = [
+    { key: 'h', i: 'chat', t: 'Harbor 2.0 launch', p: 'Pull request #412 is up for review.', at: '1:46 AM' },
+    { key: 'm', i: 'clock', t: 'Morning brief · Sep 29 at 7:30 AM', p: 'Three things need Maya today.', at: '7:31 AM' },
+  ];
+  const closed = [{ i: 'clock', t: 'Service check · Sep 30 at 1:00 AM', p: 'All green · closed itself', at: '1:00 AM' }];
+  const needsPanel = [];
+  const stamp = () => new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  function paintJobs() {
+    $('#jobList').innerHTML = JOBS.map((j, k) => `<div class="job"><span class="ji${j.running ? ' run' : j.r ? '' : ' clock'}">${j.running ? '<span class="spin"></span>' : ic(j.r ? 'check' : 'clock')}</span><b>${j.n}</b><button class="play" type="button" data-run="${k}"${j.running ? ' disabled' : ''}>${ic('play')}${j.running ? 'Running' : 'Run now'}</button><span class="when">${j.w}</span><span class="line">${pav()}Pennant · ${j.last}${j.r ? `<span class="res${j.wait ? ' wait' : ''}">${esc(j.r)}</span>` : ''}</span><span class="desc">${esc(j.d)}</span></div>`).join('');
+  }
+  function paintPanel() {
+    const row = (t, extra = '') => `<div class="trow ${extra}${t.fresh ? ' new' : ''}"><span class="ti">${t.running ? '<span class="spin"></span>' : ic(t.i)}</span><b>${esc(t.t)}</b><time>${t.at}</time><span class="pv">${esc(t.p)}</span></div>`;
+    $('#threadPanel').innerHTML = (needsPanel.length ? `<div class="side-h brandy">Needs you <span>${needsPanel.length}</span></div>` + needsPanel.map(n => `<div class="nrow"><span class="top">${esc(n.top)}</span><b>${esc(n.t)}</b><span class="sub">${esc(n.sub)}</span></div>`).join('') : '')
+      + `<div class="side-h">Threads <span>${panelThreads.length}</span></div>` + panelThreads.map(t => row(t)).join('')
+      + `<div class="side-h">Closed <span>${closed.length}</span></div>` + closed.map(t => row(t, 'closed')).join('');
+    panelThreads.forEach(t => { t.fresh = false; }); closed.forEach(t => { t.fresh = false; });
+  }
+  paintJobs(); paintPanel();
+  let jobsVisible = false, jobsTouch = 0, jobStep = 0;
+  if ('IntersectionObserver' in window) new IntersectionObserver(es => { jobsVisible = es[0].isIntersecting; }, { threshold: .35 }).observe($('#jobs .jobs'));
+  $('#jobList').addEventListener('click', e => {
+    const b = e.target.closest('[data-run]'); if (!b) return;
+    jobsTouch = Date.now();
+    runJob(+b.dataset.run, b);
+  });
+  // While the section is on screen and you haven't pressed anything lately, the jobs take turns on their own.
+  setInterval(() => {
+    if (reduce || !jobsVisible || Date.now() - jobsTouch < 12000) return;
+    const k = [0, 2, 3, 1][jobStep++ % 4];
+    if (JOBS[k].running) return;
+    const b = document.querySelector(`#jobList [data-run="${k}"]`);
+    if (b) { b.classList.add('auto-press'); setTimeout(() => runJob(k), 350); }
+  }, 5200);
+  function runJob(k) {
+    const j = JOBS[k]; if (j.running) return;
+    const title = `${j.n} · today at ${stamp()}`;
+    const th = { i: 'clock', t: title, p: `Scheduled job "${j.n}": working…`, at: stamp(), running: true, fresh: true };
+    j.running = true; panelThreads.unshift(th); paintJobs(); paintPanel();
+    setTimeout(() => {
+      j.running = false; j.last = 'Last just now'; th.running = false;
+      if (j.ends === 'quiet') { panelThreads.splice(panelThreads.indexOf(th), 1); closed.unshift({ i: 'clock', t: title, p: `${j.out} · closed itself`, at: stamp(), fresh: true }); j.r = 'completed: ' + j.out; }
+      else if (j.ends === 'card') { panelThreads.splice(panelThreads.indexOf(th), 1); needsPanel.unshift({ top: 'Approve · Harbor · LinkedIn company page', t: 'LinkedIn post: tomorrow’s teaser', sub: title }); j.r = 'completed: The post is up for approval.'; j.wait = true; }
+      else if (j.ends === 'long') { th.running = true; th.p = j.out; j.running = false; j.r = 'running: 3 workers'; }
+      else { th.p = j.out; j.r = 'completed: ' + j.out; }
+      if (panelThreads.length > 5) panelThreads.pop();
+      if (closed.length > 3) closed.pop();
+      if (needsPanel.length > 2) needsPanel.pop();
+      paintJobs(); paintPanel();
+    }, reduce ? 200 : 2600);
+  }
+})();
+</script>
+<script>
+(() => {
+  const root = document.getElementById('tour');
+  if (!root) return;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const $ = (s, el = root) => el.querySelector(s);
+  const $$ = (s, el = root) => [...el.querySelectorAll(s)];
+  const ic = window.PENNANT_IC, rib = window.PENNANT_RIB, pav = window.PENNANT_PAV;
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  /* A small runner: each demo is a script of steps. "instant" renders the finished state at once. */
+  function context(panel, tok, instant) {
+    const alive = () => { if (tok.dead) throw 'stop'; };
+    return {
+      instant,
+      wait: ms => instant ? Promise.resolve() : new Promise((res, rej) => setTimeout(() => tok.dead ? rej('stop') : res(), ms)),
+      add(parent, html) {
+        alive();
+        const t = document.createElement('template');
+        t.innerHTML = html.trim();
+        const el = t.content.firstElementChild;
+        if (!instant) el.classList.add('t-in');
+        parent.appendChild(el);
+        return el;
+      },
+      ask(el, answers) {
+        alive();
+        if (instant) return Promise.resolve(answers[0]);
+        return new Promise(res => {
+          answers.forEach(a => {
+            const b = el.querySelector(`[data-a="${a}"]`);
+            if (b) b.addEventListener('click', () => res(a), { once: true });
+          });
+          // Playing by itself: press the first choice after a beat, unless you've taken over by then.
+          if (tok.auto) setTimeout(() => {
+            if (tok.dead || !tok.auto) return;
+            const b = el.querySelector(`[data-a="${answers[0]}"]`);
+            if (b) { b.classList.add('auto-press'); setTimeout(() => { if (!tok.dead && tok.auto) b.click(); }, 450); }
+          }, 1900);
+        });
+      },
+      alive,
+    };
+  }
+  const me = (text, who = 'Maya Okafor') => `<div class="msg-me"><small>${who}</small><p>${text}</p></div>`;
+  const ai = html => `<div class="msg-ai"><div class="by">${rib()}Pennant</div>${html}</div>`;
+  const tool = (html, glyphs = []) => `<div class="tool"><span class="okc">${ic('check')}</span><span>${html}</span>${glyphs.length ? `<span class="gly">${glyphs.map(ic).join('')}</span>` : ''}</div>`;
+
+  /* ---------- Memory ---------- */
+  async function memory(p, c) {
+    p.innerHTML = `<div class="t-mem"><div class="thread"></div><div class="mem" aria-label="Memory">
+      <div class="mem-h"><div class="search">${ic('search')}Search memory</div><div class="stats"><span><b>6</b> facts</span><span><b>3</b> relations</span><span><b>22</b> passages</span><span><b>10</b> skills</span></div></div>
+      <div class="facts"></div><div class="psgs"></div></div></div>`;
+    const th = $('.thread', p), facts = $('.facts', p), psgs = $('.psgs', p);
+    const fact = (icon, name, kind, status, sm, pr) => `<div class="fact"><span class="fi">${ic(icon)}</span><span class="nm">${name}<span>${kind}</span><span class="${status === 'Inferred' ? 'inf' : 'as'}">${status}</span></span><span class="sm">${sm}</span><span class="pr">${pr}</span></div>`;
+    c.add(facts, fact('person', 'Jonas Lindqvist', 'Person', 'Asserted', 'Head of Partnerships at Northwind. Maya promised him the final launch checklist by Friday.', 'you said · Tue'));
+    c.add(facts, fact('building', 'Northwind', 'Organization', 'Asserted', 'Harbor’s largest partner.', 'you said · Mon'));
+    await c.wait(500);
+    c.add(th, me('What did I promise Jonas, and by when?'));
+    await c.wait(800);
+    c.add(th, tool('Searched memory for “promise Jonas Lindqvist”', ['brain']));
+    await c.wait(800);
+    c.add(th, ai('You promised Jonas the final launch checklist <b>by Friday</b>, with Tomás’s import numbers in it. You told me on Tuesday in the launch thread, and it was on your list from Monday’s Northwind sync.'));
+    c.add(th, `<span class="stamp">12:15 AM</span>`);
+    await c.wait(700);
+    c.add(psgs, `<span class="t-label" style="margin:12px 12px 0">Where it was said</span>`);
+    c.add(psgs, `<div class="psg"><div class="ph"><b>Harbor 2.0 launch · you</b><span>Tue</span></div><div class="tx">I told Jonas I’d send the final <mark>launch checklist</mark> by <mark>Friday</mark>, with Tomás’s import numbers in it. Keep me honest.</div><span class="oc">${ic('arrow')}Open conversation</span></div>`);
+    await c.wait(400);
+    c.add(psgs, `<div class="psg"><div class="ph"><b>Teams · you and Pennant</b><span>Mon</span></div><div class="tx">From the Northwind sync: Priya’s team gets shared views first. On me: send Jonas the <mark>launch checklist</mark> before go-live.</div><span class="oc">${ic('arrow')}Open conversation</span></div>`);
+    await c.wait(700);
+    const inf = c.add(facts, `<div class="fact"><span class="fi">${ic('person')}</span><span class="nm">Priya Raman<span>Person</span><span class="inf">Inferred</span></span><span class="sm">Prefers email to Teams.</span><span class="pr">from a thread · Sep 20</span><div class="acts"><button class="t-btn go" data-a="fix" type="button">Edit or correct</button><button class="t-btn" data-a="forget" type="button">Forget</button></div></div>`);
+    const a = await c.ask(inf, ['fix', 'forget']);
+    const acts = $('.acts', inf); if (acts) acts.remove();
+    if (a === 'fix') { $('.inf', inf).className = 'as'; $('.inf, .as', inf).textContent = 'Asserted'; $('.sm', inf).textContent = 'Prefers Teams for quick questions.'; $('.pr', inf).textContent = 'you said · just now · history kept'; }
+    else { inf.classList.add('gone'); $('.pr', inf).textContent = 'Forgotten · it won’t remember this again unless you restore it'; }
+  }
+
+  /* ---------- Coding runs ---------- */
+  async function code(p, c) {
+    p.innerHTML = `<div class="thread"></div>`;
+    const th = $('.thread', p);
+    c.add(th, me('Checkout has failed in Safari since this morning’s release. Can you fix it? Open a pull request, don’t merge.'));
+    await c.wait(700);
+    const hand = c.add(th, `<div class="handoff"><div class="hh">${ic('code')}Coding in harbor-web<span class="st" style="color:var(--info-ink)">Working</span></div><p>Checkout has failed in Safari since this morning’s 9:05 release. Find the cause in harbor-web, fix it with a test, and open a pull request; don’t merge.</p><span class="go">${ic('arrow')}Open the coding thread</span></div>`);
+    await c.wait(500);
+    c.add(th, ai('I’ve started a coding run in harbor-web. It works in its own thread under this one; I’ll bring you the pull request when it’s up.'));
+    await c.wait(700);
+    const sub = c.add(th, `<div class="subthread"><span class="hd">${ic('code')}The coding thread · Claude Code · ~/code/harbor-web</span></div>`);
+    await c.wait(500);
+    c.add(sub, tool('Used 7 tools <span class="t-muted">49.0 s</span>', ['doc', 'wrench', 'display']));
+    await c.wait(800);
+    c.add(sub, ai('Pull request #412 is up as harbor-pennant[bot]: the pay button opens the payment page in the same tab, with a WebKit test for it. The branch from the old pop-up workaround (#398, closed) is stale now, so I’d like to delete it.'));
+    await c.wait(700);
+    const card = c.add(sub, `<article class="acard" style="margin:0"><div class="ahead">${pav()}<b>Pennant</b><span class="ago">· now</span><span class="needs">Needs you</span></div><h5>Delete: run a command</h5><p class="dest">${ic('arrow')}Coding · ~/code/harbor-web</p><div class="body mono">git push origin --delete fix/safari-popup-workaround</div><dl><dt>Tool</dt><dd>Bash</dd></dl><div class="acts"><button class="go" data-a="go" type="button">${ic('check')}Allow</button><button class="alt" data-a="rest" type="button">Allow for the rest of this task</button><button class="no" data-a="no" type="button">Reject</button></div></article>`);
+    $('.st', hand).textContent = 'Needs you'; $('.st', hand).style.color = 'var(--brand-ink)';
+    const a = await c.ask(card, ['go', 'rest', 'no']);
+    $('.acts', card).outerHTML = a === 'no' ? `<div class="decided no"><b>${ic('x')}Rejected</b>The branch stays.</div>` : `<div class="decided"><b>${ic('seal')}${a === 'rest' ? 'Approved for the rest of this task' : 'Approved'}</b>Deleted fix/safari-popup-workaround.</div>`;
+    $('.st', hand).textContent = 'Done'; $('.st', hand).style.color = 'var(--ok-ink)';
+    await c.wait(700);
+    c.add(th, ai(a === 'no' ? 'Pull request #412 is up for review. I left the old branch where it is.' : 'Pull request #412 is up for review, and the stale branch is gone. Nothing was merged.'));
+  }
+
+  /* ---------- Workers ---------- */
+  const W = [
+    { t: 'Write the narration script', out: '412 words, six scenes; every claim is in the release notes.', steps: 9, tok: 11, min: 25, pace: 1.0 },
+    { t: 'Find the controls for each scene', out: '18 controls found; scene 4’s export button moved into the ⋯ menu.', steps: 14, tok: 15, min: 29, pace: 1.25 },
+    { t: 'Check the captions against the script', out: '2 captions fixed.', steps: 6, tok: 6, min: 12, pace: .8 },
+  ];
+  let workerModel = 'local';
+  async function workers(p, c) {
+    p.innerHTML = `<div class="thread"></div><div class="t-split"><div><span class="t-label">Workers run on</span><div class="t-seg" role="group" aria-label="Worker model"><button type="button" data-m="local">Gemma 4 · this Mac</button><button type="button" data-m="lead">DeepSeek V4.1 Flash</button></div>
+      <p style="margin:10px 0 0;font-size:13px;line-height:1.5;color:var(--ink2)">Mechanical, well-specified work goes to the worker model; Pennant plans, checks, and keeps the harder parts.</p></div><div class="t-cost" aria-live="polite"></div></div>`;
+    const th = $('.thread', p);
+    const paint = () => {
+      $$('[data-m]', p).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.m === workerModel)));
+      $$('.wk .mdl span', p).forEach(s => s.textContent = workerModel === 'local' ? 'Gemma 4 · this Mac · $0' : 'DeepSeek V4.1 Flash · $0.006');
+      const w = workerModel === 'local' ? 0 : 0.019;
+      $('.t-cost', p).innerHTML = `<div class="ln"><span>Pennant · planning and checking</span><span>$0.041</span></div><div class="ln"><span>3 workers · 32k tokens</span><span>${w ? '$' + w.toFixed(3) : '$0.000 · this Mac'}</span></div><div class="ln tot"><span>This run</span><span>$${(0.041 + w).toFixed(3)}</span></div><small>Example prices, as the usage ledger shows them.</small>`;
+    };
+    $$('[data-m]', p).forEach(b => b.addEventListener('click', () => { workerModel = b.dataset.m; paint(); }));
+    paint();
+    c.add(th, me('Scheduled job "Product demo" (run now): Record this week’s demo: what’s new in Harbor 2.0.'));
+    await c.wait(600);
+    c.add(th, tool('Used skill “product-demo” <span class="t-muted">200 ms</span>', ['sparkles']));
+    await c.wait(500);
+    const box = c.add(th, `<div class="workers"><div class="wh">${pav()}<b>3 workers</b><span class="cnt t-muted">0 of 3 done</span><span class="tok">0 tokens</span></div><div class="wlist">${W.map(w => `<div class="wk"><div class="l1">${esc(w.t)}<span class="s run">Working</span></div><div class="bar"><span class="track"><i></i></span><span class="num">0 steps</span></div><div class="mdl">${ic('chip')}<span></span></div><div class="out" hidden>${esc(w.out)}</div></div>`).join('')}</div></div>`);
+    paint();
+    const rows = $$('.wk', box);
+    const steps = c.instant ? 1 : 14;
+    for (let s = 1; s <= steps; s++) {
+      let done = 0, tokens = 0;
+      rows.forEach((r, i) => {
+        const w = W[i], f = Math.min(1, (s / steps) * (1.25 / w.pace));
+        $('.track i', r).style.width = (f * 100).toFixed(0) + '%';
+        $('.num', r).textContent = `${Math.round(w.steps * f)} steps · ${Math.round(w.tok * f)}k tokens · ${Math.round(w.min * f)} min`;
+        tokens += w.tok * f;
+        if (f >= 1) { done++; const st = $('.s', r); st.className = 's done'; st.textContent = 'Done'; $('.out', r).hidden = false; }
+      });
+      $('.cnt', box).textContent = `${done} of 3 done`;
+      $('.tok', box).textContent = `${Math.round(tokens)}k tokens`;
+      await c.wait(260);
+    }
+    await c.wait(400);
+    c.add(th, ai('All three are back and they check out against the release notes. Recording scene 1 of 6.'));
+  }
+
+  /* ---------- 2. Computer use: it clicks, you grab the mouse, it looks again ---------- */
+  const INV = [['INV-2291', 'Northwind', '$4,200.00'], ['INV-2292', 'Quayside', '$1,150.00'], ['CN-0117', 'Credit note · Quayside', '−$150.00'], ['INV-2293', 'Lumen & Co', '$880.00'], ['INV-2294', 'Harbor Labs', '$2,640.00']];
+  async function computer(p, c) {
+    p.innerHTML = `<div class="t-comp"><div class="t-desk">
+        <div class="t-menubar"><b>Safari</b><span>File</span><span>Edit</span><span>View</span><span class="using"><i></i>Pennant is using this Mac</span></div>
+        <div class="t-win"><div class="t-wbar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>billing.example.com/invoices</div>
+          <div class="t-inv"><h5>Invoices<span class="t-months"><span class="on" data-m="aug">Aug</span><span data-m="sep">Sep</span></span></h5>
+            <div class="t-irow"><span class="t-box" data-el="all"></span><span class="t-muted">Select all</span><span></span></div>
+            ${INV.map(([n, who, amt], i) => `<div class="t-irow"><span class="t-box" data-row="${i}"></span><span class="nm"><b>${n}</b> <span class="t-muted">· ${who}</span></span><span class="amt">${amt}</span></div>`).join('')}
+            <span class="t-dl" data-el="dl">Download selected</span></div></div>
+        <svg class="t-cursor" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 3 7 17 2.5-7.5L21 10z" fill="#121214" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        <svg class="t-cursor mine" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="m4 3 7 17 2.5-7.5L21 10z" fill="#F0A93B" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      </div>
+      <div><span class="t-label">Download September’s invoices into Documents › Invoices</span><div class="t-steps2"></div><div class="t-out"></div></div></div>`;
+    const desk = $('.t-desk', p), steps = $('.t-steps2', p), out = $('.t-out', p), rows = $$('[data-row]', p);
+    const [cur, mine] = $$('.t-cursor', p);
+    const el = sel => $(sel, p);
+    const moveTo = (cursor, target) => { const a = desk.getBoundingClientRect(), r = target.getBoundingClientRect(); cursor.style.transform = `translate(${Math.round(r.left - a.left + Math.min(12, r.width / 2))}px,${Math.round(r.top - a.top + r.height / 2)}px)`; };
+    const step = (icon, html, cls) => c.add(steps, `<div class="t-step${cls ? ' ' + cls : ''}">${ic(icon)}<span>${html}</span></div>`);
+    const click = async (target, html, fn) => { moveTo(cur, target); await c.wait(700); if (fn) fn(); step('cursor', html); await c.wait(450); };
+    cur.style.transform = 'translate(70%,80%)';
+    await c.wait(400);
+    step('eye', 'Looked at the screen: Safari, the billing site, August');
+    await c.wait(700);
+    await click(el('[data-m="sep"]'), 'Clicked “Sep”', () => { el('[data-m="aug"]').classList.remove('on'); el('[data-m="sep"]').classList.add('on'); });
+    await click(el('[data-el="all"]'), 'Ticked “Select all” · 5 rows', () => { el('[data-el="all"]').classList.add('on'); rows.forEach(r => r.classList.add('on')); });
+    const take = c.add(out, `<button class="t-btn you" data-a="take" type="button">${ic('hand')}Grab the mouse</button>`);
+    await c.ask(out, ['take']);
+    take.remove();
+    const hand = c.add(desk, `<div class="t-hand"><span>${ic('hand')}You took over · agent paused</span></div>`);
+    step('hand', 'You took over · agent paused', 'you');
+    mine.hidden = false;
+    mine.style.transform = cur.style.transform;
+    await c.wait(250);
+    moveTo(mine, rows[2]);
+    await c.wait(800);
+    rows[2].classList.remove('on'); el('[data-el="all"]').classList.remove('on');
+    step('cursor', 'You unticked the credit note', 'you');
+    await c.wait(500);
+    const back = c.add(out, `<button class="t-btn go" data-a="back" type="button">${ic('resume')}Resume</button>`);
+    await c.ask(out, ['back']);
+    back.remove(); hand.remove(); mine.hidden = true;
+    step('resume', 'You pressed Resume', 'you');
+    step('eye', 'Fresh look before the next click: the credit note is unticked now, so it stays out', 'look');
+    await c.wait(900);
+    await click(el('[data-el="dl"]'), 'Clicked “Download selected” · 4 PDFs', () => el('[data-el="dl"]').classList.add('hot'));
+    el('[data-el="dl"]').classList.remove('hot');
+    step('file', 'Moved 4 PDFs to Documents › Invoices › 2026-09');
+    await c.wait(500);
+    step('checkc', 'Done, with the credit note left out as you had it.', 'ok');
+  }
+
+
+  /* ---------- 4. Skills ---------- */
+  const SK = [
+    { n: 'LinkedIn post', g: 'megaphone', s: 'Validated', v: 18, runs: '21 · 90% succeeded', o: 'Your skills repo', p: 'Write a post about one product capability, design one poster, and ask before publishing.',
+      steps: ['Pick a capability not used in the last three posts.', 'Write the post: the reader’s problem first, then what the product does.', 'Design one poster. Visuals must explain, never decorate.', 'Ask for approval, then publish on the company page.'],
+      ver: 'Written by Pennant after your note on the last card', diff: ['- Render a three-slide carousel with the brand motif.', '+ Design one poster. Visuals must explain, never decorate.', '- Start from this week’s news.', '+ Start from a capability; news only if it makes it obvious.'] },
+    { n: 'Inbox drafts', g: 'mail', s: 'Validated', v: 3, runs: '48 · 98% succeeded', o: 'Your skills repo', p: 'Triage the inbox and draft a reply to everything a person wrote.',
+      steps: ['Read unread mail from the last 24 hours.', 'Archive newsletters and receipts.', 'Draft a reply in your voice and ask before sending.', 'Finish with the report.'], ver: 'Edited by you', diff: ['- Draft replies for everything.', '+ Draft a reply only to mail a person wrote.'] },
+    { n: 'Product demo', g: 'video', s: 'Validated', v: 6, runs: '5 · 80% succeeded', o: 'Your skills repo', p: 'Script, record, narrate and cut a product demo, then fill in every upload field.',
+      steps: ['Write the storyboard and narration.', 'Record each scene in the demo environment.', 'Narrate, cut and caption.', 'Ask before uploading.'], ver: 'Written by Pennant after a failed take', diff: ['- Record all scenes in one take.', '+ Record scene by scene; hold until the narration ends.'] },
+    { n: 'Service check', g: 'pulse', s: 'Validated', v: 5, runs: '168 · 99% succeeded', o: 'Your skills repo', p: 'Check the clusters, the CDN and the database every hour and report what changed.',
+      steps: ['Check every cluster’s health and recent events.', 'Check the CDN and the database.', 'Propose any fix as an approval card.', 'Report only what changed.'], ver: 'Written by Pennant', diff: ['- Report every check.', '+ Report only what changed since the last run.'] },
+    { n: 'File an expense', g: 'dollar', s: 'Provisional', v: 1, runs: 'None yet', o: 'Taught by you', p: 'File an expense with its receipt.',
+      steps: ['Open the expenses site and sign in.', 'Click “New expense”.', 'Enter the amount and choose the category.', 'Attach the receipt and submit.'], ver: 'Drafted from your teaching session', diff: null },
+  ];
+  let skillPick = 0, showDiff = true;
+  async function skills(p, c) {
+    p.innerHTML = `<div class="t-skills"><div><div class="t-slist">${SK.map((s, i) => `<button class="t-sitem" type="button" data-i="${i}"><span class="t-tile">${ic(s.g)}</span><b>${esc(s.n)}</b><span>${s.s === 'Provisional' ? 'Provisional · ' : ''}v${s.v}</span></button>`).join('')}</div>
+      <div class="t-more" style="margin-top:12px"><span class="t-chip">${ic('download')}Import from Claude Code, Codex or any SKILL.md repo</span></div></div>
+      <div class="t-sdetail" aria-live="polite"></div></div>`;
+    const draw = () => {
+      const s = SK[skillPick];
+      $$('.t-sitem', p).forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.i === skillPick)));
+      $('.t-sdetail', p).innerHTML = `<div class="t-shead"><span class="t-tile">${ic(s.g)}</span><div><h4>${esc(s.n)}</h4><p>${esc(s.p)}</p></div></div>
+        <div class="t-facts"><div class="t-fact">Status<b>${s.s === 'Provisional' ? '<span style="color:var(--warn-ink)">●</span> ' : '<span style="color:var(--ok)">●</span> '}${s.s}</b></div><div class="t-fact">Version<b>v${s.v}</b></div><div class="t-fact">Runs<b>${s.runs}</b></div><div class="t-fact">Origin<b>${s.o}</b></div></div>
+        <span class="t-label">Steps</span><ol class="t-steps">${s.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>
+        <div class="t-vers"><div class="v"><b>v${s.v}</b><span class="t-muted">${esc(s.ver)}</span>${s.diff ? `<button class="t-btn" data-diff type="button" style="margin-left:auto">${showDiff ? 'Hide' : 'Show'} changes</button>` : ''}</div>
+        ${s.diff && showDiff ? `<div class="t-diff">${s.diff.map(l => `<span class="${l[0] === '-' ? 'del' : 'add'}">${esc(l)}</span>`).join('')}</div>` : ''}
+        ${s.v > 1 ? `<div class="t-muted" style="font-size:12px;margin-top:8px">Every earlier version is kept; switch back in one click.</div>` : ''}</div>`;
+      const d = $('[data-diff]', p); if (d) d.addEventListener('click', () => { showDiff = !showDiff; draw(); });
+    };
+    $$('.t-sitem', p).forEach(b => b.addEventListener('click', () => { skillPick = +b.dataset.i; draw(); }));
+    draw();
+  }
+
+
+  /* ---------- 5. Teach ---------- */
+  const CAPS = [
+    { i: 'globe', h: 'Opened Safari at <span class="t-mono">expenses.example.com</span>' },
+    { i: 'lock', h: 'Signed in <span class="t-muted">· password field, not recorded</span>', priv: 1 },
+    { i: 'cursor', h: 'Clicked “New expense”', f: 'new' },
+    { i: 'type', h: 'Typed <span class="t-mono">42.50</span> in Amount', f: 'amount', val: '42.50' },
+    { i: 'list', h: 'Chose Travel in Category', f: 'cat', val: 'Travel' },
+    { i: 'clip', h: 'Attached <span class="t-mono">receipt.pdf</span>', f: 'rcpt', val: 'receipt.pdf' },
+    { i: 'cursor', h: 'Clicked Submit', f: 'submit' },
+  ];
+  async function teach(p, c) {
+    p.innerHTML = `<div class="t-teach">
+      <div class="t-app"><div class="url">expenses.example.com/new<span class="rec" hidden><i></i><span class="clock">Teaching · 00:00</span></span></div>
+        <div class="t-form"><h5>New expense</h5>
+          <div class="t-field" data-f="amount"><span>Amount</span><div></div></div>
+          <div class="t-field" data-f="cat"><span>Category</span><div></div></div>
+          <div class="t-field" data-f="rcpt"><span>Receipt</span><div></div></div>
+          <span class="submit" data-f="submit">Submit</span></div>
+        <svg class="t-cursor" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 3 7 17 2.5-7.5L21 10z" fill="#121214" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+      <div><span class="t-label">What Pennant captured</span><div class="t-caps"></div><div class="t-out" style="margin-top:12px"></div></div></div>`;
+    const caps = $('.t-caps', p), out = $('.t-out', p), rec = $('.rec', p), cursor = $('.t-cursor', p), app = $('.t-app', p);
+    const start = c.add(out, `<button class="t-btn you" data-a="start" type="button">${ic('spark')}Start teaching</button>`);
+    await c.ask(out, ['start']);
+    start.remove();
+    rec.hidden = false;
+    let sec = 0; const tick = c.instant ? null : setInterval(() => { sec++; const cl = $('.clock', p); if (cl) cl.textContent = `Teaching · 00:${String(sec).padStart(2, '0')}`; else clearInterval(tick); }, 1000);
+    const moveTo = el => { if (!el) return; const a = app.getBoundingClientRect(), r = el.getBoundingClientRect(); cursor.style.transform = `translate(${r.left - a.left + Math.min(40, r.width / 2)}px,${r.top - a.top + r.height / 2}px)`; };
+    for (const cap of CAPS) {
+      const f = cap.f && $(`[data-f="${cap.f}"]`, p);
+      if (f) { moveTo(f); await c.wait(750); $$('.hot', p).forEach(x => x.classList.remove('hot')); f.classList.add('hot'); if (cap.val) $('div', f).textContent = cap.val; }
+      c.add(caps, `<div class="t-cap${cap.priv ? ' priv' : ''}">${ic(cap.i)}<span>${cap.h}</span></div>`);
+      await c.wait(cap.f ? 350 : 700);
+    }
+    $$('.hot', p).forEach(x => x.classList.remove('hot'));
+    await c.wait(500);
+    if (tick) clearInterval(tick);
+    rec.hidden = true;
+    const draft = c.add(out, `<button class="t-btn go" data-a="draft" type="button">Stop and draft the skill</button>`);
+    await c.ask(out, ['draft']);
+    draft.remove();
+    c.add(out, `<pre class="t-draft"><span class="c">---</span>
+<span class="k">name:</span> <span class="v">file-an-expense</span>
+<span class="k">description:</span> File an expense with its receipt.
+<span class="k">inputs:</span> amount; category; receipt
+<span class="c">---</span>
+1. Open expenses.example.com and sign in.
+2. Click “New expense”.
+3. Enter {amount} and choose {category}.
+4. Attach {receipt} and submit.</pre>`);
+    await c.wait(400);
+    c.add(out, `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"><span class="t-chip warn">Provisional · v1</span><span class="t-chip">Taught by you</span><span class="t-chip">7 steps → 4</span></div>`);
+  }
+
+
+  /* ---------- 3. Connections ---------- */
+  const SVC = [
+    { n: 'GitHub', s: 'Repos, issues, pull requests', a: 'key', c: '#24292F' },
+    { n: 'Linear', s: 'Issues and projects', a: 'oauth', c: '#5E6AD2' },
+    { n: 'Sentry', s: 'Errors and releases', a: 'oauth', c: '#6C5FC7' },
+    { n: 'Notion', s: 'Pages and databases', a: 'oauth', c: '#37352F' },
+    { n: 'Jira & Confluence', s: 'Tickets and docs', a: 'oauth', c: '#1868DB' },
+    { n: 'Stripe', s: 'Payments and customers', a: 'oauth', c: '#635BFF' },
+    { n: 'Figma', s: 'Designs and comments', a: 'oauth', c: '#A259FF' },
+    { n: 'Supabase', s: 'Postgres, auth, storage', a: 'oauth', c: '#1F9D6A' },
+    { n: 'Cloudflare Workers', s: 'Workers and bindings', a: 'oauth', c: '#E8761F' },
+    { n: 'Zapier', s: 'Thousands of app actions', a: 'oauth', c: '#E4561E' },
+    { n: 'Exa', s: 'Web search for agents', a: 'key', c: '#1E4CD8' },
+    { n: 'Context7', s: 'Current library docs', a: 'key', c: '#0E7C66' },
+    { n: 'DeepWiki', s: 'Ask any public repo', a: 'none', c: '#3B4B6B' },
+    { n: 'Postgres', s: 'Your database, read-only', a: 'local', c: '#336791' },
+    { n: 'Microsoft 365', s: 'Mail, calendar, Teams', a: 'builtin', c: '#121214' },
+    { n: 'LinkedIn', s: 'Company page posts', a: 'builtin', c: '#121214' },
+    { n: 'Reddit', s: 'Read threads and posts', a: 'builtin', c: '#121214' },
+  ];
+  const AUTH = { oauth: 'Sign in', key: 'API key', none: 'No setup', local: 'On this Mac', builtin: 'Built in' };
+  const FILTERS = [['all', 'All'], ['oauth', 'Sign in'], ['key', 'API key'], ['none', 'No setup'], ['builtin', 'Built in']];
+  const conn = { GitHub: 'on', Linear: 'on' };
+  let filter = 'all', query = '';
+  function svcRow(s) {
+    const st = s.a === 'builtin' ? 'builtin' : conn[s.n] || 'off';
+    if (st === 'builtin') return `<span class="t-chip ok">${ic('check')}Built in · signed in</span>`;
+    if (st === 'on') return `<span class="t-chip ok">${ic('check')}Connected</span>${s.a === 'key' ? '<span class="t-chip">Key in Keychain</span>' : ''}`;
+    if (st === 'browser') return `<span class="t-chip t-pulse">${ic('globe')}Opening your browser to sign in…</span>`;
+    if (st === 'key') return `<span class="keyf"><label class="sr" for="k-${esc(s.n)}">${esc(s.n)} API key</label><input id="k-${esc(s.n)}" type="password" placeholder="Paste the key" autocomplete="off"><button class="t-btn go" data-save="${esc(s.n)}" type="button">Save</button></span>`;
+    return `<span class="t-chip">${AUTH[s.a]}</span><button class="t-btn" data-connect="${esc(s.n)}" type="button">${ic('plug')}Connect</button>`;
+  }
+  async function connections(p, c) {
+    p.innerHTML = `<div class="t-find"><label class="t-search">${ic('search')}<span class="sr">Search services</span><input id="tSvcQ" type="search" placeholder="Search 45 services" autocomplete="off"></label>
+      <div class="t-seg" role="group" aria-label="Filter">${FILTERS.map(([k, l]) => `<button type="button" data-f="${k}">${l}</button>`).join('')}</div></div>
+      <div class="t-grid"></div>
+      <div class="t-more"><span class="t-chip">${ic('plug')}Anything else: add a server by URL or command</span><span>Sign-ins happen in your browser; keys live in the Keychain, never in a prompt.</span></div>`;
+    const grid = $('.t-grid', p);
+    const draw = () => {
+      $$('[data-f]', p).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.f === filter)));
+      const list = SVC.filter(s => (filter === 'all' || s.a === filter || (filter === 'none' && s.a === 'local')) && (!query || (s.n + ' ' + s.s).toLowerCase().includes(query)));
+      grid.innerHTML = list.length ? list.map(s => `<div class="t-svc${conn[s.n] === 'on' || s.a === 'builtin' ? ' on' : ''}" data-n="${esc(s.n)}"><span class="mono" style="background:${s.c}">${esc(s.n.replace(/[^A-Za-z0-9 ]/g, '').split(' ').map(w => w[0]).join('').slice(0, 2))}</span><b>${esc(s.n)}</b><span class="sub">${esc(s.s)}</span><div class="row">${svcRow(s)}</div></div>`).join('')
+        : `<div class="t-empty">Nothing by that name in the catalogue. Add it by URL or command instead.</div>`;
+    };
+    const connect = async name => {
+      const s = SVC.find(x => x.n === name);
+      if (s.a === 'key') { conn[name] = 'key'; draw(); const inp = grid.querySelector(`[data-n="${CSS.escape(name)}"] input`); if (inp) inp.focus(); return; }
+      if (s.a === 'oauth') { conn[name] = 'browser'; draw(); await new Promise(r => setTimeout(r, reduce ? 0 : 1300)); }
+      conn[name] = 'on'; draw();
+    };
+    grid.addEventListener('click', e => {
+      const b = e.target.closest('[data-connect]'); if (b) return connect(b.dataset.connect);
+      const sv = e.target.closest('[data-save]');
+      if (sv) { const inp = sv.parentElement.querySelector('input'); if (!inp.value.trim()) { inp.placeholder = 'Paste a key first'; inp.focus(); return; } conn[sv.dataset.save] = 'on'; draw(); }
+    });
+    $$('[data-f]', p).forEach(b => b.addEventListener('click', () => { filter = b.dataset.f; draw(); }));
+    $('#tSvcQ', p).addEventListener('input', e => { query = e.target.value.trim().toLowerCase(); draw(); });
+    draw();
+    if (c.instant) return;
+    await c.wait(1400);
+    if (conn.Notion !== 'on') await connect('Notion');
+  }
+
+
+  /* ---------- Tabs, notes and playback ---------- */
+  const DEMOS = [
+    { run: memory, title: 'Harbor 2.0 launch · Memory', note: '<b>Memory with receipts.</b> After a task, Pennant writes down the facts worth keeping, and it keeps the passages of your conversations with it, so it can say where it heard something. It searches by keyword, and by meaning when you turn on an embedding model. What you said outranks what it guessed, and what you forget stays forgotten.' },
+    { run: computer, title: 'Computer use · Safari', note: '<b>One owner of the desktop at a time.</b> Touch the mouse and Pennant pauses; press Resume and it looks at the screen again before its next click. You can watch and take over from your iPhone too.' },
+    { run: code, title: 'Harbor 2.0 launch → coding run', note: '<b>Code changes run in a thread under the one that asked.</b> Claude Code edits, tests, pushes and opens the pull request in your folder, as its own GitHub App, never as you. Deleting, publishing and spending still wait for you.' },
+    { run: workers, title: 'Product demo · 3 workers', note: '<b>Workers do the legwork; Pennant stays responsible.</b> They run in parallel on the model you pick for them, each with a clear brief, and Pennant checks their work before using it.' },
+    { run: skills, title: 'Skills', note: '<b>Skills are folders in a git repository you own.</b> Pennant writes the next version when you give feedback, every version is kept, and skills from Claude Code or Codex import as they are.' },
+    { run: teach, title: 'Teaching Pennant', note: '<b>Show it once.</b> Pennant records the app, the control and what you typed, never pixels or password fields, and turns it into steps with blanks for what changes next time.' },
+    { run: connections, title: 'Connections', note: '<b>One button per service.</b> Sign-ins open your browser, keys go to the Keychain, and every job can use them without anything pasted into a prompt.' },
+  ];
+  const tabs = $$('.t-tab'), panels = $$('.t-panel');
+  let cur = 0, tok = { dead: true }, seen = false, auto = !reduce, tourVisible = false, advance = null;
+  const live = $('.t-live');
+  const paintLive = () => { live.innerHTML = auto ? '<i></i>Playing by itself · click anything to take over' : '<i></i>Example run'; };
+  // Anything you press in the tour hands it over to you: no more auto-pressing or moving to the next tab.
+  root.addEventListener('pointerdown', e => { if (e.isTrusted && auto) { auto = false; tok.auto = false; clearTimeout(advance); paintLive(); } }, true);
+  root.addEventListener('keydown', e => { if (e.isTrusted && auto) { auto = false; tok.auto = false; clearTimeout(advance); paintLive(); } }, true);
+  function play(i, instant) {
+    tok.dead = true; clearTimeout(advance); tok = { dead: false, auto: auto && !instant };
+    cur = i;
+    tabs.forEach((t, j) => { t.setAttribute('aria-selected', String(j === i)); t.tabIndex = j === i ? 0 : -1; });
+    panels.forEach((p, j) => { p.hidden = j !== i; if (j !== i) p.innerHTML = ''; });
+    $('#tTitle').textContent = DEMOS[i].title;
+    $('#tNote').innerHTML = `${ic('checkc')}<span>${DEMOS[i].note}</span>`;
+    const mine = tok, started = Date.now();
+    DEMOS[i].run(panels[i], context(panels[i], tok, instant || reduce))
+      .then(() => { if (mine.auto && !mine.dead) advance = setTimeout(() => { advance = null; if (auto && tourVisible && !mine.dead) play((i + 1) % DEMOS.length, false); }, Math.max(4200, 11000 - (Date.now() - started))); })
+      .catch(e => { if (e !== 'stop') console.error(e); });
+  }
+  tabs.forEach((t, i) => {
+    t.addEventListener('click', () => play(i, false));
+    t.addEventListener('keydown', e => {
+      const d = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
+      if (!d) return;
+      e.preventDefault();
+      const n = (i + d + tabs.length) % tabs.length;
+      tabs[n].focus(); play(n, false);
+    });
+  });
+  $('#tReplay').addEventListener('click', () => play(cur, false));
+  paintLive();
+  play(0, true);
+  if ('IntersectionObserver' in window && !reduce) {
+    new IntersectionObserver(es => {
+      tourVisible = es.some(e => e.isIntersecting);
+      if (tourVisible && !seen) { seen = true; play(cur, false); }
+      else if (tourVisible && auto && !advance && tok.dead) play(cur, false);
+    }, { threshold: .35 }).observe($('.t-stage'));
+  }
+})();
+</script>
+</body>
+</html>

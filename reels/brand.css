@@ -1,0 +1,28 @@
+/* Pennant: the ribbon's violet-to-blue on the wallpaper, the app's own light windows, SF for type (the renders are made
+   on a Mac, where it is installed). Caption labels use each feature's flag colour, the same as on the site. */
+:root {
+  --rk-display: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif;
+  --rk-body: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --rk-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --rk-wallpaper: radial-gradient(70% 55% at 8% 0%, #9a6cff, transparent 70%), radial-gradient(60% 45% at 100% 18%, rgba(47, 128, 237, 0.55), transparent 70%),
+    linear-gradient(180deg, #5b3fd6 0%, #3b2aa6 48%, #1a1666 100%);
+  --rk-grain: 0.14;
+  --rk-paper: #ffffff;
+  --rk-paper-ink: #121214;
+  --rk-accent-soft: #d9ccff;
+  --rk-ring: #b79bff;
+  --rk-caret: #7a4fe6;
+  --rk-pill-icon: #c9b6ff;
+  --rk-caption-shadow: rgba(20, 8, 70, 0.55);
+  --rk-shadow-deep: rgba(10, 4, 50, 0.8);
+  --rk-shadow-soft: rgba(10, 4, 50, 0.5);
+  --rk-end-shadow: rgba(10, 4, 50, 0.75);
+
+  /* The app's tokens, for the parts drawn in HTML. */
+  --ink: #121214; --ink2: #5e5e68; --ink3: #9a9aa3; --line: #e9e9ee; --card: #f5f5f7; --bg2: #f7f7f9;
+  --brand: #7a4fe6; --you: #8b5cf6; --you-ink: #6a3fd9; --you-soft: rgba(139, 92, 246, 0.1);
+  --ok: #3db553; --ok-ink: #1f8636; --warn: #f0a93b; --warn-ink: #9a5b06; --blue: #2f80ed; --blue-ink: #1f63c7;
+
+  /* Caption labels: one colour per part of the story. */
+  --approve: #8b5cf6; --memory: #3db553; --computer: #2f80ed; --code: #7a4fe6; --jobs: #f0a93b;
+}

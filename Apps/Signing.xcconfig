@@ -1,0 +1,5 @@
+// Code signing for the Mac and iPhone apps. The repository leaves the team empty; to sign with yours, put
+//     DEVELOPMENT_TEAM = <your team id>
+// in Apps/Signing.local.xcconfig, which git ignores.
+DEVELOPMENT_TEAM =
+#include? "Signing.local.xcconfig"

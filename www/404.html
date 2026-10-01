@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Not found · Pennant</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151517" media="(prefers-color-scheme: dark)">
+<style>
+/* The home page's tokens, only the ones this page uses. */
+:root{
+  color-scheme:light;
+  --bg:#FFFFFF; --elev:#FFFFFF; --hover:#EBEBF0; --line:#E4E4E9; --ink:#121214; --ink2:#6F6F78;
+  --brand:#7A4FE6; --brand-hover:#6A3FD9;
+  --text:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --display:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;
+  --bg:#151517; --elev:#26262B; --hover:#28282D; --line:#303036; --ink:#F3F3F5; --ink2:#9B9BA4; --brand:#7C5CF0; --brand-hover:#8C6FF4}}
+:root[data-theme="dark"]{color-scheme:dark;
+  --bg:#151517; --elev:#26262B; --hover:#28282D; --line:#303036; --ink:#F3F3F5; --ink2:#9B9BA4; --brand:#7C5CF0; --brand-hover:#8C6FF4}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.55 var(--text);-webkit-font-smoothing:antialiased;
+  display:grid;place-items:center;padding:24px clamp(16px,4vw,40px);text-align:center}
+main{max-width:34em}
+.brand{display:inline-flex;align-items:center;gap:9px;text-decoration:none;font:700 19px/1 var(--display);letter-spacing:-.02em;color:var(--ink)}
+.code{margin:40px 0 0;font:500 13px/1 var(--mono);color:var(--ink2)}
+h1{margin:14px 0 0;font:700 clamp(34px,6vw,56px)/1.02 var(--display);letter-spacing:-.04em;text-wrap:balance}
+p.lede{margin:18px 0 0;font-size:18px;line-height:1.6;color:var(--ink2)}
+.btn{display:inline-flex;align-items:center;height:44px;margin-top:30px;padding:0 20px;border-radius:999px;background:var(--brand);color:#fff;font:600 15px/1 var(--text);text-decoration:none}
+.btn:hover{background:var(--brand-hover)}
+:focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:8px}
+</style>
+</head>
+<body>
+<main>
+  <a class="brand" href="/"><img src="/favicon.svg" width="24" height="24" alt="">Pennant</a>
+  <p class="code">404</p>
+  <h1>This page isn’t here.</h1>
+  <p class="lede">The address may have changed, or it never existed. Everything about Pennant is on the home page.</p>
+  <a class="btn" href="/">Back to Pennant</a>
+</main>
+</body>
+</html>

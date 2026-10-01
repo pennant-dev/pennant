@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pennant: it uses your Mac, and lets go</title>
+<!-- A 23-second vertical reel (1080×1920): Pennant downloads invoices in a browser; you grab the mouse and it stops
+     ("You took over · agent paused"); you untick one row and press Resume; it looks at the screen again, leaves your
+     row out, and finishes. The billing site is a generic window with fictional data; the pill uses the app's own words.
+       reelkit stills reels/computer-vertical.html 1,2.4,5,8,10,14,17,20     reelkit render reels/computer-vertical.html -->
+<link rel="stylesheet" href="/_reelkit/kit.css">
+<link rel="stylesheet" href="brand.css">
+<link rel="stylesheet" href="vertical.css">
+<style>
+
+/* A generic browser window with a fictional billing site. Everything inside is placed in window pixels. */
+#browser { left: 40px; top: 450px; width: 1000px; height: 1130px; }
+#browser .bar { height: 60px; font-size: 22px; }
+#browser .lights i { width: 15px; height: 15px; }
+.addr { position: absolute; left: 0; right: 0; top: 60px; height: 60px; display: flex; align-items: center; gap: 12px; padding: 0 28px; background: var(--bg2); border-bottom: 1px solid var(--line); font: 24px/1 var(--rk-mono); color: var(--ink3); }
+.addr i { width: 14px; height: 14px; border-radius: 50%; background: var(--line); }
+.site { position: absolute; inset: 120px 0 0 0; color: var(--ink); }
+.site h5 { position: absolute; left: 44px; top: 44px; margin: 0; font: 800 52px/1 var(--rk-display); letter-spacing: -0.02em; }
+.months { position: absolute; right: 44px; top: 34px; display: flex; gap: 12px; }
+.months span { width: 110px; height: 62px; border-radius: 31px; display: grid; place-items: center; background: var(--card); font: 700 27px/1 var(--rk-body); color: var(--ink2); }
+.months span.on { background: var(--ink); color: #fff; }
+.row { position: absolute; left: 44px; right: 44px; height: 115px; display: flex; align-items: center; gap: 28px; border-top: 1.5px solid var(--line); font: 400 32px/1 var(--rk-body); }
+.row b { font-weight: 700; }
+.row .who { color: var(--ink3); }
+.row .amt { margin-left: auto; font: 500 30px/1 var(--rk-mono); color: var(--ink2); }
+.box { width: 44px; height: 44px; border-radius: 10px; border: 3px solid #d4d4dc; background: #fff; flex: none; display: grid; place-items: center; }
+.box.on { background: var(--blue); border-color: var(--blue); }
+.box.on::after { content: ""; width: 16px; height: 8px; margin-top: -5px; border-left: 4px solid #fff; border-bottom: 4px solid #fff; transform: rotate(-45deg); }
+.dl { position: absolute; left: 44px; top: 870px; width: 400px; height: 80px; border-radius: 16px; display: grid; place-items: center; background: var(--blue); color: #fff; font: 700 30px/1 var(--rk-body); }
+.dl.hot { box-shadow: 0 0 0 8px rgba(47, 128, 237, 0.3); }
+.saved { position: absolute; right: 30px; top: 90px; width: 500px; padding: 22px 24px; border-radius: 18px; background: #fff; box-shadow: 0 30px 60px -20px rgba(20, 10, 60, 0.45), 0 0 0 1.5px rgba(0, 0, 0, 0.08); }
+.saved p { margin: 0 0 12px; font: 700 28px/1 var(--rk-body); color: var(--ink); }
+.saved div { display: flex; align-items: center; gap: 14px; padding: 10px 0; font: 500 28px/1 var(--rk-body); color: var(--ink2); }
+.saved div i { width: 30px; height: 36px; border-radius: 5px; background: #e5484d; flex: none; }
+.takeover { position: absolute; inset: 0; border-radius: 14px; border: 7px solid var(--warn); box-shadow: inset 0 0 60px rgba(240, 169, 59, 0.25); pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="frame">
+  <div id="grain"></div>
+  <div class="stage">
+    <div class="scene" id="s-win">
+      <div class="win light" id="browser">
+        <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span>Invoices</span></div>
+        <div class="addr"><i></i>billing.example.com/invoices</div>
+        <div class="site">
+          <h5>Invoices</h5>
+          <div class="months"><span id="m-aug">Aug</span><span id="m-sep">Sep</span></div>
+          <div class="row" style="top:140px"><span class="box" id="all"></span><span class="who">Select all</span></div>
+          <div class="row" style="top:255px"><span class="box" data-r></span><span><b>INV-2291</b> <span class="who">· Northwind</span></span><span class="amt">$4,200.00</span></div>
+          <div class="row" style="top:370px"><span class="box" data-r></span><span><b>INV-2292</b> <span class="who">· Quayside</span></span><span class="amt">$1,150.00</span></div>
+          <div class="row" style="top:485px"><span class="box" data-r></span><span><b>CN-0117</b> <span class="who">· Credit note</span></span><span class="amt">−$150.00</span></div>
+          <div class="row" style="top:600px"><span class="box" data-r></span><span><b>INV-2293</b> <span class="who">· Lumen &amp; Co</span></span><span class="amt">$880.00</span></div>
+          <div class="row" style="top:715px"><span class="box" data-r></span><span><b>INV-2294</b> <span class="who">· Harbor Labs</span></span><span class="amt">$2,640.00</span></div>
+          <div class="dl" id="dl">Download selected</div>
+        </div>
+        <div class="saved" id="saved"><p>Downloads</p><div><i></i>INV-2291.pdf</div><div><i></i>INV-2292.pdf</div><div><i></i>INV-2293.pdf</div><div><i></i>INV-2294.pdf</div></div>
+        <div class="takeover" id="takeover"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="caption"><span class="label" id="cap-label"><span id="cap-label-text"></span></span><p id="cap-text"></p></div>
+  <div id="hud"><p id="hud-caption" style="display:none"></p><div id="pill"></div></div>
+  <div id="cursor"></div>
+  <div id="mark"><img src="assets/icon-512.png" alt="">pennant.dev</div>
+  <div id="end">
+    <img src="assets/icon-512.png" alt="">
+    <h2>Pennant</h2>
+    <h3>The AI agent on your Mac that asks first.</h3>
+    <div class="facts"><span>Free</span><span>Open source</span><span>Any model</span></div>
+    <p class="url">pennant.dev</p>
+    <p class="fine">Simulated demo. The people and data are fictional.</p>
+  </div>
+</div>
+
+<script src="/_reelkit/kit.js"></script>
+<script>
+const { $, seg, easeOut, lerp, vis, camera, cameraAt, focus, captions, pill, dots, toast, hud, hudCaption, cursor, endCard, icons } = Kit;
+const play = '<svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></svg>';
+
+const caption = captions([
+  { a: -1, b: 6.4, label: "Your Mac", color: "var(--computer)", text: "It uses your apps the way you do." },
+  { a: 6.6, b: 12.6, label: "You", color: "var(--warn)", text: "Grab the mouse and it stops." },
+  { a: 12.8, b: 18.6, label: "Then", color: "var(--computer)", text: "Press Resume. It looks again before it clicks." },
+]);
+
+// Frame positions of what gets clicked (window at 40,450; site content starts 120 px down).
+const SEP = { x: 941, y: 635 }, ALL = { x: 106, y: 767 }, CREDIT = { x: 106, y: 1112 }, DL = { x: 284, y: 1480 };
+const WIN = { x: 40, y: 450, w: 1000, h: 1130 };
+const ROWS = { x: 40, y: 700, w: 1000, h: 720 };
+// A function, because focus() reads the framing area, which is set for the tall frame after Kit.start.
+const cams = () => [
+  { t: 0, c: focus(WIN, 1) },
+  { t: 6.8, c: focus(WIN, 1) },
+  { t: 7.8, c: focus(ROWS, 1.12) },
+  { t: 12.9, c: focus(ROWS, 1.12) },
+  { t: 14.0, c: focus(WIN, 1) },
+];
+
+function renderFrame(t) {
+  caption(t);
+  const scene = $("s-win");
+  scene.style.opacity = vis(t, -1, 18.6, 0.01, 0.4);
+  const CAMS = cams();
+  scene.style.transform = camera(t, CAMS);
+
+  $("m-sep").classList.toggle("on", t >= 2.1);
+  $("m-aug").classList.toggle("on", t < 2.1);
+  const boxes = document.querySelectorAll("[data-r]");
+  boxes.forEach((b, i) => b.classList.toggle("on", t >= 3.7 && !(i === 2 && t >= 8.8)));
+  $("all").classList.toggle("on", t >= 3.7 && t < 8.8);
+  $("dl").classList.toggle("hot", t >= 15.8 && t < 16.3);
+  const so = seg(t, 16.3, 16.7);
+  $("saved").style.opacity = easeOut(so);
+  $("saved").style.transform = `translateY(${lerp(-16, 0, easeOut(so))}px)`;
+  $("takeover").style.opacity = vis(t, 6.9, 13.1, 0.2, 0.3);
+
+  cursor(t, {
+    path: [
+      { t: 0.3, x: 700, y: 1300 }, { t: 1.9, ...SEP }, { t: 3.5, ...ALL }, { t: 4.6, x: 420, y: 1000 },
+      { t: 6.8, x: 420, y: 1000 }, { t: 7.1, x: 640, y: 1240 }, { t: 8.6, ...CREDIT }, { t: 9.8, x: 520, y: 1320 },
+      { t: 14.2, x: 520, y: 1320 }, { t: 15.6, ...DL }, { t: 17.2, x: 620, y: 1400 },
+    ],
+    clicks: [2.1, 3.7, 8.8, 15.8],
+    show: [0.2, 18.4],
+    camera: cameraAt(t, CAMS),
+  });
+
+  let o = 0;
+  hudCaption(null);
+  if (t >= 0.4 && t < 6.7) { o = vis(t, 0.4, 6.5, 0.3, 0.2); pill(toast(icons.spark, "Pennant is using the computer")); }
+  else if (t >= 6.7 && t < 12.8) { o = vis(t, 6.9, 12.6, 0.25, 0.2); pill(toast(icons.hand, "You took over · agent paused")); }
+  else if (t >= 12.8 && t < 14.3) { o = vis(t, 12.8, 14.1, 0.25, 0.2); pill(toast(play, "Resume computer use")); }
+  else if (t >= 14.3 && t < 16.5) { o = vis(t, 14.3, 16.3, 0.2, 0.2); pill(toast(icons.spark, "Pennant is using the computer")); }
+  else if (t >= 16.5 && t < 18.6) { o = vis(t, 16.6, 18.4, 0.25, 0.3); pill(toast(icons.check, "Done")); }
+  else pill("");
+  hud(o);
+
+  endCard(t, 18.8);
+}
+
+Kit.start({ duration: 23.5, render: renderFrame, width: 1080, height: 1920 });
+Object.assign(Kit.AREA, { y: 430, h: 1280 });
+</script>
+</body>
+</html>

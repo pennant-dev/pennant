@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pennant: fix it while you sleep</title>
+<!-- A 24-second film (1920×1080): Maya asks for a fix; Pennant starts a coding run in its own thread; the
+     pull request goes up as the project's own GitHub App; deleting the stale branch waits for her Allow. Real screens
+     of the demo host (Scripts/demo-shots.sh), fictional people and company.
+     code-vertical.html is the 9:16 cut for phone feeds.
+       reelkit stills reels/code.html 1,4.5,8,11,14,17.5,22     reelkit render reels/code.html -->
+<link rel="stylesheet" href="/_reelkit/kit.css">
+<link rel="stylesheet" href="brand.css">
+<style>
+.mac { left: 240px; top: 160px; width: 1440px; }
+</style>
+</head>
+<body>
+<div id="frame">
+  <div id="grain"></div>
+  <div class="stage">
+    <div class="scene" id="s-ask"><div class="win light mac"><img class="shot" src="assets/shot-lead.avif" alt=""><div class="hl" id="hl-handoff"></div></div></div>
+    <div class="scene" id="s-run"><div class="win light mac"><img class="shot" src="assets/shot-coding.avif" alt=""><div class="hl" id="hl-allow"></div></div></div>
+  </div>
+
+  <div id="caption"><span class="label" id="cap-label"><span id="cap-label-text"></span></span><p id="cap-text"></p></div>
+  <div id="hud"><p id="hud-caption" style="display:none"></p><div id="pill"></div></div>
+  <div id="mark"><img src="assets/icon-512.png" alt="">pennant.dev</div>
+  <div id="end">
+    <img src="assets/icon-512.png" alt="">
+    <h2>Pennant</h2>
+    <h3>The AI agent on your Mac that asks first.</h3>
+    <div class="facts"><span>Free</span><span>Open source</span><span>Any model</span><span>Mac and iPhone</span></div>
+    <p class="url">pennant.dev</p>
+    <p class="fine">Simulated demo. The people and data are fictional.</p>
+  </div>
+</div>
+
+<script src="/_reelkit/kit.js"></script>
+<script>
+const { $, vis, camera, focus, rise, picture, highlight, captions, pill, toast, hud, hudCaption, endCard, icons } = Kit;
+const codeIcon = '<svg viewBox="0 0 24 24"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></svg>';
+
+const caption = captions([
+  { a: -1, b: 5.9, label: "Code", color: "var(--code)", text: "Ask for a fix before bed." },
+  { a: 6.1, b: 11.9, label: "Code", color: "var(--code)", text: "It opens the pull request as its own GitHub App." },
+  { a: 12.1, b: 18.4, label: "Your call", color: "var(--approve)", text: "Deleting anything still waits for you." },
+]);
+
+// Full windows (2880 px wide) shown 1440 wide.
+const lead = picture({ x: 240, y: 160, width: 1440, imageWidth: 2880 });
+const run = picture({ x: 240, y: 160, width: 1440, imageWidth: 2880 });
+const WIN = { x: 240, y: 160, w: 1440, h: 900 };
+const ASK = lead.at(674, 1030, 2200, 380);
+const HANDOFF = lead.at(674, 1150, 1460, 250);
+const PR = run.at(674, 400, 1450, 215);
+const CARD = run.at(674, 400, 1450, 840);
+const ALLOW = run.at(709, 1128, 195, 78);
+
+function renderFrame(t) {
+  caption(t);
+
+  const sa = $("s-ask");
+  sa.style.opacity = vis(t, -1, 5.9, 0.01, 0.35);
+  sa.style.transform = camera(t, [{ t: 0, c: focus(WIN, 1) }, { t: 1.6, c: focus(WIN, 1) }, { t: 3.2, c: focus(ASK, 1.3) }]);
+  highlight($("hl-handoff"), HANDOFF, lead, t, 4.1, 5.8);
+
+  const sr = $("s-run");
+  sr.style.opacity = vis(t, 6.0, 18.4, 0.4, 0.35);
+  sr.style.transform = camera(t, [{ t: 6.0, c: rise(focus(WIN, 1)) }, { t: 6.5, c: focus(WIN, 1) }, { t: 8.0, c: focus(PR, 1.3) }, { t: 11.2, c: focus(PR, 1.3) }, { t: 12.6, c: focus(CARD, 1.3) }]);
+  highlight($("hl-allow"), ALLOW, run, t, 14.4, 18.2);
+
+  let o = 0;
+  hudCaption(null);
+  if (t >= 1.2 && t < 5.9) { o = vis(t, 3.4, 5.7, 0.3, 0.25); pill(toast(codeIcon, "Coding in harbor-web")); }
+  else pill("");
+  hud(o);
+
+  endCard(t, 18.6);
+}
+
+Kit.start({ duration: 24, render: renderFrame });
+</script>
+</body>
+</html>

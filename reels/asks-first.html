@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pennant: it asks first</title>
+<!-- A 25-second film (1920×1080) for YouTube, X, LinkedIn and the site: the dashboard after a night's work with three
+     cards waiting, the launch post's card, the same card approved from the iPhone, and the Mac publishing it. Real
+     screens of the demo host (Scripts/demo-shots.sh), fictional people and company. asks-first-vertical.html is the
+     9:16 cut for phone feeds.
+       reelkit stills reels/asks-first.html 1,4.5,8,11,14.8,18.5,23     reelkit render reels/asks-first.html -->
+<link rel="stylesheet" href="/_reelkit/kit.css">
+<link rel="stylesheet" href="brand.css">
+<style>
+.mac { left: 240px; top: 160px; width: 1440px; }
+/* The iPhone: a plain bezel around the app's own screenshot. */
+.phone { position: absolute; left: 740px; top: 140px; width: 440px; padding: 18px; border-radius: 70px; background: #16161a; box-shadow: 0 60px 120px -40px var(--rk-shadow-deep), 0 0 0 2px rgba(255, 255, 255, 0.08); }
+.phone img { display: block; width: 100%; border-radius: 54px; }
+.press { position: absolute; border-radius: 30px; background: rgba(18, 18, 20, 0.28); opacity: 0; }
+.touch { position: absolute; width: 96px; height: 96px; margin: -48px 0 0 -48px; border-radius: 50%; background: rgba(255, 255, 255, 0.55); border: 4px solid rgba(255, 255, 255, 0.9); box-shadow: 0 10px 40px rgba(10, 4, 50, 0.4); opacity: 0; }
+</style>
+</head>
+<body>
+<div id="frame">
+  <div id="grain"></div>
+  <div class="stage">
+    <div class="scene" id="s-home"><div class="win light mac"><img class="shot" src="assets/shot-home.avif" alt=""><div class="hl" id="hl-needs"></div></div></div>
+    <div class="scene" id="s-card"><div class="win light mac"><img class="shot" src="assets/shot-approval.avif" alt=""><div class="hl" id="hl-approve"></div></div></div>
+    <div class="scene" id="s-phone">
+      <div class="phone"><img src="assets/shot-phone-approval.avif" alt=""></div>
+      <div class="press" id="press"></div>
+      <div class="touch" id="touch"></div>
+    </div>
+    <div class="scene" id="s-done"><div class="win light mac"><img class="shot" src="assets/shot-approved.avif" alt=""><div class="hl" id="hl-done"></div></div></div>
+  </div>
+
+  <div id="caption"><span class="label" id="cap-label"><span id="cap-label-text"></span></span><p id="cap-text"></p></div>
+  <div id="hud"><p id="hud-caption" style="display:none"></p><div id="pill"></div></div>
+  <div id="mark"><img src="assets/icon-512.png" alt="">pennant.dev</div>
+  <div id="end">
+    <img src="assets/icon-512.png" alt="">
+    <h2>Pennant</h2>
+    <h3>The AI agent on your Mac that asks first.</h3>
+    <div class="facts"><span>Free</span><span>Open source</span><span>Any model</span><span>Mac and iPhone</span></div>
+    <p class="url">pennant.dev</p>
+    <p class="fine">Simulated demo. The people and data are fictional.</p>
+  </div>
+</div>
+
+<script src="/_reelkit/kit.js"></script>
+<script>
+const { $, seg, easeOut, lerp, vis, camera, focus, rise, picture, highlight, captions, pill, toast, hud, hudCaption, endCard, icons } = Kit;
+
+const caption = captions([
+  { a: -1, b: 5.9, label: "Overnight", color: "var(--jobs)", text: "Your agent works the night shift." },
+  { a: 6.1, b: 11.9, label: "Your call", color: "var(--approve)", text: "Nothing goes out until you say so." },
+  { a: 12.1, b: 16.6, label: "Anywhere", color: "var(--approve)", text: "Approve it from your phone." },
+  { a: 16.8, b: 20.2, label: "Done", color: "var(--memory)", text: "Your Mac does the rest." },
+]);
+
+// Full Mac windows (2880 px wide, sidebar included) shown 1440 wide.
+const win = picture({ x: 240, y: 160, width: 1440, imageWidth: 2880 });
+const phone = picture({ x: 758, y: 158, width: 404, imageWidth: 1206 });
+const WIN = { x: 240, y: 160, w: 1440, h: 900 };
+const NEEDS = win.at(680, 320, 1640, 380);
+const CARD = win.at(674, 520, 1260, 1020);
+const APPROVE = win.at(706, 1420, 320, 84);
+const LOWER = win.at(674, 880, 1260, 560);
+const APPROVED = win.at(704, 1180, 1100, 125);
+const PHONE_BTN = phone.at(84, 2039, 1037, 111);
+
+function renderFrame(t) {
+  caption(t);
+
+  const sh = $("s-home");
+  sh.style.opacity = vis(t, -1, 5.9, 0.01, 0.35);
+  sh.style.transform = camera(t, [{ t: 0, c: focus(WIN, 1) }, { t: 2.2, c: focus(WIN, 1) }, { t: 3.6, c: focus(NEEDS, 1.35) }]);
+  highlight($("hl-needs"), NEEDS, win, t, 3.9, 5.8);
+
+  const sc = $("s-card");
+  sc.style.opacity = vis(t, 6.0, 11.9, 0.4, 0.35);
+  sc.style.transform = camera(t, [{ t: 6.0, c: rise(focus(WIN, 1)) }, { t: 6.5, c: focus(WIN, 1) }, { t: 7.6, c: focus(CARD, 1.3) }]);
+  highlight($("hl-approve"), APPROVE, win, t, 9.4, 11.8);
+
+  const sp = $("s-phone");
+  sp.style.opacity = vis(t, 12.0, 16.6, 0.4, 0.35);
+  sp.style.transform = `translateY(${lerp(40, 0, easeOut(seg(t, 12.0, 12.5)))}px)`;
+  const press = $("press"), touch = $("touch");
+  Object.assign(press.style, { left: `${PHONE_BTN.x}px`, top: `${PHONE_BTN.y}px`, width: `${PHONE_BTN.w}px`, height: `${PHONE_BTN.h}px` });
+  press.style.opacity = t >= 14.6 && t < 15.0 ? 1 : 0;
+  const tp = seg(t, 14.3, 15.3);
+  touch.style.left = `${PHONE_BTN.x + PHONE_BTN.w / 2}px`;
+  touch.style.top = `${PHONE_BTN.y + PHONE_BTN.h / 2}px`;
+  touch.style.opacity = t < 14.3 || t > 15.3 ? 0 : Math.min(1, tp * 4) * (1 - seg(t, 15.0, 15.3));
+  touch.style.transform = `scale(${t < 14.6 ? lerp(1.3, 1, easeOut(seg(t, 14.3, 14.6))) : lerp(1, 0.85, seg(t, 14.6, 14.8))})`;
+
+  const sd = $("s-done");
+  sd.style.opacity = vis(t, 16.7, 20.3, 0.4, 0.35);
+  sd.style.transform = camera(t, [{ t: 16.7, c: focus(CARD, 1.3) }, { t: 17.6, c: focus(LOWER, 1.35) }]);
+  highlight($("hl-done"), APPROVED, win, t, 17.8, 20.1);
+
+  let o = 0;
+  hudCaption(null);
+  if (t >= 1.2 && t < 5.9) { o = vis(t, 1.2, 5.7, 0.3, 0.25); pill(toast(icons.bell, "3 need you")); }
+  else if (t >= 15.2 && t < 16.8) { o = vis(t, 15.2, 16.6, 0.25, 0.2); pill(toast(icons.check, "Approved")); }
+  else pill("");
+  hud(o);
+
+  endCard(t, 20.4);
+}
+
+Kit.start({ duration: 25, render: renderFrame });
+</script>
+</body>
+</html>

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pennant: it uses your Mac, and lets go</title>
+<!-- A 23.5-second film (1920×1080): Pennant downloads invoices in a browser while its thread logs each step; you grab
+     the mouse and it stops ("You took over · agent paused"); you untick one row and press Resume; it looks at the
+     screen again, leaves your row out, and finishes. The billing site is a generic window with fictional data; the
+     pill and the log use the app's own words. computer-vertical.html is the 9:16 cut for phone feeds.
+       reelkit stills reels/computer.html 1,2.4,5,8,10,14,17,21     reelkit render reels/computer.html -->
+<link rel="stylesheet" href="/_reelkit/kit.css">
+<link rel="stylesheet" href="brand.css">
+<style>
+/* A generic browser window with a fictional billing site; everything inside is placed in window pixels. */
+#browser { left: 120px; top: 130px; width: 1080px; height: 850px; }
+#hud { bottom: 18px; }
+#mark { bottom: 20px; }
+#browser .bar { height: 56px; font-size: 20px; }
+.addr { position: absolute; left: 0; right: 0; top: 56px; height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 26px; background: var(--bg2); border-bottom: 1px solid var(--line); font: 22px/1 var(--rk-mono); color: var(--ink3); }
+.addr i { width: 12px; height: 12px; border-radius: 50%; background: var(--line); }
+.site { position: absolute; inset: 112px 0 0 0; color: var(--ink); }
+.site h5 { position: absolute; left: 44px; top: 34px; margin: 0; font: 800 42px/1 var(--rk-display); letter-spacing: -0.02em; }
+.months { position: absolute; right: 44px; top: 28px; display: flex; gap: 12px; }
+.months span { width: 100px; height: 54px; border-radius: 27px; display: grid; place-items: center; background: var(--card); font: 700 24px/1 var(--rk-body); color: var(--ink2); }
+.months span.on { background: var(--ink); color: #fff; }
+.row { position: absolute; left: 44px; right: 44px; height: 84px; display: flex; align-items: center; gap: 26px; border-top: 1.5px solid var(--line); font: 400 27px/1 var(--rk-body); }
+.row b { font-weight: 700; }
+.row .who { color: var(--ink3); }
+.row .amt { margin-left: auto; font: 500 25px/1 var(--rk-mono); color: var(--ink2); }
+.box { width: 40px; height: 40px; border-radius: 10px; border: 3px solid #d4d4dc; background: #fff; flex: none; display: grid; place-items: center; }
+.box.on { background: var(--blue); border-color: var(--blue); }
+.box.on::after { content: ""; width: 16px; height: 8px; margin-top: -5px; border-left: 4px solid #fff; border-bottom: 4px solid #fff; transform: rotate(-45deg); }
+.dl { position: absolute; left: 44px; top: 640px; width: 360px; height: 72px; border-radius: 14px; display: grid; place-items: center; background: var(--blue); color: #fff; font: 700 27px/1 var(--rk-body); }
+.dl.hot { box-shadow: 0 0 0 8px rgba(47, 128, 237, 0.3); }
+.saved { position: absolute; right: 28px; top: 70px; width: 440px; padding: 20px 22px; border-radius: 18px; background: #fff; box-shadow: 0 30px 60px -20px rgba(20, 10, 60, 0.45), 0 0 0 1.5px rgba(0, 0, 0, 0.08); }
+.saved p { margin: 0 0 10px; font: 700 25px/1 var(--rk-body); color: var(--ink); }
+.saved div { display: flex; align-items: center; gap: 14px; padding: 9px 0; font: 500 24px/1 var(--rk-body); color: var(--ink2); }
+.saved div i { width: 28px; height: 34px; border-radius: 5px; background: #e5484d; flex: none; }
+.takeover { position: absolute; inset: 0; border-radius: 14px; border: 7px solid var(--warn); box-shadow: inset 0 0 60px rgba(240, 169, 59, 0.25); pointer-events: none; }
+
+/* Pennant's side: the thread, logging each step as it happens. */
+#log { left: 1240px; top: 130px; width: 560px; height: 850px; }
+#log .bar { height: 56px; font-size: 20px; }
+.steps { position: absolute; inset: 56px 0 0 0; padding: 18px 18px; display: flex; flex-direction: column; gap: 8px; }
+.me { align-self: flex-end; max-width: 90%; padding: 12px 18px; border-radius: 22px; background: var(--brand); color: #fff; font: 500 21px/1.3 var(--rk-body); }
+.step { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; padding: 9px 14px; border-radius: 14px; background: var(--bg2); font: 500 19px/1.3 var(--rk-body); color: var(--ink); }
+.step svg { width: 22px; height: 22px; fill: none; stroke: var(--ink2); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; margin-top: 1px; }
+.step.you { background: rgba(240, 169, 59, 0.14); }
+.step.you svg { stroke: var(--warn-ink); }
+.step.look { background: rgba(47, 128, 237, 0.1); }
+.step.look svg { stroke: var(--blue-ink); }
+.step.ok { background: rgba(61, 181, 83, 0.12); color: var(--ok-ink); }
+.step.ok svg { stroke: var(--ok-ink); }
+</style>
+</head>
+<body>
+<div id="frame">
+  <div id="grain"></div>
+  <div class="stage">
+    <div class="scene" id="s-desk">
+      <div class="win light" id="browser">
+        <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span>Invoices</span></div>
+        <div class="addr"><i></i>billing.example.com/invoices</div>
+        <div class="site">
+          <h5>Invoices</h5>
+          <div class="months"><span id="m-aug">Aug</span><span id="m-sep">Sep</span></div>
+          <div class="row" style="top:110px"><span class="box" id="all"></span><span class="who">Select all</span></div>
+          <div class="row" style="top:194px"><span class="box" data-r></span><span><b>INV-2291</b> <span class="who">· Northwind</span></span><span class="amt">$4,200.00</span></div>
+          <div class="row" style="top:278px"><span class="box" data-r></span><span><b>INV-2292</b> <span class="who">· Quayside</span></span><span class="amt">$1,150.00</span></div>
+          <div class="row" style="top:362px"><span class="box" data-r></span><span><b>CN-0117</b> <span class="who">· Credit note</span></span><span class="amt">−$150.00</span></div>
+          <div class="row" style="top:446px"><span class="box" data-r></span><span><b>INV-2293</b> <span class="who">· Lumen &amp; Co</span></span><span class="amt">$880.00</span></div>
+          <div class="row" style="top:530px"><span class="box" data-r></span><span><b>INV-2294</b> <span class="who">· Harbor Labs</span></span><span class="amt">$2,640.00</span></div>
+          <div class="dl" id="dl">Download selected</div>
+        </div>
+        <div class="saved" id="saved"><p>Downloads</p><div><i></i>INV-2291.pdf</div><div><i></i>INV-2292.pdf</div><div><i></i>INV-2293.pdf</div><div><i></i>INV-2294.pdf</div></div>
+        <div class="takeover" id="takeover"></div>
+      </div>
+      <div class="win light" id="log">
+        <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span>Pennant · Invoices for September</span></div>
+        <div class="steps" id="steps"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="caption"><span class="label" id="cap-label"><span id="cap-label-text"></span></span><p id="cap-text"></p></div>
+  <div id="hud"><p id="hud-caption" style="display:none"></p><div id="pill"></div></div>
+  <div id="cursor"></div>
+  <div id="mark"><img src="assets/icon-512.png" alt="">pennant.dev</div>
+  <div id="end">
+    <img src="assets/icon-512.png" alt="">
+    <h2>Pennant</h2>
+    <h3>The AI agent on your Mac that asks first.</h3>
+    <div class="facts"><span>Free</span><span>Open source</span><span>Any model</span><span>Mac and iPhone</span></div>
+    <p class="url">pennant.dev</p>
+    <p class="fine">Simulated demo. The people and data are fictional.</p>
+  </div>
+</div>
+
+<script src="/_reelkit/kit.js"></script>
+<script>
+const { $, seg, easeOut, lerp, vis, camera, cameraAt, focus, captions, pill, toast, hud, hudCaption, cursor, endCard, icons } = Kit;
+const play = '<svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></svg>';
+const I = {
+  eye: '<svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  cursor: '<svg viewBox="0 0 24 24"><path d="m4 3 7 17 2.5-7.5L21 10z"/></svg>',
+  hand: '<svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v4M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"/></svg>',
+  resume: '<svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></svg>',
+  file: '<svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16 9.5"/></svg>',
+};
+
+const caption = captions([
+  { a: -1, b: 6.4, label: "Your Mac", color: "var(--computer)", text: "It uses your apps the way you do." },
+  { a: 6.6, b: 12.6, label: "You", color: "var(--warn)", text: "Grab the mouse and it stops." },
+  { a: 12.8, b: 18.6, label: "Then", color: "var(--computer)", text: "Press Resume. It looks again before it clicks." },
+]);
+
+// The thread's log: [time it appears, icon, text, style].
+const STEPS = [
+  [0.5, "eye", "Looked at the screen: Safari, the billing site, August", ""],
+  [2.1, "cursor", "Clicked “Sep”", ""],
+  [3.7, "cursor", "Ticked “Select all” · 5 rows", ""],
+  [6.9, "hand", "You took over · agent paused", "you"],
+  [8.8, "cursor", "You unticked the credit note", "you"],
+  [12.9, "resume", "You pressed Resume", "you"],
+  [13.8, "eye", "Fresh look before the next click: the credit note is unticked now, so it stays out", "look"],
+  [15.8, "cursor", "Clicked “Download selected” · 4 PDFs", ""],
+  [16.7, "file", "Moved 4 PDFs to Documents › Invoices › 2026-09", ""],
+  [17.4, "check", "Done, with the credit note left out as you had it.", "ok"],
+];
+$("steps").innerHTML = `<div class="me" id="ask">Download September’s invoices into Documents › Invoices</div>` + STEPS.map(([, i, text, cls]) => `<div class="step ${cls}">${I[i]}<span>${text}</span></div>`).join("");
+const stepEls = [...document.querySelectorAll("#steps .step")];
+
+// Frame positions of what gets clicked (window at 120,130; the site starts 112 px down).
+const SEP = { x: 1106, y: 297 }, ALL = { x: 184, y: 394 }, CREDIT = { x: 184, y: 646 }, DL = { x: 344, y: 918 };
+const DESK = { x: 120, y: 130, w: 1680, h: 900 };
+
+function renderFrame(t) {
+  caption(t);
+  const scene = $("s-desk");
+  scene.style.opacity = vis(t, -1, 18.6, 0.01, 0.4);
+  scene.style.transform = "none";
+
+  $("m-sep").classList.toggle("on", t >= 2.1);
+  $("m-aug").classList.toggle("on", t < 2.1);
+  document.querySelectorAll("[data-r]").forEach((b, i) => b.classList.toggle("on", t >= 3.7 && !(i === 2 && t >= 8.8)));
+  $("all").classList.toggle("on", t >= 3.7 && t < 8.8);
+  $("dl").classList.toggle("hot", t >= 15.8 && t < 16.3);
+  const so = seg(t, 16.3, 16.7);
+  $("saved").style.opacity = easeOut(so);
+  $("saved").style.transform = `translateY(${lerp(-16, 0, easeOut(so))}px)`;
+  $("takeover").style.opacity = vis(t, 6.9, 13.1, 0.2, 0.3);
+
+  stepEls.forEach((el, i) => {
+    const a = STEPS[i][0], o = easeOut(seg(t, a, a + 0.35));
+    el.style.display = t >= a ? "grid" : "none";
+    el.style.opacity = o;
+    el.style.transform = `translateY(${lerp(12, 0, o)}px)`;
+  });
+
+  cursor(t, {
+    path: [
+      { t: 0.3, x: 760, y: 900 }, { t: 1.9, ...SEP }, { t: 3.5, ...ALL }, { t: 4.6, x: 520, y: 620 },
+      { t: 6.8, x: 520, y: 620 }, { t: 7.1, x: 700, y: 800 }, { t: 8.6, ...CREDIT }, { t: 9.8, x: 600, y: 860 },
+      { t: 14.2, x: 600, y: 860 }, { t: 15.6, ...DL }, { t: 17.2, x: 700, y: 880 },
+    ],
+    clicks: [2.1, 3.7, 8.8, 15.8],
+    show: [0.2, 18.4],
+  });
+
+  let o = 0;
+  hudCaption(null);
+  if (t >= 0.4 && t < 6.7) { o = vis(t, 0.4, 6.5, 0.3, 0.2); pill(toast(icons.spark, "Pennant is using the computer")); }
+  else if (t >= 6.7 && t < 12.8) { o = vis(t, 6.9, 12.6, 0.25, 0.2); pill(toast(icons.hand, "You took over · agent paused")); }
+  else if (t >= 12.8 && t < 14.3) { o = vis(t, 12.8, 14.1, 0.25, 0.2); pill(toast(play, "Resume computer use")); }
+  else if (t >= 14.3 && t < 16.5) { o = vis(t, 14.3, 16.3, 0.2, 0.2); pill(toast(icons.spark, "Pennant is using the computer")); }
+  else if (t >= 16.5 && t < 18.6) { o = vis(t, 16.6, 18.4, 0.25, 0.3); pill(toast(icons.check, "Done")); }
+  else pill("");
+  hud(o);
+
+  endCard(t, 18.8);
+}
+
+Kit.start({ duration: 23.5, render: renderFrame });
+</script>
+</body>
+</html>

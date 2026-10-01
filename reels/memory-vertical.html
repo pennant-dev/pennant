@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pennant: memory with receipts</title>
+<!-- A 22-second vertical reel (1080×1920): Maya asks what she promised Jonas; Pennant searches its memory and answers
+     with where she said it; the fact in Memory is marked as hers ("Asserted", "you said"). Real screens of the demo
+     host (Scripts/demo-shots.sh), fictional people and company.
+       reelkit stills reels/memory-vertical.html 1,4,8,13,16,20     reelkit render reels/memory-vertical.html -->
+<link rel="stylesheet" href="/_reelkit/kit.css">
+<link rel="stylesheet" href="brand.css">
+<link rel="stylesheet" href="vertical.css">
+</head>
+<body>
+<div id="frame">
+  <div id="grain"></div>
+  <div class="stage">
+    <div class="scene" id="s-ask"><div class="win light mac"><img class="shot" src="assets/shot-lead-pane.avif" alt=""><div class="hl" id="hl-tool"></div></div></div>
+    <div class="scene" id="s-mem"><div class="win light mac"><img class="shot" src="assets/shot-memory-pane.avif" alt=""><div class="hl" id="hl-fact"></div></div></div>
+  </div>
+
+  <div id="caption"><span class="label" id="cap-label"><span id="cap-label-text"></span></span><p id="cap-text"></p></div>
+  <div id="hud"><p id="hud-caption" style="display:none"></p><div id="pill"></div></div>
+  <div id="mark"><img src="assets/icon-512.png" alt="">pennant.dev</div>
+  <div id="end">
+    <img src="assets/icon-512.png" alt="">
+    <h2>Pennant</h2>
+    <h3>The AI agent on your Mac that asks first.</h3>
+    <div class="facts"><span>Free</span><span>Open source</span><span>Any model</span></div>
+    <p class="url">pennant.dev</p>
+    <p class="fine">Simulated demo. The people and data are fictional.</p>
+  </div>
+</div>
+
+<script src="/_reelkit/kit.js"></script>
+<script>
+const { $, vis, camera, focus, rise, picture, highlight, captions, pill, toast, hud, hudCaption, endCard, icons } = Kit;
+
+const caption = captions([
+  { a: -1, b: 4.9, label: "Memory", color: "var(--memory)", text: "Ask what you promised." },
+  { a: 5.1, b: 10.9, label: "Memory", color: "var(--memory)", text: "It remembers, and says where you said it." },
+  { a: 11.1, b: 17.2, label: "Yours", color: "var(--memory)", text: "What you said outranks what it guessed." },
+]);
+
+// The Harbor 2.0 launch thread and the Memory page, each without the sidebar (2356 px wide).
+const lead = picture({ x: 40, y: 470, width: 1000, imageWidth: 2356 });
+const mem = picture({ x: 40, y: 470, width: 1000, imageWidth: 2356 });
+const MAC = { x: 40, y: 470, w: 1000, h: 763 };
+const QUESTION = lead.at(1640, 560, 700, 110);
+const ANSWER = lead.at(150, 670, 1480, 260);
+const TOOL = lead.at(150, 678, 760, 60);
+const FACT = mem.at(150, 1110, 1330, 165);
+const FACTS = mem.at(150, 420, 2180, 1000);
+
+function renderFrame(t) {
+  caption(t);
+
+  const sa = $("s-ask");
+  sa.style.opacity = vis(t, -1, 10.9, 0.01, 0.35);
+  sa.style.transform = camera(t, [{ t: 0, c: focus(QUESTION, 1.9) }, { t: 3.2, c: focus(QUESTION, 1.9) }, { t: 4.8, c: focus(ANSWER, 1.55) }]);
+  highlight($("hl-tool"), TOOL, lead, t, 5.4, 7.6);
+
+  const sm = $("s-mem");
+  sm.style.opacity = vis(t, 11.0, 17.2, 0.4, 0.35);
+  sm.style.transform = camera(t, [{ t: 11.0, c: rise(focus(FACTS, 1)) }, { t: 11.5, c: focus(FACTS, 1) }, { t: 12.8, c: focus(FACT, 1.8) }]);
+  highlight($("hl-fact"), FACT, mem, t, 13.2, 17.0);
+
+  let o = 0;
+  hudCaption(null);
+  if (t >= 1.0 && t < 4.9) { o = vis(t, 1.0, 4.7, 0.3, 0.25); pill(toast(icons.search, "Searched memory")); }
+  else pill("");
+  hud(o);
+
+  endCard(t, 17.4);
+}
+
+Kit.start({ duration: 22, render: renderFrame, width: 1080, height: 1920 });
+Object.assign(Kit.AREA, { y: 430, h: 1280 });
+</script>
+</body>
+</html>

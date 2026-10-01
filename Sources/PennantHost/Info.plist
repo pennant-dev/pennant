@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.pennant.host</string>
+	<key>CFBundleName</key>
+	<string>Pennant Host</string>
+	<key>CFBundleDisplayName</key>
+	<string>Pennant Host</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleExecutable</key>
+	<string>pennant-host</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Pennant controls apps like Safari and Finder with Apple events to carry out the tasks you ask for.</string>
+	<key>NSSystemAdministrationUsageDescription</key>
+	<string>Pennant runs commands you ask for on this Mac.</string>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>Pennant reads on-screen controls and clicks and types for you.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Pennant looks at the screen to see what it is doing and shows you a live view.</string>
+</dict>
+</plist>

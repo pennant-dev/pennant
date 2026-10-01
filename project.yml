@@ -1,0 +1,197 @@
+name: Pennant
+options:
+  bundleIdPrefix: dev.pennant
+  deploymentTarget:
+    macOS: "15.0"
+    iOS: "18.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+  xcodeVersion: "27.0"
+  groupSortPosition: top
+configFiles:
+  Debug: Apps/Signing.xcconfig
+  Release: Apps/Signing.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    CODE_SIGN_STYLE: Automatic
+packages:
+  Pennant:
+    path: .
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle.git
+    from: 2.6.4
+targets:
+  PennantMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Apps/PennantMac
+        excludes:
+          - "Resources/LaunchAgents/**"
+          - "Info.plist"
+          - "*.entitlements"
+      - path: Apps/PennantMac/Resources/LaunchAgents/dev.pennant.host.plist
+        buildPhase:
+          copyFiles:
+            destination: wrapper
+            subpath: Contents/Library/LaunchAgents
+    dependencies:
+      - package: Pennant
+        product: PennantCore
+      - package: Pennant
+        product: PennantClientKit
+      - package: Pennant
+        product: PennantUI
+      - package: Sparkle
+      - sdk: ServiceManagement.framework
+    info:
+      path: Apps/PennantMac/Info.plist
+      # xcodegen rewrites Info.plist from these properties on every generate; edit them here, not in the file.
+      properties:
+        # The product's name everywhere macOS shows it (menu bar, Dock, About).
+        CFBundleName: Pennant
+        CFBundleDisplayName: Pennant
+        # Substituted at build time so every release build gets a fresh bundle version (LaunchServices caches icons by it).
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        LSApplicationCategoryType: public.app-category.productivity
+        # macOS attributes Apple Events consent for the embedded Pennant Host helper to this app; without this
+        # string the consent dialog is never shown and every AppleScript fails with -1743.
+        NSAppleEventsUsageDescription: Pennant controls apps like Safari and Finder with Apple events to carry out the tasks you ask for.
+        NSAccessibilityUsageDescription: Pennant reads on-screen controls and clicks and types for you.
+        NSSystemAdministrationUsageDescription: Pennant runs commands you ask for on this Mac.
+        NSLocalNetworkUsageDescription: Pennant finds and talks to Pennant hosts on your local network.
+        NSBonjourServices: [_pennant._tcp]
+        # Updates (Sparkle): the feed on pennant.dev, and the EdDSA key every update must be signed with.
+        SUFeedURL: https://pennant.dev/appcast.xml
+        SUPublicEDKey: Rd4MJ8/PdZTQlR0RBlAaxHbP0o6+ADTUyi6faPBYJDk=
+        SUScheduledCheckInterval: 86400
+        SUEnableSystemProfiling: false
+    entitlements:
+      path: Apps/PennantMac/PennantMac.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.pennant.mac
+        PRODUCT_NAME: Pennant
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        ENABLE_HARDENED_RUNTIME: NO
+        ENABLE_APP_SANDBOX: NO
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Apps/PennantMac/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Apps/PennantMac/PennantMac.entitlements
+        SWIFT_EMIT_LOC_STRINGS: NO
+        COMBINE_HIDPI_IMAGES: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    postBuildScripts:
+      - name: Embed Pennant Host helper app
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          # Scripts/release.sh passes its universal build as PENNANT_HOST_BINARY; otherwise this Mac's own.
+          SRC="${PENNANT_HOST_BINARY:-}"
+          if [ -z "$SRC" ]; then
+            for cfg in release debug; do
+              if [ -x "${SRCROOT}/.build/${cfg}/pennant-host" ]; then SRC="${SRCROOT}/.build/${cfg}/pennant-host"; break; fi
+            done
+          fi
+          if [ -z "$SRC" ]; then
+            echo "warning: pennant-host not built yet (run: swift build -c release --product pennant-host); the app will look for it in .build/ at runtime"
+            exit 0
+          fi
+          # The host ships as its own app bundle so macOS keys privacy grants by its bundle identifier
+          # (dev.pennant.host) instead of by file path, and System Settings shows one stable "Pennant Host" entry.
+          HELPER="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Helpers/Pennant Host.app"
+          rm -rf "$HELPER"
+          mkdir -p "$HELPER/Contents/MacOS"
+          cp "$SRC" "$HELPER/Contents/MacOS/pennant-host"
+          cp "${SRCROOT}/Sources/PennantHost/Info.plist" "$HELPER/Contents/Info.plist"
+          # The host carries the app's version and build, so the app can tell a host left running from before an update.
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${MARKETING_VERSION}" -c "Set :CFBundleVersion ${CURRENT_PROJECT_VERSION}" "$HELPER/Contents/Info.plist"
+          mkdir -p "$HELPER/Contents/Resources"
+          cp "${SRCROOT}/Sources/PennantHost/AppIcon.icns" "$HELPER/Contents/Resources/AppIcon.icns"
+          printf 'APPL????' > "$HELPER/Contents/PkgInfo"
+          rm -f "${BUILT_PRODUCTS_DIR}/${EXECUTABLE_FOLDER_PATH}/pennant-host"
+          # Signed here, with its own entitlements and the hardened runtime, before Xcode signs the app around it;
+          # a Developer ID export re-signs it and keeps them.
+          if [ "${CODE_SIGNING_ALLOWED}" = "YES" ] && [ -n "${EXPANDED_CODE_SIGN_IDENTITY}" ]; then
+            codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --options runtime --timestamp=none \
+              --entitlements "${SRCROOT}/Sources/PennantHost/PennantHost.entitlements" "$HELPER"
+          fi
+          echo "Embedded Pennant Host.app from $SRC"
+  PennantiOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Apps/PennantiOS
+        excludes:
+          - "Info.plist"
+    dependencies:
+      - package: Pennant
+        product: PennantCore
+      - package: Pennant
+        product: PennantClientKit
+      - package: Pennant
+        product: PennantUI
+    info:
+      path: Apps/PennantiOS/Info.plist
+      properties:
+        # The name under the icon on the Home Screen.
+        CFBundleName: Pennant
+        CFBundleDisplayName: Pennant
+        # Without these iOS blocks Bonjour browsing and the LAN websocket, so pairing can never complete.
+        NSLocalNetworkUsageDescription: Pennant connects to your Mac over the local network to pair with it and stream its screen.
+        NSBonjourServices: [_pennant._tcp]
+        # The Mac's connect code (Settings › iPhone) is a QR code: scanned in the app, or opened from the Camera app.
+        NSCameraUsageDescription: Pennant scans the connect code your Mac shows, to find it away from your network.
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.pennant.connect
+            CFBundleURLSchemes: [pennant]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        # Only standard HTTPS/TLS: exempt, so TestFlight doesn't ask about export compliance on every build.
+        ITSAppUsesNonExemptEncryption: false
+        # The signing team, so the host can sign notifications without anyone typing it.
+        PennantTeamID: $(DEVELOPMENT_TEAM)
+    entitlements:
+      path: Apps/PennantiOS/PennantiOS.entitlements
+      properties:
+        # Notifications (APNs). Archives for TestFlight and the App Store are re-signed for production.
+        aps-environment: development
+    settings:
+      base:
+        # Override at build time to ship under another App Store record: PENNANT_IOS_BUNDLE_ID=com.example.app
+        PENNANT_IOS_BUNDLE_ID: dev.pennant.ios
+        PRODUCT_BUNDLE_IDENTIFIER: $(PENNANT_IOS_BUNDLE_ID)
+        PRODUCT_NAME: Pennant
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Apps/PennantiOS/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+schemes:
+  PennantMac:
+    build:
+      targets:
+        PennantMac: all
+    run:
+      config: Debug
+      environmentVariables:
+        PENNANT_PROJECT_DIR: $(SRCROOT)
+  PennantiOS:
+    build:
+      targets:
+        PennantiOS: all
+    run:
+      config: Debug

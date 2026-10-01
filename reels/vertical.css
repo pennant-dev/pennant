@@ -1,0 +1,22 @@
+/* The kit's overlays laid out for a 1080×1920 phone frame: a tall caption band, a bigger pill and end card. */
+.stage { -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent 330px, #000 400px); mask-image: linear-gradient(to bottom, transparent 0, transparent 330px, #000 400px); }
+#caption { top: 120px; flex-direction: column; gap: 22px; padding: 0 60px; }
+#caption .label { width: 200px; height: 58px; }
+#caption .label span { font-size: 24px; }
+#caption p { font-size: 66px; line-height: 1.08; text-align: center; max-width: 960px; text-wrap: balance; }
+#hud { bottom: 120px; }
+#pill { height: 88px; padding: 0 38px; font-size: 31px; gap: 8px; }
+#pill .dots i { width: 13px; height: 13px; }
+#pill .toast { gap: 16px; }
+#pill svg { width: 36px; height: 36px; }
+#mark { font-size: 28px; bottom: 44px; right: 50px; }
+#mark img { width: 42px; height: 42px; }
+#end h2 { font-size: 110px; }
+#end h3 { font-size: 60px; max-width: 900px; line-height: 1.1; text-wrap: balance; }
+#end img { width: 230px; height: 230px; border-radius: 52px; }
+#end .facts { flex-wrap: wrap; justify-content: center; max-width: 900px; }
+#end .facts span { font-size: 28px; padding: 14px 26px; }
+#end .url { font-size: 46px; padding: 24px 50px; }
+#end .fine { font-size: 22px; bottom: 60px; }
+/* A Mac screenshot, full width. */
+.mac { left: 40px; top: 470px; width: 1000px; }

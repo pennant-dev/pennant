@@ -1,0 +1,17 @@
+.build/
+.swiftpm/
+*.xcodeproj
+*.xcworkspace
+!Pennant.xcodeproj/xcshareddata
+DerivedData/
+build/
+dist/
+*.app
+.DS_Store
+*.log
+/Config.local.json
+.build-*/
+.claude/
+.vscode/
+/Apps/Signing.local.xcconfig
+/www/.deploy.env
