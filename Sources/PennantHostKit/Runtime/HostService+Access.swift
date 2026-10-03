@@ -154,7 +154,7 @@ extension HostService {
             for await frame in source {
                 if Task.isCancelled { break }
                 seq += 1
-                let header = ScreenFrameHeader(sequence: seq, width: frame.width, height: frame.height, timestamp: frame.capturedAt, cursorX: frame.cursorX.map { $0 / Double(max(frame.displayWidth, 1)) }, cursorY: frame.cursorY.map { $0 / Double(max(frame.displayHeight, 1)) }, owner: await lease.owner)
+                let header = ScreenFrameHeader(sequence: seq, width: frame.width, height: frame.height, timestamp: frame.capturedAt, cursorX: frame.cursorX.map { $0 / Double(max(frame.displayWidth, 1)) }, cursorY: frame.cursorY.map { $0 / Double(max(frame.displayHeight, 1)) }, owner: await lease.owner, region: frame.region)
                 continuation.yield((header, frame.jpeg))
             }
             continuation.finish()

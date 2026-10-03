@@ -29,6 +29,12 @@ public enum HostSessionError: Error, CustomStringConvertible, Sendable {
 @MainActor
 @Observable
 public final class HostSession {
+    /// Input from the live screen waiting to go out (`queueRemoteInput`), and why the last one was refused.
+    private var liveInput: [RemoteInput] = []
+    private var sendingLiveInput = false
+    /// Live input sent and not yet answered: its reply only says whether it was refused.
+    private var liveInputCommands: Set<CommandID> = []
+    public private(set) var liveInputError: String?
     public let state = ClientState()
     public private(set) var connection: ConnectionState = .disconnected
     public private(set) var endpoint: HostEndpoint
@@ -226,7 +232,13 @@ public final class HostSession {
     private func handleInbound(_ item: TransportInbound) {
         switch item {
         case .message(let m): handle(m)
-        case .screenFrame(let h, let d): state.setScreenFrame(h, d)
+        case .screenFrame(let h, let d):
+            state.setScreenFrame(h, d)
+            // The host sends the next frame once this one is confirmed: frames never queue up on a slow link.
+            if screenOptions.acknowledges == true {
+                let ack = ClientCommand(body: .screenFrameReceived(h.sequence))
+                Task { try? await transport.send(.command(ack)) }
+            }
         case .closed(let reason): connection = .failed(reason)
         }
     }
@@ -234,6 +246,10 @@ public final class HostSession {
     private func handle(_ message: WireMessage) {
         switch message {
         case .reply(let reply):
+            if liveInputCommands.remove(reply.commandID) != nil {
+                if case .error(_, let message) = reply.result { liveInputError = message } else { liveInputError = nil }
+                return
+            }
             if let c = pending.removeValue(forKey: reply.commandID) { c.resume(returning: reply.result) }
         case .event(let event):
             state.apply(event: event)
@@ -251,6 +267,23 @@ public final class HostSession {
     // MARK: Commands
 
     @discardableResult
+    /// Pennant's Chrome extension: connected or not, and the sites Pennant may use there.
+    public func chromeStatus() async throws -> ChromeStatus {
+        guard case .chromeStatus(let status) = try await send(.chromeStatus) else { throw HostSessionError.unexpectedReply }
+        return status
+    }
+
+    public func chromeForgetSite(_ site: String) async throws -> [String] {
+        guard case .chromeStatus(let status) = try await send(.chromeForgetSite(site)) else { throw HostSessionError.unexpectedReply }
+        return status.sites
+    }
+
+    /// Pennant adds its extension to Chrome on the host's Mac, the way a person would; this takes up to a minute.
+    public func chromeSetup(browser: String? = nil) async throws -> ChromeStatus {
+        guard case .chromeStatus(let status) = try await send(.chromeSetup(browser: browser), timeout: 120) else { throw HostSessionError.unexpectedReply }
+        return status
+    }
+
     public func send(_ body: CommandBody, timeout: TimeInterval = 60) async throws -> ReplyBody {
         let command = ClientCommand(body: body)
         let result: ReplyBody = try await withCheckedThrowingContinuation { continuation in
@@ -305,12 +338,50 @@ public final class HostSession {
     public func pauseDesktop() async throws { _ = try await send(.pauseDesktop) }
     public func resumeDesktop() async throws { _ = try await send(.resumeDesktop) }
     public func setPauseOnHumanInput(_ on: Bool) async throws { _ = try await send(.setPauseOnHumanInput(on)) }
-    public func sendRemoteInput(_ input: RemoteInput) async throws { _ = try await send(.remoteInput(input), timeout: 10) }
+    /// Sends the owner's input from the live screen in the order it happened, one at a time. A pointer move still
+    /// waiting behind another move replaces it, so the Mac's pointer follows the finger instead of replaying its
+    /// path; presses, releases, clicks and keys all go out.
+    public func queueRemoteInput(_ input: RemoteInput) {
+        if case .pointerMove = input, let last = liveInput.last, case .pointerMove = last {
+            liveInput[liveInput.count - 1] = input
+        } else {
+            liveInput.append(input)
+        }
+        guard !sendingLiveInput else { return }
+        sendingLiveInput = true
+        // Each goes out once the one before it has, without waiting for the host's reply: on a busy link the reply
+        // comes back behind screen frames, and waiting for it made every click seconds late. A refusal still shows
+        // (`liveInputError`) when its reply arrives.
+        Task {
+            while !liveInput.isEmpty {
+                let command = ClientCommand(body: .remoteInput(liveInput.removeFirst()))
+                liveInputCommands.insert(command.id)
+                do {
+                    try await transport.send(.command(command))
+                } catch {
+                    liveInputCommands.remove(command.id)
+                    liveInputError = String(describing: error)
+                }
+            }
+            sendingLiveInput = false
+        }
+    }
 
     public func subscribeScreen(_ options: ScreenStreamOptions = ScreenStreamOptions()) async throws {
+        var options = options
+        options.acknowledges = true
         screenOptions = options
         screenSubscribed = true
         _ = try await send(.subscribeScreen(options))
+    }
+
+    /// The part of the display a zoomed-in view shows (nil: all of it). The stream switches to it at full resolution,
+    /// and its frames say which part they show.
+    public func showScreenRegion(_ region: ScreenRegion?) async {
+        guard screenSubscribed, screenOptions.region != region else { return }
+        var options = screenOptions
+        options.region = region
+        try? await subscribeScreen(options)
     }
 
     public func unsubscribeScreen() async throws {
@@ -326,7 +397,10 @@ public final class HostSession {
     /// A view starts showing the screen: subscribes (with its options, else the current ones) and counts it.
     public func watchScreen(_ options: ScreenStreamOptions? = nil) async {
         screenViewers += 1
-        try? await subscribeScreen(options ?? screenOptions)
+        // A view starts unzoomed: the whole screen, whatever part an earlier one zoomed into.
+        var wanted = options ?? screenOptions
+        wanted.region = nil
+        try? await subscribeScreen(wanted)
     }
 
     /// A view stops showing the screen; the stream ends when the last one goes.
@@ -497,10 +571,11 @@ public final class HostSession {
         return a
     }
 
-    public func chatGPTModels() async throws -> [ChatGPTModel] {
+    /// The account's models, and a line saying where the list came from.
+    public func chatGPTModels() async throws -> (models: [ChatGPTModel], note: String?) {
         let r = try await send(.listChatGPTModels, timeout: 30)
-        guard case .chatGPTModels(let m) = r else { throw HostSessionError.unexpectedReply }
-        return m
+        guard case .chatGPTModels(let m, let note) = r else { throw HostSessionError.unexpectedReply }
+        return (m, note)
     }
 
     public func mcpCatalog() async throws -> [MCPCatalogEntry] {

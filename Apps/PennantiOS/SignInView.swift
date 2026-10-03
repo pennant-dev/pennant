@@ -610,7 +610,7 @@ enum SignInClient {
     }
 
     static func signInOptions(_ endpoint: HostEndpoint) async throws -> (providers: [SignInProvider], hostName: String) {
-        guard case .signInOptions(let providers, let hostName) = try await request(endpoint, .signInOptions, timeout: 8) else { return ([], "") }
+        guard case .signInOptions(let providers, let hostName, _) = try await request(endpoint, .signInOptions, timeout: 8) else { return ([], "") }
         return (providers, hostName)
     }
 }

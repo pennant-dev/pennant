@@ -85,7 +85,8 @@ extension TaskRuntime {
     }
 
     func complete(task id: TaskID, summary: String) async throws {
-        try await updateTask(id) { $0.resultSummary = summary }
+        let done = try await updateTask(id) { $0.resultSummary = summary }
+        await clearQuietHeartbeat(done, reply: summary)
         try await transition(id, to: .completed, reason: "Completed")
         await finish(task: id)
         // Keep what the exchange established, without holding up the reply.
@@ -94,7 +95,7 @@ extension TaskRuntime {
 
     /// Writes the durable facts a finished task established into memory (see `MemoryLearner`), and says so.
     private func learn(from id: TaskID, answer: String) async {
-        guard let task = try? await deps.store.task(id), task.parentTaskID == nil,
+        guard let task = try? await deps.store.task(id), task.parentTaskID == nil, !Self.isHeartbeat(task),
               let agent = try? await deps.store.agent(task.agentID),
               (try? await deps.store.conversation(task.conversationID))??.isCodingRun != true else { return }
         let messages = (try? await deps.store.messagesAfter(conversationID: task.conversationID, after: nil, limit: 400)) ?? []
@@ -149,12 +150,16 @@ extension TaskRuntime {
         guard let task = try? await deps.store.task(id) else { return }
         await deps.lease.forget(taskID: id)
         await CaptureGeometryRegistry.shared.forget(taskID: id)
+        await AppCaptureRegistry.shared.forget(taskID: id)
         freshScreen.remove(id)
         emptyReplies[id] = nil
+        earlyAnswers[id] = nil
+        wrappedUp.remove(id)
         nudged.remove(id)
         runtimeNotes[id] = nil
         await recordSkillOutcomes(task: task, succeeded: task.state == .completed)
         await publish(.taskUpserted(task))
+        await reportFinished(task)
         for c in taskWaiters.removeValue(forKey: id) ?? [] { c.resume(returning: task) }
         // Helpers it started and never collected have nobody to report to: stop them (and theirs, as each finishes).
         for child in (try? await deps.store.listTasks(agentID: nil, includeFinished: false)) ?? [] where child.parentTaskID == id {

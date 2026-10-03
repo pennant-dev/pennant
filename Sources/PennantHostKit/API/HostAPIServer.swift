@@ -240,6 +240,12 @@ actor ClientConnection {
     /// Which stream `screenTask` is. A replaced stream finishes after its successor started and must leave it alone.
     private var screenStreamID = 0
     private var commandTasks: [CommandID: Task<Void, Never>] = [:]
+    /// The owner's live input from this client, applied strictly in the order it came (other commands run side by side).
+    private var inputTail: Task<Void, Never>?
+    /// The last frame the client confirmed, and a stream waiting for a confirmation (`acknowledges`).
+    private var screenAcked: Int64 = 0
+    private var framesSent: Int64 = 0
+    private var ackWaiter: (sequence: Int64, continuation: CheckedContinuation<Void, Never>)?
 
     init(id: UUID, connection: NWConnection, server: HostAPIServer, delegate: any HostAPIDelegate, eventBus: EventBus, store: any StoreProtocol, hostName: String, queue: DispatchQueue, encrypted: Bool = false, edge: Bool = false) {
         self.id = id
@@ -300,6 +306,8 @@ actor ClientConnection {
         screenTask?.cancel()
         for task in commandTasks.values { task.cancel() }
         commandTasks.removeAll()
+        inputTail?.cancel()
+        releaseAckWaiter()
         receiveTask?.cancel()
         connection.cancel()
         log.info("Connection \(remoteDescription) closed: \(reason)", category: "api")
@@ -470,6 +478,22 @@ actor ClientConnection {
                 await stopScreenStream()
                 await reply(command.id, .ok)
 
+            case .screenFrameReceived(let sequence):
+                acknowledged(upTo: sequence)
+
+            case .remoteInput:
+                // In order, one after another; the reply goes out on its own, so the next input never waits behind
+                // screen frames on a busy link.
+                let body = command.body
+                let commandID = command.id
+                let previous = inputTail
+                inputTail = Task { [weak self] in
+                    await previous?.value
+                    guard let self else { return }
+                    let result = await self.delegate.handle(body, from: client)
+                    Task { await self.commandFinished(commandID, result: result) }
+                }
+
             default:
                 let body = command.body
                 let commandID = command.id
@@ -512,6 +536,7 @@ actor ClientConnection {
 
     private func startScreenStream(options: ScreenStreamOptions) {
         screenTask?.cancel()
+        releaseAckWaiter()
         screenStreamID += 1
         let streamID = screenStreamID
         let channel = LatestValueChannel<(ScreenFrameHeader, Data)>()
@@ -526,18 +551,59 @@ actor ClientConnection {
                 await channel.finish()
             }
             defer { producer.cancel() }
-            while !Task.isCancelled, let (header, jpeg) = await channel.next() {
+            let paced = options.acknowledges == true
+            var previous: Int64?
+            while !Task.isCancelled, let (captured, jpeg) = await channel.next() {
+                // Numbered across this connection's streams, so a confirmation from an earlier one can't count here.
+                var header = captured
+                header.sequence = await self.nextFrameNumber()
                 guard let data = try? ScreenFrameCodec.encode(header: header, jpeg: jpeg) else { continue }
                 await self.send(data, opcode: .binary)
+                // At most two frames unconfirmed: on a slow link the newest frame waits here (older ones are
+                // dropped), instead of frames piling up in the network buffers for seconds.
+                if paced, let previous { await self.waitForAck(of: previous) }
+                previous = header.sequence
             }
             await self.screenStreamEnded(streamID)
         }
         Task { await server.setStreaming(true, connectionID: id) }
     }
 
+    /// Waits until the client confirms frame `sequence`, or two seconds, so a lost confirmation never stalls the stream.
+    private func waitForAck(of sequence: Int64) async {
+        guard screenAcked < sequence, !closed else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            ackWaiter?.continuation.resume()
+            ackWaiter = (sequence, continuation)
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                await self?.acknowledged(upTo: sequence)
+            }
+        }
+    }
+
+    private func nextFrameNumber() -> Int64 {
+        framesSent += 1
+        return framesSent
+    }
+
+    private func acknowledged(upTo sequence: Int64) {
+        screenAcked = max(screenAcked, sequence)
+        if let waiter = ackWaiter, screenAcked >= waiter.sequence {
+            ackWaiter = nil
+            waiter.continuation.resume()
+        }
+    }
+
+    private func releaseAckWaiter() {
+        ackWaiter?.continuation.resume()
+        ackWaiter = nil
+    }
+
     private func stopScreenStream() async {
         screenTask?.cancel()
         screenTask = nil
+        releaseAckWaiter()
         await server.setStreaming(false, connectionID: id)
     }
 

@@ -15,6 +15,7 @@ final class TinyHTTPServer: @unchecked Sendable {
         var path: String
         var headers: [String: String]
         var body: Data
+        var query: [String: String] = [:]
 
         func header(_ name: String) -> String? { headers.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value }
         var bodyString: String { String(decoding: body, as: UTF8.self) }
@@ -116,7 +117,8 @@ final class TinyHTTPServer: @unchecked Sendable {
                     let parts = lines.first?.split(separator: " ") ?? []
                     let target = parts.count > 1 ? String(parts[1]) : "/"
                     let comps = URLComponents(string: "http://127.0.0.1" + target)
-                    let request = Request(method: parts.first.map(String.init) ?? "GET", path: comps?.path ?? target, headers: headers, body: Data(body))
+                    let query = Dictionary((comps?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { first, _ in first })
+                    let request = Request(method: parts.first.map(String.init) ?? "GET", path: comps?.path ?? target, headers: headers, body: Data(body), query: query)
                     let response = self.handler(request)
                     var head = "HTTP/1.1 \(response.status) \(Self.reason(response.status))\r\n"
                     for (k, v) in response.headers { head += "\(k): \(v)\r\n" }

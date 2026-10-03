@@ -37,20 +37,36 @@ final class DemoSeedTests: XCTestCase {
         let proposed = try XCTUnwrap(goals.first { $0.status == .proposed })
         XCTAssertTrue(schedules.allSatisfy { $0.goalID != proposed.id }, "a proposed goal has no jobs yet")
 
-        // A coding run under the thread that asked, waiting on a card that says Allow.
+        // Maya's Pennant chat, with a coding run it started waiting on a card that says Allow.
         let pennant = try XCTUnwrap(agents.first { $0.kind == .persistent })
         let conversations = try await store.listConversations(agentID: pennant.id)
+        let chat = try XCTUnwrap(conversations.first { $0.isMain })
+        XCTAssertEqual(conversations.filter(\.isMain).count, 1)
         let coding = try XCTUnwrap(conversations.first { $0.isCodingRun })
-        XCTAssertEqual(conversations.first { $0.id == coding.parentID }?.title, "Harbor 2.0 launch")
+        XCTAssertEqual(coding.parentID, chat.id)
         let cards = try await store.messagesAfter(conversationID: coding.id, after: nil, limit: 500).flatMap(\.parts).compactMap { part -> ApprovalRequest? in
             if case .approval(let a) = part { return a }; return nil
         }
         XCTAssertEqual(cards.map(\.approveLabel), ["Allow"])
 
+        // What the threads did, in the chat: their cards (yesterday's decided), and the results worth seeing.
+        let updates = try await store.messagesAfter(conversationID: chat.id, after: nil, limit: 500).flatMap(\.parts).compactMap { part -> WorkUpdate? in
+            if case .update(let u) = part { return u }; return nil
+        }
+        XCTAssertEqual(Set(updates.filter { $0.kind == .approval }.map(\.text)),
+                       ["Delete: run a command", "LinkedIn post: launch teaser", "LinkedIn post: Harbor 2.0 is live", "Reply to Jonas Lindqvist"])
+        XCTAssertEqual(updates.first { $0.text == "LinkedIn post: launch teaser" }?.outcome, "Approved and published")
+        XCTAssertEqual(updates.filter { $0.kind == .finished }.count, 2)
+        // A thread's question, asked in Pennant's own words.
+        let asked = try await store.messagesAfter(conversationID: chat.id, after: nil, limit: 500).first { m in
+            m.parts.contains { if case .update(let u) = $0 { return u.kind == .question }; return false }
+        }
+        XCTAssertTrue(asked?.text.hasPrefix("For Lisbon") == true)
+
         // Spend by job: a job's runs, coding runs, helpers under the run that started them, a thread by its title.
         let rows = try await store.usage(from: .distantPast, to: .distantFuture)
         let jobs = await UsageJobs.resolve(Set(rows.map(\.taskID)), store: store)
-        XCTAssertEqual(Set(jobs.values), ["Harbor 2.0 launch", "Coding runs", "Company post", "Inbox drafts", "Morning brief", "Product demo", "Service check", "Import queue"])
+        XCTAssertEqual(Set(jobs.values), ["Pennant", "Coding runs", "Company post", "Inbox drafts", "Morning brief", "Product demo", "Service check", "Team offsite in Lisbon"])
         await store.close()
 
         do {

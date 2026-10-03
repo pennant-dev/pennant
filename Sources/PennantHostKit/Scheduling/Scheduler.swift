@@ -15,6 +15,9 @@ public actor Scheduler {
     /// A goal's job: its instructions, written from the goal and its board at each run, or why it's skipped.
     private var goalPrompt: (@Sendable (GoalID, String) async throws -> (text: String?, skip: String?))?
     public func setGoalPrompt(_ f: @escaping @Sendable (GoalID, String) async throws -> (text: String?, skip: String?)) { goalPrompt = f }
+    /// The heartbeat starts goals' sessions (see `runDueGoalJobs`); the timer leaves goal jobs alone.
+    public private(set) var goalsOnHeartbeat = false
+    public func setGoalsOnHeartbeat(_ on: Bool) { goalsOnHeartbeat = on }
 
     public init(store: any StoreProtocol, eventBus: EventBus, runtime: TaskRuntime) {
         self.store = store
@@ -112,7 +115,31 @@ public actor Scheduler {
 
     private func tick() async {
         guard let due = try? await store.dueSchedules(before: Date()) else { return }
-        for job in due { await fire(job, manual: false) }
+        for job in due where !(goalsOnHeartbeat && job.goalID != nil) { await fire(job, manual: false) }
+    }
+
+    /// On a heartbeat: each goal's work and review sessions whose time has come since the last one (by the goal's
+    /// cadence) start, except a goal that's waiting on the owner (a question or a card in its thread), which waits
+    /// with it. Returns the jobs that started.
+    public func runDueGoalJobs(now: Date = Date(), waitingOnOwner: @Sendable (ScheduledJob) async -> Bool) async -> [ScheduledJob] {
+        var started: [ScheduledJob] = []
+        for var job in (try? await store.listSchedules()) ?? [] where job.goalID != nil && job.enabled {
+            let since = job.lastRunAt ?? job.createdAt
+            guard let next = try? Self.parse(job).next(after: since), next <= now else { continue }
+            if let last = job.lastTaskID, let task = try? await store.task(last), !task.state.isTerminal { continue }
+            if await waitingOnOwner(job) {
+                let note = "skipped: waiting on you"
+                if job.lastOutcome != note {
+                    job.lastOutcome = note
+                    job.updatedAt = now
+                    try? await store.upsertSchedule(job)
+                    await publish(.scheduleUpserted(job))
+                }
+                continue
+            }
+            started.append(await fire(job, manual: false))
+        }
+        return started
     }
 
     @discardableResult

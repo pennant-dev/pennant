@@ -329,6 +329,10 @@ struct ModelEditorSheet: View {
     // ChatGPT account
     @State private var account: ChatGPTAccount?
     @State private var chatGPTModels: [ChatGPTModel] = []
+    /// Where the list came from: the account, or the built-in list and why.
+    @State private var chatGPTNote: String?
+    /// Typing a model id the list doesn't have.
+    @State private var otherChatGPTModel = false
     // Azure
     @State private var azure: AzureStatus?
     @State private var subscriptions: [AzureSubscription] = []
@@ -498,13 +502,29 @@ struct ModelEditorSheet: View {
         return resources.first { $0.name == a.resource && $0.resourceGroup == a.resourceGroup && $0.subscriptionID == a.subscriptionID }
     }
 
+    /// The picker's entry for typing a model id the list doesn't have.
+    private static let otherModelChoice = "\u{0}other"
+
     @ViewBuilder private var accountSection: some View {
         ChatGPTAccountBlock(account: $account)
-        ChoiceMenu("Model", selection: Binding(get: { profile.inference.model }, set: { id in
+            .onChange(of: account?.signedIn) { _, _ in Task { await loadAccount() } }
+        let listed = chatGPTModels.contains { $0.id == profile.inference.model }
+        let typing = otherChatGPTModel || (!profile.inference.model.isEmpty && !chatGPTModels.isEmpty && !listed)
+        ChoiceMenu("Model", selection: Binding(get: { typing ? Self.otherModelChoice : profile.inference.model }, set: { id in
+            guard id != Self.otherModelChoice else { otherChatGPTModel = true; return }
+            otherChatGPTModel = false
             profile.inference.model = id
             if let m = chatGPTModels.first(where: { $0.id == id }) { profile.inference.contextWindowTokens = m.contextWindowTokens; profile.inference.supportsVision = m.supportsVision }
             suggestName()
-        }), options: chatGPTModels.map { ChoiceOption($0.id, title: $0.title, subtitle: "\(formatTokens($0.contextWindowTokens)) context") }, placeholder: account?.signedIn == true ? "Choose a model…" : "Sign in to list models")
+        }), options: chatGPTModels.map { ChoiceOption($0.id, title: $0.title, subtitle: "\(formatTokens($0.contextWindowTokens)) context") }
+            + (chatGPTModels.isEmpty ? [] : [ChoiceOption(Self.otherModelChoice, title: "Other model…", subtitle: "Type any model id your account can use")]),
+            placeholder: account?.signedIn == true ? "Choose a model…" : "Sign in to list models")
+        if typing {
+            PennantTextField("Model id", placeholder: "gpt-6-sol", text: Binding(get: { profile.inference.model }, set: { profile.inference.model = $0.trimmingCharacters(in: .whitespaces); suggestName() }))
+        }
+        if let chatGPTNote {
+            Text(chatGPTNote).font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkSecondary)
+        }
     }
 
     @ViewBuilder private var endpointSection: some View {
@@ -603,8 +623,10 @@ struct ModelEditorSheet: View {
 
     private func loadAccount() async {
         account = try? await session.chatGPTAccount()
-        guard account?.signedIn == true else { return }
-        chatGPTModels = (try? await session.chatGPTModels()) ?? []
+        guard account?.signedIn == true else { chatGPTModels = []; chatGPTNote = nil; return }
+        let list = try? await session.chatGPTModels()
+        chatGPTModels = list?.models ?? []
+        chatGPTNote = list?.note
         if profile.inference.model.isEmpty, let first = chatGPTModels.first { profile.inference.model = first.id; profile.inference.contextWindowTokens = first.contextWindowTokens; suggestName() }
     }
 

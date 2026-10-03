@@ -20,6 +20,12 @@ final class ScriptedProvider: InferenceProvider, @unchecked Sendable {
     var workerTurns: [Turn] = []
     /// Turns served to coding runs on the Pennant engine (their system prompt has "## How to code"), likewise.
     var codingTurns: [Turn] = []
+    /// Turns served in the Pennant chat (its system prompt has "## The Pennant chat"), so the chat's script and its
+    /// threads' never interleave. Empty: the chat takes from `turns` like everything else.
+    var chatTurns: [Turn] = []
+    /// Replies to Pennant wording news from a thread for the chat ("writing in your chat with them"); with none, it
+    /// gets an empty reply and the news goes up as the thread put it.
+    var wordingTurns: [Turn] = []
     private(set) var requests: [InferenceRequest] = []
     private var gate: CheckedContinuation<Void, Never>?
     private var gateOpen = false
@@ -47,8 +53,12 @@ final class ScriptedProvider: InferenceProvider, @unchecked Sendable {
         requests.append(request)
         let isWorker = request.messages.first?.text.contains("task-scoped worker") ?? false
         let isCoding = request.messages.first?.text.contains("## How to code") ?? false
+        let isChat = request.messages.first?.text.contains("## The Pennant chat") ?? false
+        let isWording = request.messages.first?.text.contains("writing in your chat with them") ?? false
         let turn: Turn
         if request.jsonMode { turn = Turn(text: checkpointJSON) }
+        else if isWording { turn = wordingTurns.isEmpty ? Turn(text: "") : wordingTurns.removeFirst() }
+        else if isChat, !chatTurns.isEmpty { turn = chatTurns.removeFirst() }
         else if isWorker { turn = workerTurns.isEmpty ? Turn(text: "(no more worker turns)") : workerTurns.removeFirst() }
         else if isCoding { turn = codingTurns.isEmpty ? Turn(text: "(no more coding turns)") : codingTurns.removeFirst() }
         else { turn = turns.isEmpty ? Turn(text: "(no more scripted turns)") : turns.removeFirst() }

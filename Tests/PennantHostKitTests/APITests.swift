@@ -24,8 +24,11 @@ final class FakeAPIDelegate: HostAPIDelegate, @unchecked Sendable {
     }
 
     func handle(_ body: CommandBody, from client: ConnectedClient) async -> ReplyBody {
+        // A press takes a while to apply, so input run side by side would finish out of order.
+        if case .remoteInput(.pointerDown) = body { try? await Task.sleep(for: .milliseconds(150)) }
         lock.withLock { handled.append(body) }
         switch body {
+        case .remoteInput: return .ok
         case .listSchedules: return .schedules([])
         default: return .error(code: "unsupported", message: "not in fake")
         }
@@ -182,6 +185,11 @@ actor InboundCollector {
         return nil
     }
 
+    /// The screen frames received so far, by number.
+    var frameNumbers: [Int64] {
+        items.compactMap { if case .screenFrame(let h, _) = $0 { return h.sequence }; return nil }
+    }
+
     func frame(timeout: TimeInterval = 5) async -> (ScreenFrameHeader, Data)? {
         let item = await wait(timeout: timeout) {
             if case .screenFrame = $0 { return true }
@@ -300,6 +308,70 @@ final class APITests: XCTestCase {
         let deadline = Date().addingTimeInterval(3)
         while Date() < deadline, !delegate.lock.withLock({ delegate.clientsChanges.contains { $0.1 == 1 } }) { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertTrue(delegate.lock.withLock { delegate.clientsChanges.contains { $0.1 == 1 } })
+    }
+
+    /// A client that confirms frames gets no more than two ahead of its confirmations, so frames never pile up on a
+    /// slow link; confirming lets the next ones through. Numbers keep counting up across its streams.
+    func testAConfirmingClientIsSentNoMoreThanTwoUnconfirmedFrames() async throws {
+        delegate.endless = true
+        let (transport, collector) = try await openClient()
+        defer { Task { await transport.close() } }
+        let hello = hello(token: "t")
+        try await transport.send(.command(hello))
+        _ = await collector.reply(for: hello.id)
+
+        let subscribe = ClientCommand(body: .subscribeScreen(ScreenStreamOptions(framesPerSecond: 30, acknowledges: true)))
+        try await transport.send(.command(subscribe))
+        _ = await collector.reply(for: subscribe.id)
+        try await Task.sleep(for: .milliseconds(600))
+        var numbers = await collector.frameNumbers
+        XCTAssertEqual(numbers, [1, 2], "two frames, then it waits (the fake captures every 10 ms)")
+
+        try await transport.send(.command(ClientCommand(body: .screenFrameReceived(2))))
+        try await Task.sleep(for: .milliseconds(300))
+        numbers = await collector.frameNumbers
+        XCTAssertEqual(Array(numbers.prefix(4)), [1, 2, 3, 4], "confirming lets the next frames through")
+        XCTAssertLessThanOrEqual(numbers.count, 4)
+
+        // A new stream (a zoomed-in region, say) carries on the numbering.
+        let again = ClientCommand(body: .subscribeScreen(ScreenStreamOptions(framesPerSecond: 30, region: ScreenRegion(x: 0, y: 0, width: 0.5, height: 0.5), acknowledges: true)))
+        try await transport.send(.command(again))
+        _ = await collector.reply(for: again.id)
+        try await Task.sleep(for: .milliseconds(300))
+        numbers = await collector.frameNumbers
+        XCTAssertEqual(numbers, Array(1 ... Int64(numbers.count)), "numbers only go up: \(numbers)")
+        XCTAssertGreaterThan(numbers.count, 4)
+    }
+
+    /// The owner's live input is applied in the order it was sent, even when one input takes longer than the next.
+    func testLiveInputIsAppliedInOrder() async throws {
+        let (transport, collector) = try await openClient()
+        defer { Task { await transport.close() } }
+        let hello = hello(token: "t")
+        try await transport.send(.command(hello))
+        _ = await collector.reply(for: hello.id)
+        let inputs: [RemoteInput] = [.pointerDown(x: 0.1, y: 0.1, button: .left), .pointerMove(x: 0.2, y: 0.2), .pointerUp(x: 0.2, y: 0.2, button: .left)]
+        let commands = inputs.map { ClientCommand(body: .remoteInput($0)) }
+        for command in commands { try await transport.send(.command(command)) }
+        for command in commands { _ = await collector.reply(for: command.id) }
+        let applied = delegate.lock.withLock { delegate.handled.compactMap { body -> RemoteInput? in if case .remoteInput(let i) = body { return i }; return nil } }
+        XCTAssertEqual(applied, inputs)
+    }
+
+    /// A client from before frame confirmations gets frames as they come.
+    func testAClientThatDoesntConfirmIsNotHeldBack() async throws {
+        delegate.endless = true
+        let (transport, collector) = try await openClient()
+        defer { Task { await transport.close() } }
+        let hello = hello(token: "t")
+        try await transport.send(.command(hello))
+        _ = await collector.reply(for: hello.id)
+        let subscribe = ClientCommand(body: .subscribeScreen(ScreenStreamOptions(framesPerSecond: 30)))
+        try await transport.send(.command(subscribe))
+        _ = await collector.reply(for: subscribe.id)
+        try await Task.sleep(for: .milliseconds(600))
+        let count = await collector.frameNumbers.count
+        XCTAssertGreaterThan(count, 10)
     }
 
     /// Every capture a client starts ends: when it asks again, when it unsubscribes, and when it just goes away.

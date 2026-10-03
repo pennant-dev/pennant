@@ -142,8 +142,10 @@ public struct ScreenFrameHeader: Hashable, Codable, Sendable {
     public var cursorX: Double?
     public var cursorY: Double?
     public var owner: DesktopOwner
+    /// The part of the display this frame shows; nil: all of it.
+    public var region: ScreenRegion?
 
-    public init(sequence: Int64, width: Int, height: Int, timestamp: Date = Date(), cursorX: Double? = nil, cursorY: Double? = nil, owner: DesktopOwner) {
+    public init(sequence: Int64, width: Int, height: Int, timestamp: Date = Date(), cursorX: Double? = nil, cursorY: Double? = nil, owner: DesktopOwner, region: ScreenRegion? = nil) {
         self.sequence = sequence
         self.width = width
         self.height = height
@@ -151,6 +153,34 @@ public struct ScreenFrameHeader: Hashable, Codable, Sendable {
         self.cursorX = cursorX
         self.cursorY = cursorY
         self.owner = owner
+        self.region = region
+    }
+}
+
+/// Part of the display, as fractions of its width and height from the top-left corner.
+public struct ScreenRegion: Hashable, Codable, Sendable {
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    /// Grown by `margin` of its size on every side (so a small pan stays inside it), kept within the display.
+    public func grown(by margin: Double) -> ScreenRegion {
+        let x0 = max(0, x - width * margin), y0 = max(0, y - height * margin)
+        let x1 = min(1, x + width * (1 + margin)), y1 = min(1, y + height * (1 + margin))
+        return ScreenRegion(x: x0, y: y0, width: max(0.01, x1 - x0), height: max(0.01, y1 - y0))
+    }
+
+    /// Whether `other` lies inside this region.
+    public func contains(_ other: ScreenRegion) -> Bool {
+        other.x >= x - 1e-6 && other.y >= y - 1e-6 && other.x + other.width <= x + width + 1e-6 && other.y + other.height <= y + height + 1e-6
     }
 }
 
@@ -158,10 +188,17 @@ public struct ScreenStreamOptions: Hashable, Codable, Sendable {
     public var framesPerSecond: Int
     public var maxWidth: Int
     public var jpegQuality: Double
+    /// Only this part of the display, at up to `maxWidth` pixels: what a zoomed-in phone shows, sharp.
+    public var region: ScreenRegion?
+    /// The client confirms each frame (`screenFrameReceived`), and the host keeps no more than two unconfirmed, so a
+    /// slow link gets fewer frames instead of frames queued for seconds. Clients from before 0.1.1 don't.
+    public var acknowledges: Bool?
 
-    public init(framesPerSecond: Int = 6, maxWidth: Int = 1440, jpegQuality: Double = 0.6) {
+    public init(framesPerSecond: Int = 8, maxWidth: Int = 1920, jpegQuality: Double = 0.7, region: ScreenRegion? = nil, acknowledges: Bool? = nil) {
         self.framesPerSecond = framesPerSecond
         self.maxWidth = maxWidth
         self.jpegQuality = jpegQuality
+        self.region = region
+        self.acknowledges = acknowledges
     }
 }

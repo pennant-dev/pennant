@@ -9,16 +9,18 @@ extension TaskRuntime {
     func requestApproval(taskID: TaskID, _ request: ApprovalRequest) async throws -> ApprovalRequest {
         guard let task = try await deps.store.task(taskID) else { throw TaskError.notFound(taskID) }
         let message = Message(conversationID: task.conversationID, agentID: task.agentID, taskID: taskID, role: .assistant, parts: [.approval(request)])
+        // From the moment the card is up, a decision on it is this call's result (see `isWaitingOn`).
+        awaitingApproval[taskID] = request.id
+        defer { awaitingApproval[taskID] = nil }
         try await deps.store.appendMessage(message)
         approvalMessages[request.id] = message.id
         await publish(.messageAppended(message))
         await publishConversation(task.conversationID, after: message)
         try await transition(taskID, to: .waitingForUser, reason: "Waiting for your approval: \(request.title)")
+        await reportCard(task, request)
         await setAgentStatus(task.agentID, .waitingForUser, line: "Waiting for your approval")
         await publish(.notice(level: .info, agentID: task.agentID, text: "\(request.title) is ready for your approval."))
         await deps.lease.forget(taskID: taskID)
-        awaitingApproval[taskID] = request.id
-        defer { awaitingApproval[taskID] = nil }
         _ = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { c in
                 Task { self.registerQuestion(taskID, c) }
@@ -44,6 +46,7 @@ extension TaskRuntime {
         approvalMessages[request.id] = message.id
         await publish(.messageAppended(message))
         await publishConversation(task.conversationID, after: message)
+        await reportCard(task, request)
         await publish(.notice(level: .info, agentID: task.agentID, text: "\(request.title) is ready for your approval."))
     }
 
@@ -124,7 +127,7 @@ extension TaskRuntime {
         }
         // The task that asked has already ended (it posted the card and moved on): the decision goes back to the
         // agent as a new message in the same conversation, so it isn't lost.
-        if let task = try await deps.store.task(updated.taskID), task.state != .waitingForUser {
+        if let task = try await deps.store.task(updated.taskID), task.state != .waitingForUser, awaitingApproval[task.id] != updated.id {
             let text = "Decision on \"\(updated.title)\": " + summary
             _ = try await submitUserMessage(agentID: task.agentID, conversationID: task.conversationID, text: text, attachments: [])
             return
@@ -208,6 +211,7 @@ extension TaskRuntime {
         }
         try await deps.store.updateMessage(message)
         await publish(.messageFinalized(message))
+        await noteCardOutcome(result)
         return result
     }
 
@@ -245,6 +249,7 @@ extension TaskRuntime {
         await publish(.messageAppended(message))
         await publishConversation(task.conversationID, after: message)
         try await transition(taskID, to: .waitingForUser, reason: "Waiting for your answer")
+        await reportQuestion(task, question)
         await setAgentStatus(task.agentID, .waitingForUser, line: "Waiting for you")
         await deps.lease.forget(taskID: taskID)
         let answer: String = try await withTaskCancellationHandler {
@@ -263,6 +268,7 @@ extension TaskRuntime {
         // Stopping: the cancel that would answer it may already have run.
         if stopping { return c.resume(throwing: CancellationError()) }
         if let old = pendingQuestions.removeValue(forKey: id) { old.resume(throwing: CancellationError()) }
+        if let early = earlyAnswers.removeValue(forKey: id) { return c.resume(returning: early) }
         pendingQuestions[id] = c
     }
 

@@ -70,8 +70,9 @@ enum ScreenCapturer {
         return (Double(event.location.x), Double(event.location.y))
     }
 
-    /// Resolve the main display's SCDisplay and a filter covering it.
-    static func mainDisplayFilter() async throws -> (filter: SCContentFilter, displayWidth: Int, displayHeight: Int, pixelScale: Double) {
+    /// Resolve the main display's SCDisplay and a filter covering it. Pennant's own cursor is left out of what the
+    /// model sees (`withPennantCursor` false) and kept in what the owner watches.
+    static func mainDisplayFilter(withPennantCursor: Bool = false) async throws -> (filter: SCContentFilter, displayWidth: Int, displayHeight: Int, pixelScale: Double) {
         guard CGPreflightScreenCaptureAccess() else { throw DesktopError.permissionMissing("Screen Recording") }
         let content: SCShareableContent
         do {
@@ -83,8 +84,20 @@ enum ScreenCapturer {
         guard let display = content.displays.first(where: { $0.displayID == mainID }) ?? content.displays.first else {
             throw DesktopError.captureFailed("No display available")
         }
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let own = withPennantCursor ? [] : content.windows.filter { $0.owningApplication?.processID == getpid() }
+        let filter = SCContentFilter(display: display, excludingWindows: own)
         return (filter, display.width, display.height, Double(filter.pointPixelScale))
+    }
+
+    /// Where a region is on the display, in points, and the pixel size to capture it at: its full resolution, no
+    /// wider than `maxWidth`.
+    static func regionCapture(_ region: ScreenRegion, maxWidth: Int, displayWidth: Int, displayHeight: Int, pixelScale: Double) -> (rect: CGRect, width: Int, height: Int) {
+        let rect = CGRect(x: region.x * Double(displayWidth), y: region.y * Double(displayHeight),
+                          width: max(1, region.width * Double(displayWidth)), height: max(1, region.height * Double(displayHeight)))
+        let fullPixels = Int((rect.width * max(1, pixelScale)).rounded())
+        let width = max(16, min(maxWidth > 0 ? maxWidth : fullPixels, fullPixels))
+        let height = max(16, Int((Double(width) * rect.height / rect.width).rounded()))
+        return (rect, width, height)
     }
 
     /// Output pixel size for a capture no wider than `maxWidth`, preserving aspect ratio.
@@ -93,6 +106,41 @@ enum ScreenCapturer {
         let width = max(16, min(maxWidth > 0 ? maxWidth : fullPixels, fullPixels))
         let height = max(16, Int((Double(width) * Double(displayHeight) / Double(max(1, displayWidth))).rounded()))
         return (width, height)
+    }
+
+    /// One app's window, even behind others: its largest normal window, or the one whose title has `title` in it.
+    static func captureWindow(pid: pid_t, title: String?, maxWidth: Int, jpegQuality: Double = 0.7) async throws -> (jpeg: Data, width: Int, height: Int, frame: CGRect, title: String) {
+        guard CGPreflightScreenCaptureAccess() else { throw DesktopError.permissionMissing("Screen Recording") }
+        let content: SCShareableContent
+        do {
+            content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+        } catch {
+            throw DesktopError.captureFailed(error.localizedDescription)
+        }
+        let windows = content.windows.filter { $0.owningApplication?.processID == pid && $0.windowLayer == 0 && $0.frame.width > 80 && $0.frame.height > 60 }
+        let named = title.flatMap { t in windows.first { ($0.title ?? "").localizedCaseInsensitiveContains(t) } }
+        guard let window = named ?? windows.filter(\.isOnScreen).max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
+            ?? windows.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else {
+            throw DesktopError.captureFailed(title.map { "No window titled “\($0)”" } ?? "That app has no window to look at")
+        }
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let scale = Double(max(1, filter.pointPixelScale))
+        let full = Int(window.frame.width * scale)
+        let width = max(16, min(maxWidth > 0 ? maxWidth : full, full))
+        let height = max(16, Int((Double(width) * window.frame.height / max(1, window.frame.width)).rounded()))
+        let configuration = SCStreamConfiguration()
+        configuration.width = width
+        configuration.height = height
+        configuration.showsCursor = false
+        configuration.ignoreShadowsSingleWindow = true
+        configuration.pixelFormat = kCVPixelFormatType_32BGRA
+        let image: CGImage
+        do {
+            image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        } catch {
+            throw DesktopError.captureFailed(error.localizedDescription)
+        }
+        return (try JPEGEncoder.encode(image, quality: jpegQuality), image.width, image.height, window.frame, window.title ?? "")
     }
 
     static func capture(maxWidth: Int, jpegQuality: Double = 0.7) async throws -> CapturedScreen {
@@ -146,11 +194,20 @@ final class ScreenStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @un
     func start() {
         Task { [self] in
             do {
-                let (filter, dw, dh, pixelScale) = try await ScreenCapturer.mainDisplayFilter()
-                let size = ScreenCapturer.outputSize(maxWidth: options.maxWidth, displayWidth: dw, displayHeight: dh, pixelScale: pixelScale)
+                // The owner's live view shows Pennant's cursor too: that's where they see it working.
+                let (filter, dw, dh, pixelScale) = try await ScreenCapturer.mainDisplayFilter(withPennantCursor: true)
                 let configuration = SCStreamConfiguration()
-                configuration.width = size.width
-                configuration.height = size.height
+                if let region = options.region {
+                    // Only the part a zoomed-in phone shows, at the display's own resolution: sharp, and smaller.
+                    let capture = ScreenCapturer.regionCapture(region, maxWidth: options.maxWidth, displayWidth: dw, displayHeight: dh, pixelScale: pixelScale)
+                    configuration.sourceRect = capture.rect
+                    configuration.width = capture.width
+                    configuration.height = capture.height
+                } else {
+                    let size = ScreenCapturer.outputSize(maxWidth: options.maxWidth, displayWidth: dw, displayHeight: dh, pixelScale: pixelScale)
+                    configuration.width = size.width
+                    configuration.height = size.height
+                }
                 configuration.showsCursor = true
                 configuration.pixelFormat = kCVPixelFormatType_32BGRA
                 configuration.queueDepth = 3
@@ -166,7 +223,7 @@ final class ScreenStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @un
                     try? await stream.stopCapture()
                     return
                 }
-                log.debug("Screen stream started at \(size.width)x\(size.height), \(options.framesPerSecond) fps", category: "desktop")
+                log.debug("Screen stream started at \(configuration.width)x\(configuration.height)\(options.region == nil ? "" : " (a region)"), \(options.framesPerSecond) fps", category: "desktop")
             } catch {
                 log.warn("Screen stream failed to start: \(error)", category: "desktop")
                 stop()
@@ -227,6 +284,10 @@ final class ScreenStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @un
         lock.unlock()
         guard active else { return }
         let cursor = ScreenCapturer.cursorLocation()
+        if let region = options.region {
+            onFrame(CapturedScreen(jpeg: jpeg, width: cgImage.width, height: cgImage.height, displayWidth: dw, displayHeight: dh, region: region))
+            return
+        }
         let sx = Double(cgImage.width) / Double(max(1, dw))
         let sy = Double(cgImage.height) / Double(max(1, dh))
         onFrame(CapturedScreen(jpeg: jpeg, width: cgImage.width, height: cgImage.height, displayWidth: dw, displayHeight: dh, cursorX: cursor.x * sx, cursorY: cursor.y * sy))

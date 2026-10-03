@@ -12,8 +12,10 @@ public struct CapturedScreen: Sendable {
     public var capturedAt: Date
     public var cursorX: Double?
     public var cursorY: Double?
+    /// The part of the display the image shows; nil: all of it.
+    public var region: ScreenRegion?
 
-    public init(jpeg: Data, width: Int, height: Int, displayWidth: Int, displayHeight: Int, capturedAt: Date = Date(), cursorX: Double? = nil, cursorY: Double? = nil) {
+    public init(jpeg: Data, width: Int, height: Int, displayWidth: Int, displayHeight: Int, capturedAt: Date = Date(), cursorX: Double? = nil, cursorY: Double? = nil, region: ScreenRegion? = nil) {
         self.jpeg = jpeg
         self.width = width
         self.height = height
@@ -22,8 +24,28 @@ public struct CapturedScreen: Sendable {
         self.capturedAt = capturedAt
         self.cursorX = cursorX
         self.cursorY = cursorY
+        self.region = region
+    }
+}
+
+/// One app's window as an image, even when other windows cover it, and where that window is on the display.
+public struct WindowCapture: Sendable {
+    public var jpeg: Data
+    public var width: Int
+    public var height: Int
+    /// The window's frame in display points (top-left origin).
+    public var frame: CGRect
+    public var title: String
+    public var app: RunningApp
+
+    public init(jpeg: Data, width: Int, height: Int, frame: CGRect, title: String, app: RunningApp) {
+        self.jpeg = jpeg; self.width = width; self.height = height; self.frame = frame; self.title = title; self.app = app
     }
 
+    /// Image pixels → display points.
+    public func toDisplay(x: Double, y: Double) -> (x: Double, y: Double) {
+        (frame.minX + x * frame.width / Double(max(1, width)), frame.minY + y * frame.height / Double(max(1, height)))
+    }
 }
 
 public struct RunningApp: Hashable, Codable, Sendable {
@@ -109,9 +131,11 @@ public protocol DesktopControlling: Sendable {
     func displaySize() async -> (width: Int, height: Int)
 
     func moveMouse(x: Double, y: Double) async throws
+    /// The owner's own pointer from another device (the iPhone's live screen), at a display point: posted at once,
+    /// without the pause that lets the screen catch up between the agent's actions, and as a drag while a button
+    /// is down. Only pointer moves, presses, releases and clicks come here.
+    func livePointer(_ input: RemoteInput, x: Double, y: Double) async throws
     func click(x: Double, y: Double, button: PointerButton, count: Int) async throws
-    func mouseDown(x: Double, y: Double, button: PointerButton) async throws
-    func mouseUp(x: Double, y: Double, button: PointerButton) async throws
     func drag(fromX: Double, fromY: Double, toX: Double, toY: Double) async throws
     func scroll(x: Double, y: Double, deltaX: Double, deltaY: Double) async throws
     func typeText(_ text: String) async throws
@@ -136,6 +160,19 @@ public protocol DesktopControlling: Sendable {
 
     /// Called by the lease when a human takes over; must stop synthesizing input immediately.
     func interruptInput() async
+
+    /// Pennant's own cursor, at a display point: where it is working (a click, a press, typing), drawn above every app
+    /// without touching the owner's pointer. `click` adds a ripple.
+    func showCursor(x: Double, y: Double, click: Bool) async
+
+    // Working in an app in the background: its window seen even when covered, and presses, typing, keys and scrolling
+    // sent to that app alone. Never the owner's pointer or keyboard, never bringing the app to the front.
+    func captureWindow(app: String, title: String?, maxWidth: Int) async throws -> WindowCapture
+    /// A press at a display point inside one app's window; returns what happened, in words.
+    func pressInApp(pid: Int32, x: Double, y: Double, button: PointerButton, count: Int) async throws -> String
+    func typeInApp(pid: Int32, text: String) async throws -> String
+    func keyInApp(pid: Int32, chord: KeyChord) async throws
+    func scrollInApp(pid: Int32, x: Double, y: Double, deltaX: Double, deltaY: Double) async throws
 }
 
 /// Timestamp of the last human-originated input event, for pause-on-human-input.

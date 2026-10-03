@@ -5,6 +5,9 @@ import Foundation
 extension HostService {
     // MARK: Commands
 
+    /// The task id the owner's hand-run tools (`pennant tool`) share.
+    static let consoleTask = TaskID("owner-console")
+
     public func handle(_ body: CommandBody, from client: ConnectedClient) async -> ReplyBody {
         do {
             return try await dispatch(body, client: client)
@@ -105,6 +108,12 @@ extension HostService {
     }
 
     /// The Coding projects' folders, then git repositories in the usual places, each once.
+    private func chromeStatus() async -> ChromeStatus {
+        let status = await chrome.currentStatus()
+        return ChromeStatus(connected: status.connected, browser: status.browser, sites: await chromeSites.list(),
+                            extensionID: BrowserLink.extensionID, folder: await chrome.installed?.folder.path)
+    }
+
     private func projectFolders() -> [String] {
         var seen = Set<String>()
         return ((config.coding?.projects.map(\.path) ?? []) + Self.gitProjects()).filter { seen.insert($0).inserted }
@@ -150,7 +159,7 @@ extension HostService {
 
     private func dispatch(_ body: CommandBody, client: ConnectedClient) async throws -> ReplyBody {
         switch body {
-        case .hello, .ping, .subscribeScreen, .unsubscribeScreen, .listEvents, .signInOptions, .beginSignIn, .completeSignIn, .signInWithPassword, .redeemInvite:
+        case .hello, .ping, .subscribeScreen, .unsubscribeScreen, .screenFrameReceived, .listEvents, .signInOptions, .beginSignIn, .completeSignIn, .signInWithPassword, .redeemInvite:
             return .ok
 
         // People: anyone signed in may see who's here; only the owner changes it.
@@ -363,6 +372,8 @@ extension HostService {
             }
             return .preference(try await memory.addPreference(text: pref.text, scope: pref.scope, provenance: Provenance(sourceType: .userEdit, note: "Added in Memory view")))
         case .forgetEntity(let id):
+            // Not a fact (a standing instruction's id, say): say so, so `pennant memory forget` tries the instruction.
+            guard try await store.entity(id) != nil else { return .error(code: "not_found", message: "No fact with that id") }
             try await memory.forgetEntity(id)
             return .ok
         case .forgetPreference(let id):
@@ -430,6 +441,34 @@ extension HostService {
             guard client.isOwner else { return Self.ownerOnly }
             try await reviews.configure(clientID: clientID, secret: secret)
             return .ok
+        case .runTool(let name, let arguments):
+            guard client.isOwner else { return .error(code: "owner_only", message: "Only the host's owner can run tools by hand.") }
+            guard let tool = await broker.tool(named: name) else { return .error(code: "not_found", message: "No tool named \(name)") }
+            let chat = try await runtime.ensureMainChat()
+            // One console "task" for all of the owner's hand-run tools, so a screenshot's coordinates carry to the next call.
+            let context = ToolContext(agentID: chat.agentID, taskID: Self.consoleTask, conversationID: chat.id, store: store, desktop: desktop, lease: lease, config: config)
+            let result = try await tool.invoke(arguments, context: context)
+            var text = result.textContent
+            for case .image(let ref) in result.content { text += "\n[image: artifact \(ref.artifactID.rawValue)]" }
+            return .coderToolResult(text: text, isError: result.isError)
+        case .chromeStatus:
+            return .chromeStatus(await chromeStatus())
+        case .chromeForgetSite(let site):
+            guard client.isOwner else { return .error(code: "owner_only", message: "Only the host's owner can change which sites Pennant may use.") }
+            await chromeSites.remove(site)
+            return .chromeStatus(await chromeStatus())
+        case .chromeSetup(let browser):
+            guard client.isOwner else { return .error(code: "owner_only", message: "Only the host's owner can add Pennant to Chrome.") }
+            guard let folder = await chrome.installed?.folder else {
+                return .error(code: "unavailable", message: "This host has no copy of Pennant's Chrome extension to add.")
+            }
+            let link = chrome, cursor = desktop
+            let setup = ChromeSetup(bundleID: browser ?? "com.google.Chrome", folder: folder,
+                                    showCursor: { point, click in await cursor.showCursor(x: point.x, y: point.y, click: click) },
+                                    pressKey: { chord in try await cursor.pressKey(chord) },
+                                    isConnected: { await link.currentStatus().connected })
+            do { try await setup.run() } catch { return .error(code: "chrome_setup", message: String(describing: error)) }
+            return .chromeStatus(await chromeStatus())
         case .coderTool(let taskID, let name, let arguments):
             let r = try await runtime.coderTool(taskID: taskID, name: name, arguments: arguments)
             return .coderToolResult(text: r.text, isError: r.isError)
@@ -646,7 +685,8 @@ extension HostService {
         case .getChatGPTAccount:
             return .chatGPTAccount(await chatGPT.account())
         case .listChatGPTModels:
-            return .chatGPTModels(ChatGPTAuthManager.models)
+            let (models, note) = await chatGPT.availableModels()
+            return .chatGPTModels(models, note: note)
 
         // Diagnostics and settings
         case .getDiagnostics:
@@ -661,6 +701,7 @@ extension HostService {
             config = newConfig
             try ConfigLoader.save(newConfig, to: paths.configURL)
             await runtime.updateConfig(newConfig)
+            await heartbeat.update(newConfig.heartbeat)
             await lease.setPauseOnHumanInput(newConfig.desktop.pauseOnHumanInput)
             if inferenceChanged {
                 switchableProvider.replace(Self.makeProvider(newConfig.inference, chatGPT: chatGPT, vault: vault))
@@ -702,10 +743,9 @@ extension HostService {
         let size = await desktop.displaySize()
         func px(_ x: Double, _ y: Double) -> (Double, Double) { (x * Double(size.width), y * Double(size.height)) }
         switch input {
-        case .pointerMove(let x, let y): let p = px(x, y); try await desktop.moveMouse(x: p.0, y: p.1)
-        case .pointerDown(let x, let y, let b): let p = px(x, y); try await desktop.mouseDown(x: p.0, y: p.1, button: b)
-        case .pointerUp(let x, let y, let b): let p = px(x, y); try await desktop.mouseUp(x: p.0, y: p.1, button: b)
-        case .click(let x, let y, let b, let count): let p = px(x, y); try await desktop.click(x: p.0, y: p.1, button: b, count: max(1, count))
+        case .pointerMove(let x, let y), .pointerDown(let x, let y, _), .pointerUp(let x, let y, _), .click(let x, let y, _, _):
+            let p = px(x, y)
+            try await desktop.livePointer(input, x: p.0, y: p.1)
         case .scroll(let x, let y, let dx, let dy): let p = px(x, y); try await desktop.scroll(x: p.0, y: p.1, deltaX: dx, deltaY: dy)
         case .typeText(let text): try await desktop.typeText(text)
         case .key(let chord): try await desktop.pressKey(chord)

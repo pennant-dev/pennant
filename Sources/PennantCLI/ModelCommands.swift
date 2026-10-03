@@ -70,11 +70,12 @@ func runChatGPT(_ sub: String, options: CLIOptions) async throws {
     case "models":
         var configured: String?
         if case .config(let cfg, _) = try await session.send(.getConfig), cfg.inference.provider == HostConfig.Inference.chatGPTProvider { configured = cfg.inference.model }
-        let models = try await session.chatGPTModels()
+        let (models, note) = try await session.chatGPTModels()
+        if let note { out(note) }
         for m in models {
             out("\(m.id == configured ? "*" : " ") \(m.id)  \(m.title)  context \(m.contextWindowTokens / 1000)k\(m.supportsVision ? "" : "  (no vision)")")
         }
-        out("Any other model id can be typed in Settings › Host; it is sent to the backend as is.")
+        out("Any other model id can be typed in Settings › Models (Other model…); it is sent to the backend as is.")
 
     default:
         await session.disconnect()

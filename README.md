@@ -33,6 +33,9 @@ choose. Before it publishes, sends, deletes or spends, it hands you a card and w
 
 ## What it does
 
+- **One chat with Pennant.** The Mac and iPhone apps open on a single conversation with Pennant. It answers what's quick and
+  starts a thread for the rest (using the computer, research, a coding change), and the threads' results, questions and
+  cards come back to the chat, where you decide them. You can read any thread, but you only ever talk to Pennant.
 - **Jobs on a schedule.** "Every weekday at 8:30", "hourly" or cron. Each job follows a skill, every run gets a thread of its
   own, and a run ends in a report card rather than a wall of text. Big jobs bring in helpers on a cheaper model.
 - **Nothing goes out without you.** Publishing, sending email, deleting and spending always stop at an approval card, whatever
@@ -40,11 +43,15 @@ choose. Before it publishes, sends, deletes or spends, it hands you a card and w
   reject it, on the Mac or the iPhone. Cards written in Markdown show formatted, with the plain text a click away.
 - **Goals.** Outcomes Pennant works toward on its own, with a measure, a weekly budget and a board of what's next, waiting on
   you, in progress and done, and a weekly review. Start, pause, edit or delete any goal yourself, or approve the ones it proposes.
-- **Coding.** Code changes go to a coding run in one of your project folders, in a thread under the one that asked: Claude Code,
+- **A heartbeat.** Every 30 minutes (you choose) Pennant looks over its work: it starts the goal sessions that are due, and if
+  something is stuck or has waited on you too long, it deals with it or tells you. A look with nothing in it costs nothing.
+- **Coding.** Code changes go to a coding run in one of your project folders, in a thread of its own: Claude Code,
   or Pennant's own engine on any of your models. Runs push and open pull requests as their own GitHub App, never as you, and
   can plan first or ask before every edit.
-- **It uses your Mac.** Pennant sees the screen and clicks and types in your apps the way you do, shows you a live view while
-  it works, and lets go the moment you touch the mouse.
+- **It works beside you on your Mac.** On the web, Pennant works in tabs of its own in your Chrome, with your sign-ins,
+  through an extension it adds to Chrome for you. It works in your Mac apps in the background, even behind
+  your windows, without your pointer or keyboard. A cursor of its own shows where it is working. Only when nothing else
+  will do does it borrow the screen, with a live view, and it lets go the moment you touch the mouse.
 - **Memory with receipts.** It remembers facts and the passages they came from, searches them by keyword and meaning, names its
   sources, never lets something it guessed overwrite something you said, and forgets for good when you ask.
 - **Any model.** Presets for OpenAI, Anthropic, Google, xAI, Mistral, DeepSeek, OpenRouter, Groq and more, any
@@ -56,7 +63,8 @@ choose. Before it publishes, sends, deletes or spends, it hands you a card and w
   it watches.
 - **Connections.** A catalogue of MCP servers (GitHub, Notion, Linear, Sentry, Stripe, Figma, Supabase and more) with one
   Connect button each, and Microsoft 365, LinkedIn and Reddit built in.
-- **On your iPhone.** Approvals, threads, reports, memory and the Mac's screen, live, from an app that signs in to your own Mac.
+- **On your iPhone.** The Pennant chat, approvals, threads, reports, memory and the Mac's screen, live, from an app that signs
+  in to your own Mac.
 
 ## Built for the ways agents fail
 
@@ -104,10 +112,10 @@ Pennant has no account with us, no telemetry and no cloud of its own.
 
 | Shortcut | Action |
 |---|---|
-| **⌘N** | New thread |
+| **⌘N** | The Pennant chat |
 | **⌘1** | Dashboard |
 | **⇧⌘K** | Every conversation, in a window of its own |
-| **⇧⌘W** | Close the thread |
+| **⇧⌘W** | Close the thread you're reading |
 | **⌘Return** | Send |
 | **⇧⌘.** | Stop computer use (also in the menu bar) |
 | **⌘+** / **⌘−** / **⌘0** | Zoom in, zoom out, actual size |
@@ -163,20 +171,21 @@ setting in the apps has a command too: `pennant coding folder <dir>`, `pennant g
 
 The host's logic is tested without a screen, a network or a model: the task runtime and its approvals, the tool broker and
 sign-off rules, memory and its provenance, the scheduler and goals, skills, the store and its migrations, inference adapters
-against recorded responses, and the protocol. 421 tests, with 0 failures, measured on 30 September 2026:
+against recorded responses, and the protocol. 480 tests, with 0 failures, measured on 3 October 2026:
 
 | Module | Lines | Functions |
 |---|---:|---:|
-| `PennantCore` | 87.0% (2106/2422) | 69.9% (413/591) |
-| `PennantHostKit` | 70.8% (17377/24547) | 61.2% (2974/4863) |
-| `PennantClientKit` | 35.1% (669/1906) | 36.1% (156/432) |
+| `PennantCore` | 87.0% (2174/2499) | 70.7% (437/618) |
+| `PennantHostKit` | 70.3% (19108/27180) | 60.8% (3298/5421) |
+| `PennantClientKit` | 37.2% (739/1987) | 37.3% (166/445) |
 
 ```sh
 Scripts/coverage.sh        # the tests, then this table
 ```
 
 The SwiftUI views in `PennantUI` have almost no unit tests (0.3% of lines). They are checked by photographing the real Mac and
-iPhone apps against the demo host, in light and dark, with `Scripts/demo-shots.sh`.
+iPhone apps against the demo host, in light and dark, with `Scripts/demo-shots.sh`, and the iPhone's live screen has UI tests
+that drive it with real touches in the simulator (`PennantiOSUITests`).
 
 ### Releasing
 

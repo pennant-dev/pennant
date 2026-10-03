@@ -9,8 +9,10 @@ extension TaskRuntime {
     func buildContext(task: TaskRecord, agent: AgentProfile, model: ModelChoice) async throws -> (ContextBuilder.Output, [ToolSpec]) {
         let preferences = (try? await deps.memory.governingPreferences(for: agent)) ?? []
         // The whole conversation is the agent's history; earlier tasks' turns stay visible until a
-        // checkpoint (automatic or manual) folds them into a summary.
-        let messages = try await deps.store.messagesAfter(conversationID: task.conversationID, after: nil, limit: 4000)
+        // checkpoint (automatic or manual) folds them into a summary. Only what came after the checkpoint is read, so a
+        // conversation that goes on for months (the Pennant chat) never outgrows the read.
+        var checkpoint = try await deps.store.latestCheckpoint(conversationID: task.conversationID)
+        let messages = try await deps.store.messagesAfter(conversationID: task.conversationID, after: checkpoint?.throughMessageID, limit: 4000)
         // Recall for what was just asked: the latest message from the person, else the task's objective.
         let latestAsk = messages.last(where: { $0.role == .user && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })?.text ?? task.objective
         let hits = (try? await deps.memory.retrieve(MemoryQuery(text: String(latestAsk.prefix(500)), limit: 10), agent: agent, includeMessages: false,
@@ -18,7 +20,8 @@ extension TaskRuntime {
         let skills = await relevantSkills(for: task, agent: agent)
         let specs = try await turnSpecs(task: task, agent: agent)
         let services = await connectedServices(agent: agent, visible: specs)
-        var checkpoint = try await deps.store.latestCheckpoint(conversationID: task.conversationID)
+        let board = await inMainChat(task) ? await currentWorkBoard() : nil
+        let reportsToChat = board == nil ? await reportsToChat(task) : false
         let desktop = await deps.lease.snapshot(permissions: DesktopPermissions(), frontmostApp: await deps.desktop.frontmostApp()?.name, displayWidth: 0, displayHeight: 0, streamingClients: 0)
         let notes = runtimeNotes.removeValue(forKey: task.id) ?? []
         let store = deps.store
@@ -30,7 +33,9 @@ extension TaskRuntime {
         let config = deps.config
         let coding = await codingBrief(task: task)
         let make: @Sendable (Checkpoint?) async -> ContextBuilder.Output = { cp in
-            await builder.build(ContextBuilder.Input(agent: agent, task: task, config: config, preferences: preferences, memoryHits: hits, skills: skills, checkpoint: cp, messages: messages, toolSpecs: specs, desktopStatus: desktop, runtimeNotes: notes, artifactLoader: loader, services: services, coding: coding), estimator: estimator)
+            var input = ContextBuilder.Input(agent: agent, task: task, config: config, preferences: preferences, memoryHits: hits, skills: skills, checkpoint: cp, messages: messages, toolSpecs: specs, desktopStatus: desktop, runtimeNotes: notes, artifactLoader: loader, services: services, coding: coding, workBoard: board)
+            input.reportsToChat = reportsToChat
+            return await builder.build(input, estimator: estimator)
         }
 
         var output = await make(checkpoint)
@@ -75,9 +80,9 @@ extension TaskRuntime {
         guard let conversation = try await deps.store.conversation(conversationID), let agent = try await deps.store.agent(conversation.agentID) else { throw ToolError.failed("Conversation not found") }
         let tasks = try await deps.store.listTasks(agentID: conversation.agentID, includeFinished: true).filter { $0.conversationID == conversationID }
         guard let task = tasks.first(where: { !$0.state.isTerminal }) ?? tasks.max(by: { $0.updatedAt < $1.updatedAt }) else { throw ToolError.failed("Nothing to compact yet") }
-        let messages = try await deps.store.messagesAfter(conversationID: conversationID, after: nil, limit: 4000)
-        guard let last = messages.last else { throw ToolError.failed("Nothing to compact yet") }
         let previous = try await deps.store.latestCheckpoint(conversationID: conversationID)
+        let messages = try await deps.store.messagesAfter(conversationID: conversationID, after: previous?.throughMessageID, limit: 4000)
+        guard let last = messages.last else { return task }
         if previous?.throughMessageID == last.id { return task }
         let preferences = (try? await deps.memory.governingPreferences(for: agent)) ?? []
         let specs = await deps.broker.specs(for: agent)

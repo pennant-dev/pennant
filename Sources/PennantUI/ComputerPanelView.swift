@@ -10,7 +10,6 @@ public struct ComputerPanelView: View {
     var compact: Bool
     @State private var actionError: String?
     @State private var keyboardVisible = false
-    @State private var keyboardBuffer = ""
     @State private var streamOptions = ScreenStreamOptions()
     @State private var quality: StreamQuality = .standard
 
@@ -38,7 +37,7 @@ public struct ComputerPanelView: View {
             .frame(maxWidth: .infinity)
             controls
             if humanHasControl { remoteKeyboard }
-            if let actionError {
+            if let actionError = actionError ?? session.liveInputError {
                 Text(actionError).font(.zoomed(.caption)).foregroundStyle(InspectorTint.danger).lineLimit(2)
             }
             routines
@@ -105,7 +104,7 @@ public struct ComputerPanelView: View {
     private var screenCard: some View {
         LiveScreen(interactive: humanHasControl, live: !streamPaused,
                    fallbackRatio: desktop.displayHeight > 0 ? CGFloat(desktop.displayWidth) / CGFloat(desktop.displayHeight) : 16.0 / 10.0,
-                   placeholder: { placeholder }) { input in Task { await sendInput(input) } }
+                   placeholder: { placeholder }) { input in session.queueRemoteInput(input) }
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: PennantTheme.radiusLarge, style: .continuous)
@@ -214,30 +213,13 @@ public struct ComputerPanelView: View {
             Text("Click the screen, then type. Keys and shortcuts are sent to the host.")
                 .font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkSecondary)
             #else
-            if keyboardVisible {
-                TextField("Type to send keystrokes", text: $keyboardBuffer)
-                    .textFieldStyle(.plain)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .pennantField()
-                    .onChange(of: keyboardBuffer) { old, new in
-                        if new.count > old.count, new.hasPrefix(old) {
-                            let added = String(new.dropFirst(old.count))
-                            Task { await sendInput(.typeText(added)) }
-                        } else if new.count < old.count {
-                            for _ in 0 ..< (old.count - new.count) { Task { await sendInput(.key(KeyChord(key: "delete"))) } }
-                        }
-                    }
-                    .onSubmit {
-                        Task { await sendInput(.key(KeyChord(key: "return"))) }
-                        keyboardBuffer = ""
-                    }
-            }
+            // The keyboard button brings up the iPhone keyboard itself; keys go straight to the Mac.
+            RemoteKeyboard(isActive: $keyboardVisible) { session.queueRemoteInput($0) }.frame(width: 1, height: 1)
             #endif
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(specialKeys, id: \.0) { label, chord in
-                        Button(label) { Task { await sendInput(.key(KeyChord(parsing: chord))) } }
+                        Button(label) { session.queueRemoteInput(.key(KeyChord(parsing: chord))) }
                             .buttonStyle(.pennantCompact)
                     }
                 }
@@ -252,9 +234,10 @@ public struct ComputerPanelView: View {
 
     // MARK: Routines and activity
 
-    /// Enabled jobs first, soonest next run first, then by name.
+    /// Enabled jobs first, soonest next run first, then by name. A goal's sessions aren't routines you set: they're
+    /// the goal's (Pennant starts them on its heartbeat).
     private var routineJobs: [ScheduledJob] {
-        session.state.schedules.sorted { a, b in
+        session.state.schedules.filter { $0.goalID == nil }.sorted { a, b in
             if a.enabled != b.enabled { return a.enabled }
             let na = a.nextRunAt ?? .distantFuture, nb = b.nextRunAt ?? .distantFuture
             if na != nb { return na < nb }
@@ -307,10 +290,6 @@ public struct ComputerPanelView: View {
         actionError = nil
         Task { do { try await op() } catch { actionError = String(describing: error) } }
     }
-
-    private func sendInput(_ input: RemoteInput) async {
-        do { try await session.sendRemoteInput(input) } catch { actionError = String(describing: error) }
-    }
 }
 
 /// One routine: a status glyph, the name, and a friendly schedule line. Hover shows the prompt.
@@ -360,8 +339,8 @@ private enum StreamQuality: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .low: return "3 fps, 960 px"
-        case .standard: return "6 fps, 1440 px"
-        case .high: return "10 fps, 1920 px"
+        case .standard: return "8 fps, 1920 px"
+        case .high: return "10 fps, full resolution"
         }
     }
 
@@ -369,23 +348,57 @@ private enum StreamQuality: String, CaseIterable, Identifiable {
         switch self {
         case .low: return ScreenStreamOptions(framesPerSecond: 3, maxWidth: 960, jpegQuality: 0.45)
         case .standard: return ScreenStreamOptions()
-        case .high: return ScreenStreamOptions(framesPerSecond: 10, maxWidth: 1920, jpegQuality: 0.75)
+        case .high: return ScreenStreamOptions(framesPerSecond: 10, maxWidth: 0, jpegQuality: 0.8)
         }
     }
+}
+
+/// How a finger drives the Mac's pointer on the iPhone's live screen. Touch: the pointer goes where you touch, a drag
+/// drags. Trackpad: one finger moves a pointer drawn on the screen, a tap clicks where it is, two fingers tap for a
+/// right click, and touch-and-hold then move drags, for clicking small things exactly.
+public enum RemotePointerMode: String, CaseIterable, Sendable {
+    case touch, trackpad
+    public var title: String { self == .touch ? "Touch" : "Trackpad" }
+    public var symbol: String { self == .touch ? "hand.point.up.left" : "cursorarrow.rays" }
+    /// Where the choice is kept on the phone.
+    public static let storageKey = "pennant.remotePointerMode"
+}
+
+public extension EnvironmentValues {
+    /// The live screen's pointer mode on the iPhone (the Mac's window uses its own mouse).
+    @Entry var remotePointerMode: RemotePointerMode = .touch
+}
+
+/// A press of a zoom button over the live screen: one step in or out (a new id for every press).
+public struct ScreenZoomRequest: Equatable, Sendable {
+    public let id = UUID()
+    public let zoomIn: Bool
+    public init(zoomIn: Bool) { self.zoomIn = zoomIn }
 }
 
 /// The frame image with pointer mapping. Coordinates sent to the host are normalised 0...1.
 public struct ScreenImageView: View {
     var image: PlatformImage
+    /// The part of the display `image` shows; nil: all of it.
+    var imageRegion: ScreenRegion?
     var interactive: Bool
+    /// The iPhone's zoom buttons; the Mac's window is resized instead.
+    var zoomRequest: ScreenZoomRequest?
+    /// The part in view on the iPhone once a zoom or pan settles, to stream just that part sharply.
+    var onViewport: ((ScreenRegion?) -> Void)?
     var onInput: (RemoteInput) -> Void
 
-    public init(image: PlatformImage, interactive: Bool, onInput: @escaping (RemoteInput) -> Void) {
+    public init(image: PlatformImage, imageRegion: ScreenRegion? = nil, interactive: Bool, zoomRequest: ScreenZoomRequest? = nil,
+                onViewport: ((ScreenRegion?) -> Void)? = nil, onInput: @escaping (RemoteInput) -> Void) {
         self.image = image
+        self.imageRegion = imageRegion
         self.interactive = interactive
+        self.zoomRequest = zoomRequest
+        self.onViewport = onViewport
         self.onInput = onInput
     }
 
+    @Environment(\.remotePointerMode) private var pointerMode
     @State private var dragging = false
     @State private var dragStart: CGPoint?
     @State private var lastClickAt: Date = .distantPast
@@ -394,7 +407,7 @@ public struct ScreenImageView: View {
 
     public var body: some View {
         #if os(iOS)
-        RemoteScreenUIView(image: image, interactive: interactive, onInput: onInput)
+        RemoteScreenUIView(image: image, imageRegion: imageRegion, interactive: interactive, mode: pointerMode, zoomRequest: zoomRequest, onViewport: onViewport, onInput: onInput)
             .overlay(alignment: .top) {
                 if interactive {
                     Text("Live control")
@@ -537,14 +550,15 @@ private struct LiveScreen<Placeholder: View>: View {
     var fallbackRatio: CGFloat
     @ViewBuilder var placeholder: () -> Placeholder
     var onInput: (RemoteInput) -> Void
-    @State private var decoded: (seq: Int64, image: PlatformImage)?
+    @State private var decoded: (seq: Int64, image: PlatformImage, region: ScreenRegion?)?
 
     var body: some View {
         let frame = session.state.screenFrame
         ZStack {
             RoundedRectangle(cornerRadius: PennantTheme.radiusSmall, style: .continuous).fill(PennantTheme.fieldBackground)
             if let decoded {
-                ScreenImageView(image: decoded.image, interactive: interactive, onInput: onInput)
+                ScreenImageView(image: decoded.image, imageRegion: decoded.region, interactive: interactive,
+                                onViewport: { region in Task { await session.showScreenRegion(region) } }, onInput: onInput)
                     .opacity(live ? 1 : 0.55)
                     .overlay(alignment: .bottomTrailing) {
                         if live { StaleBadge(timestamp: frame?.header.timestamp) } else { Chip("Paused while nobody's on the computer").padding(6) }
@@ -553,15 +567,23 @@ private struct LiveScreen<Placeholder: View>: View {
                 placeholder()
             }
         }
-        .aspectRatio(frame.map { $0.header.height > 0 ? CGFloat($0.header.width) / CGFloat($0.header.height) : fallbackRatio } ?? fallbackRatio, contentMode: .fit)
+        .aspectRatio(frame.map { Self.displayRatio($0.header) ?? fallbackRatio } ?? fallbackRatio, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: PennantTheme.radiusSmall, style: .continuous))
         .onChange(of: frame?.header.sequence, initial: true) { _, _ in decode() }
+    }
+
+    /// The whole display's shape, also from a frame of just part of it (a zoomed-in phone's region).
+    static func displayRatio(_ header: ScreenFrameHeader) -> CGFloat? {
+        guard header.width > 0, header.height > 0 else { return nil }
+        let region = header.region ?? ScreenRegion(x: 0, y: 0, width: 1, height: 1)
+        guard region.width > 0, region.height > 0 else { return nil }
+        return (CGFloat(header.width) / region.width) / (CGFloat(header.height) / region.height)
     }
 
     private func decode() {
         guard let frame = session.state.screenFrame else { decoded = nil; return }
         if decoded?.seq == frame.header.sequence { return }
-        if let img = PlatformImage(data: frame.jpeg) { decoded = (frame.header.sequence, img) }
+        if let img = PlatformImage(data: frame.jpeg) { decoded = (frame.header.sequence, img, frame.header.region) }
     }
 }
 

@@ -45,6 +45,8 @@ public actor BrowserRunner {
     public func run(script name: String, source: String, input: Data, timeout: TimeInterval, redact: [String] = []) async throws -> Data {
         await acquire()
         defer { release() }
+        // Queued behind another script while its task was stopped: it doesn't start.
+        try Task.checkCancellation()
         try await ensureInstalled()
         let file = root.appendingPathComponent("\(name).mjs")
         try Data(source.utf8).write(to: file, options: .atomic)
@@ -107,9 +109,15 @@ public actor BrowserRunner {
         if let stdin { input.fileHandleForWriting.write(stdin) }
         try? input.fileHandleForWriting.close()
         let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning {
-            if Date() > deadline { process.terminate(); throw Failure(message: "Timed out after \(Int(timeout)) s") }
-            try await Task.sleep(for: .milliseconds(200))
+        do {
+            while process.isRunning {
+                if Date() > deadline { throw Failure(message: "Timed out after \(Int(timeout)) s") }
+                try await Task.sleep(for: .milliseconds(200))
+            }
+        } catch {
+            // Timed out, or its task was stopped: the script (and the browser it opened) goes too.
+            if process.isRunning { process.terminate() }
+            throw error
         }
         out.fileHandleForReading.readabilityHandler = nil
         err.fileHandleForReading.readabilityHandler = nil

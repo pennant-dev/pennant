@@ -56,9 +56,18 @@ public final class FakeDesktop: DesktopControlling, @unchecked Sendable {
     public func displaySize() async -> (width: Int, height: Int) { (displayWidth, displayHeight) }
 
     public func moveMouse(x: Double, y: Double) async throws { record("move(\(Int(x)),\(Int(y)))") }
+    public func livePointer(_ input: RemoteInput, x: Double, y: Double) async throws {
+        let kind: String
+        switch input {
+        case .pointerMove: kind = "move"
+        case .pointerDown(_, _, let b): kind = "down-\(b.rawValue)"
+        case .pointerUp(_, _, let b): kind = "up-\(b.rawValue)"
+        case .click(_, _, let b, let n): kind = "click-\(b.rawValue)x\(n)"
+        default: kind = "other"
+        }
+        record("live-\(kind)(\(Int(x)),\(Int(y)))")
+    }
     public func click(x: Double, y: Double, button: PointerButton, count: Int) async throws { record("click(\(Int(x)),\(Int(y)),\(button.rawValue),\(count))") }
-    public func mouseDown(x: Double, y: Double, button: PointerButton) async throws { record("down(\(Int(x)),\(Int(y)),\(button.rawValue))") }
-    public func mouseUp(x: Double, y: Double, button: PointerButton) async throws { record("up(\(Int(x)),\(Int(y)),\(button.rawValue))") }
     public func drag(fromX: Double, fromY: Double, toX: Double, toY: Double) async throws { record("drag(\(Int(fromX)),\(Int(fromY))->\(Int(toX)),\(Int(toY)))") }
     public func scroll(x: Double, y: Double, deltaX: Double, deltaY: Double) async throws { record("scroll(\(Int(x)),\(Int(y)),\(Int(deltaX)),\(Int(deltaY)))") }
     public func typeText(_ text: String) async throws { record("type(\(text))") }
@@ -109,4 +118,20 @@ public final class FakeDesktop: DesktopControlling, @unchecked Sendable {
     }
 
     public func interruptInput() async { lock.withLock { interruptCount += 1 }; record("interrupt") }
+    public func showCursor(x: Double, y: Double, click: Bool) async { record("cursor \(Int(x)),\(Int(y))\(click ? " click" : "")") }
+
+    /// The app window background tools see: 400x300 points at (100, 50), drawn at 800x600 pixels.
+    public var windowFrame = CGRect(x: 100, y: 50, width: 400, height: 300)
+    public func captureWindow(app: String, title: String?, maxWidth: Int) async throws -> WindowCapture {
+        record("window \(app)")
+        return WindowCapture(jpeg: Data([0xFF, 0xD8, 0xFF, 0xD9]), width: 800, height: 600, frame: windowFrame, title: "Untitled",
+                             app: RunningApp(name: app, bundleID: nil, pid: 4242, isFrontmost: false))
+    }
+    public func pressInApp(pid: Int32, x: Double, y: Double, button: PointerButton, count: Int) async throws -> String {
+        record("app-press \(pid) \(Int(x)),\(Int(y)) \(button.rawValue)")
+        return "Pressed the “OK” button."
+    }
+    public func typeInApp(pid: Int32, text: String) async throws -> String { record("app-type \(pid) \(text)"); return "Typed into the text field." }
+    public func keyInApp(pid: Int32, chord: KeyChord) async throws { record("app-key \(pid) \(chord.key)") }
+    public func scrollInApp(pid: Int32, x: Double, y: Double, deltaX: Double, deltaY: Double) async throws { record("app-scroll \(pid) \(Int(deltaY))") }
 }

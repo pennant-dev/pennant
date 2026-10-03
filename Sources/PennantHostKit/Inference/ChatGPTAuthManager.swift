@@ -13,6 +13,8 @@ public actor ChatGPTAuthManager {
         public var responses: URL
         /// The loopback port the redirect URI names, or nil for an ephemeral one (tests).
         public var redirectPort: UInt16?
+        /// The account's model list, next to the Responses endpoint.
+        public var models: URL { responses.deletingLastPathComponent().appendingPathComponent("models") }
 
         public init(authorize: URL, token: URL, responses: URL, redirectPort: UInt16?) {
             self.authorize = authorize
@@ -53,6 +55,8 @@ public actor ChatGPTAuthManager {
     var signInDetail: String?
     var refreshTask: Task<ChatGPTTokens, Error>?
     var onChange: (@Sendable () async -> Void)?
+    /// The account's model list, kept for `modelListLifetime`; dropped whenever the account changes.
+    var modelCache: (at: Date, models: [ChatGPTModel])?
 
     public init(credentials: any MCPCredentialStore, codexAuthFile: URL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/auth.json"), endpoints: Endpoints = .production, session: URLSession? = nil) {
         self.credentials = credentials
@@ -72,7 +76,10 @@ public actor ChatGPTAuthManager {
     /// can publish its status.
     public func setOnChange(_ handler: (@Sendable () async -> Void)?) { onChange = handler }
 
-    func notify() async { await onChange?() }
+    func notify() async {
+        modelCache = nil
+        await onChange?()
+    }
 
     // MARK: Account
 
@@ -153,25 +160,6 @@ public actor ChatGPTAuthManager {
 
     func store(_ tokens: ChatGPTTokens) throws {
         try credentials.set(Self.tokenKey, value: try tokens.encoded())
-    }
-
-    // MARK: Models
-
-    /// Models the ChatGPT backend serves to Codex clients today (from the Hermes Agent and Codex catalogues; the
-    /// backend's own list needs a signed-in account). The first entry is the default. Context windows are what the
-    /// Codex backend enforces for a ChatGPT subscription, which is lower than the public API's for the same ids.
-    public static let models: [ChatGPTModel] = [
-        ChatGPTModel(id: "gpt-5.6-sol", title: "GPT-5.6 Sol", contextWindowTokens: 272_000),
-        ChatGPTModel(id: "gpt-5.6-terra", title: "GPT-5.6 Terra", contextWindowTokens: 272_000),
-        ChatGPTModel(id: "gpt-5.6-luna", title: "GPT-5.6 Luna", contextWindowTokens: 272_000),
-        ChatGPTModel(id: "gpt-5.5", title: "GPT-5.5", contextWindowTokens: 272_000),
-        ChatGPTModel(id: "gpt-5.4", title: "GPT-5.4", contextWindowTokens: 272_000),
-        ChatGPTModel(id: "gpt-5.4-mini", title: "GPT-5.4 mini", contextWindowTokens: 272_000),
-        ChatGPTModel(id: "gpt-5.3-codex-spark", title: "GPT-5.3 Codex Spark (research preview, ChatGPT Pro)", contextWindowTokens: 128_000),
-    ]
-
-    public static func model(withID id: String) -> ChatGPTModel? {
-        models.first { $0.id == id }
     }
 }
 

@@ -129,6 +129,14 @@ extension TaskRuntime {
         if deps.config.coding?.projects.isEmpty ?? true || agent.kind != .persistent {
             all.removeAll { $0.name == "code" }
         }
+        // A helper answers to the task that asked for it, not the owner: it reports what it needs instead of asking.
+        if agent.kind == .worker { all.removeAll { $0.name == "ask_user" } }
+        // The Pennant chat stays free to talk: the screen and long waits belong in threads, which only it starts.
+        if await inMainChat(task) {
+            all.removeAll { $0.needsDesktop || Self.notInChat.contains($0.name) }
+        } else {
+            all.removeAll { ThreadTools.names.contains($0.name) }
+        }
         let limit = Self.maxToolsPerRequest
         let mcp = all.filter { $0.source.hasPrefix("mcp:") }
         if !agent.toolAllowlist.isEmpty || mcp.count <= Self.loadAllMCPToolsUpTo, all.count <= limit { return all }
@@ -149,6 +157,10 @@ extension TaskRuntime {
         }
         return visible + [Self.findToolsSpec]
     }
+
+    /// Tools the Pennant chat doesn't offer: waiting on helpers or the clock, or working a web page, holds up the
+    /// conversation. (Reading a page by its address is a quick lookup and stays.)
+    static let notInChat: Set<String> = Set(["delegate_task", "await_task", "wait", "browser_fill", "browser_script"]).union(AppTools.names).union(WebTools.names)
 
     /// Up to this many connected-service tools, everything loads; above it, services load on demand.
     static let loadAllMCPToolsUpTo = 16

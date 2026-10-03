@@ -213,6 +213,15 @@ public enum CommandBody: Hashable, Codable, Sendable {
     /// From the coding CLI's bridge: run one of the Pennant tools a coding agent may use (messaging people) for the
     /// running coding task, as any agent's call would run. Replies `coderToolResult`.
     case coderTool(taskID: TaskID, name: String, arguments: JSONValue)
+    /// The owner runs one of Pennant's tools by hand (`pennant tool`): for trying a tool out and diagnosing it.
+    /// Answered with `coderToolResult`; images in the result are named by their artifact ids.
+    case runTool(name: String, arguments: JSONValue)
+    /// Pennant's Chrome extension: whether it's connected, and the sites the owner let Pennant use there.
+    case chromeStatus
+    case chromeForgetSite(String)
+    /// Pennant adds its extension to Chrome on the host's Mac (`browser`: a bundle id, Chrome when nil). Owner only;
+    /// replies `chromeStatus` once the extension has connected, or an error saying which step it couldn't do.
+    case chromeSetup(browser: String?)
     /// Mints a token for a GitHub App identity, as a coding run would, to check the App ID, installation and the
     /// Vault entry's private key before saving them. Replies `ok`, or an error saying what GitHub or the Vault refused.
     case checkGitHubApp(GitHubAppIdentity)
@@ -229,6 +238,8 @@ public enum CommandBody: Hashable, Codable, Sendable {
     case setPauseOnHumanInput(Bool)
     case subscribeScreen(ScreenStreamOptions)
     case unsubscribeScreen
+    /// The client has the stream's frame `sequence` (with `acknowledges`). No reply.
+    case screenFrameReceived(Int64)
     case remoteInput(RemoteInput)
     case captureScreenshot(maxWidth: Int)
     /// Trigger the macOS permission prompts (Accessibility, Screen Recording, Input Monitoring, Automation).
@@ -412,7 +423,7 @@ public enum CommandBody: Hashable, Codable, Sendable {
     case importCodexLogin
     case signOutChatGPT
     case getChatGPTAccount
-    /// The static list of models the ChatGPT backend serves.
+    /// The models the signed-in ChatGPT account can use. Replies `chatGPTModels`.
     case listChatGPTModels
 
     // The host: diagnostics, settings, moving to another Mac
@@ -441,11 +452,13 @@ public enum ReplyBody: Hashable, Codable, Sendable {
     /// `mode`: the permission mode the CLI switches to for the rest of the run (after an approved plan).
     case coderDecision(allow: Bool, input: JSONValue?, message: String?, mode: CodingMode? = nil)
     case coderToolResult(text: String, isError: Bool)
+    case chromeStatus(ChromeStatus)
     case projects([String])
     case error(code: String, message: String)
     case welcome(StateSnapshot)
-    /// `password`: the host takes email-and-password sign-in and invite codes.
-    case signInOptions([SignInProvider], hostName: String)
+    /// `password` is always true (every host takes email-and-password sign-in and invite codes); iPhone apps built
+    /// before 0.1.0 can't read this reply without it, and then never get to their sign-in screen's buttons.
+    case signInOptions([SignInProvider], hostName: String, password: Bool = true)
     case signInStarted(SignInStart)
     case signedIn(SignedIn)
     case people(PeopleDirectory)
@@ -509,7 +522,8 @@ public enum ReplyBody: Hashable, Codable, Sendable {
     case mcpCatalog([MCPCatalogEntry])
     case chatGPTSignInStarted(url: String)
     case chatGPTAccount(ChatGPTAccount)
-    case chatGPTModels([ChatGPTModel])
+    /// `note` says where the list came from: the account, or the built-in list and why.
+    case chatGPTModels([ChatGPTModel], note: String? = nil)
     case diagnostics(DiagnosticsReport)
     case events([HostEvent])
     case config(HostConfig, restartRequired: Bool)

@@ -8,23 +8,32 @@
 | --- | --- |
 | Store: events, tasks, messages, full-text search, memory graph, forgetting, embeddings, skills, backups, deleting conversations | `SQLiteStoreTests` |
 | The runtime: the tool loop with intent and outcome records, pause and resume, questions, takeover and the fresh-screen rule, recovery after a crash or a restart with read-back, helpers, compaction, task limits | `RuntimeTests`, `ApprovalTests` |
+| The Pennant chat: one chat that never closes, threads it starts, steers, reads and stops, news from them in Pennant's words (or kept quiet), drafts introduced, limits and wrap-up, its own task slot, each thread its own card source; the heartbeat (goal sessions when due, a look at stuck work, quiet beats free, a daily cap) | `PennantChatTests`, `WorkUpdateTests`, `HeartbeatTests`, `BrowserRunnerTests` |
 | The owner's sign-offs, cards and what runs after an approval; coding runs on both engines and what they may do without asking; acting on GitHub only as the App | `SignOffTests`, `ApprovalTests`, `CodingRunTests`, `PennantEngineTests`, `CodingPermissionTests`, `GitHubIdentityTests`, `ClaudeCodeEngineTests` |
 | Memory: retrieval with citations, passages, aliases and removed names, upkeep | `MemoryRetrievalTests`, `MemoryKeeperTests` |
 | Skills (import, versions, git sources), teach mode, scheduled jobs, goals, reports, the health review | `SkillImportTests`, `TeachingTests`, `SchedulingTests`, `GoalTests`, `ReportTests`, `HealthToolsTests` |
 | Models: OpenAI-compatible endpoints, Azure AI Foundry, the ChatGPT account, the on-device model, routing and fallbacks | `InferenceTests`, `ChatGPTProviderTests`, `AppleOnDeviceProviderTests`, `ModelRoutingTests` |
 | The API server, sign-in and people, device tokens, TLS pinning, push notifications | `APITests`, `PeopleTests`, `PushServiceTests`, `CloudflareAccessTests`, `HostAddressesTests` |
 | Channels (Teams, iMessage, Telegram), native connectors, MCP sign-in | `ChannelTests`, `TeamsTests`, `ChannelCardTests`, `NativeConnectorTests`, `MCPAuthTests` |
-| Desktop tools and the lease, attachments, files, the Library and vault, moving to another Mac, the rename migrations | `DesktopToolsTests`, `DesktopLeaseTests`, `AttachmentTests`, `LibraryVaultTests`, `PennantTransferTests`, `RenameMigrationTests` |
+| Desktop tools and the lease, apps in the background, Pennant in Chrome (site cards, tabs it owns, the paused stop), attachments, files, the Library and vault, moving to another Mac, the rename migrations | `DesktopToolsTests`, `DesktopLeaseTests`, `AppToolsTests`, `WebToolsTests`, `ChromeGuardTests`, `PromptInspectionTests`, `AttachmentTests`, `LibraryVaultTests`, `PennantTransferTests`, `RenameMigrationTests` |
 
 `LiveInferenceTests` talk to a real model: `PENNANT_LIVE_INFERENCE=1` (with `PENNANT_LIVE_BASE_URL` and `PENNANT_LIVE_MODEL`) runs them against any OpenAI-compatible endpoint. `AppleOnDeviceProviderTests` run for real when Apple Intelligence is on and skip otherwise.
 
-The Mac and iPhone apps are built by `Scripts/build-apps.sh`; `Scripts/demo-shots.sh` walks both through every screen against a demo host.
+The iPhone's live screen has UI tests with real touches in the simulator (`PennantiOSUITests`, against the debug touch lab: pinch, taps while zoomed, two-finger right click, drags, trackpad mode): `xcodebuild test -scheme PennantiOS -destination 'platform=iOS Simulator,name=iPhone 17'`. The Mac and iPhone apps are built by `Scripts/build-apps.sh`; `Scripts/demo-shots.sh` walks both through every screen against a demo host.
 
 ## Not yet verified
 
 - The ChatGPT account is tested against a stand-in of its service; it follows the Codex CLI's own client, and OpenAI can change what it accepts without notice (see RUNBOOK).
 - MCP sign-in is tested against an in-process authorization server; public servers vary in what they support.
 - Embedding retrieval quality is not measured.
+- The Chrome extension was run end to end only in headless Chrome for Testing, against a host on a spare port.
+  - It opened, read, clicked, typed and searched, and the site card refused a site it hadn't been allowed.
+  - Set it up for me was run against a visible Chrome for Testing: Developer mode, Load unpacked and the folder, connected in about 13 seconds. Not run yet in Chrome itself, or with Chrome in another language (the routine finds controls by their English names; a failure falls back to the steps by hand).
+  - Not checked yet in a visible Chrome:
+    - whether its window stays behind the owner's;
+    - Chrome's "started debugging this browser" bar;
+    - input while its window is covered.
+- Apps in the background were checked on Calculator, under other windows. Apps that ignore events posted to their process (some games, some Electron apps) still need the screen.
 - Real jobs are not measured yet: completion rate, how often a person had to step in, duplicate actions, memory accuracy.
 
 ## Known limitations

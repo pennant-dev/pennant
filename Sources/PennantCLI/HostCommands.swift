@@ -53,6 +53,32 @@ func chromeSignInsCommand(_ options: CLIOptions) async throws {
 }
 
 @MainActor
+func chromeCommand(_ options: CLIOptions) async throws {
+    // pennant chrome [status]                 → whether Pennant's extension is connected, and the sites it may use
+    // pennant chrome setup [--browser <id>]   → Pennant adds its extension to Chrome on the host's Mac
+    // pennant chrome forget <site>            → Pennant asks again before it uses that site
+    let session = try await connect(options)
+    func show(_ s: ChromeStatus) {
+        out(s.connected ? "Connected · \(s.browser ?? "Chrome")" : "Not connected")
+        if let folder = s.folder { out("Extension folder: \(folder)") }
+        out(s.sites.isEmpty ? "No sites allowed yet." : "Sites: " + s.sites.joined(separator: ", "))
+    }
+    switch options.args.first ?? "status" {
+    case "setup":
+        let browser = options.args.firstIndex(of: "--browser").flatMap { $0 + 1 < options.args.count ? options.args[$0 + 1] : nil }
+        out("Adding Pennant to Chrome; Chrome comes to the front for a moment to pick the folder…")
+        show(try await session.chromeSetup(browser: browser))
+    case "forget":
+        guard options.args.count >= 2 else { fail("Usage: pennant chrome forget <site>") }
+        let sites = try await session.chromeForgetSite(options.args[1])
+        out(sites.isEmpty ? "No sites allowed now." : "Sites: " + sites.joined(separator: ", "))
+    default:
+        show(try await session.chromeStatus())
+    }
+    await session.disconnect()
+}
+
+@MainActor
 func pushCommand(_ options: CLIOptions) async throws {
     // pennant push status | key <AuthKey_XXXXXXXXXX.p8> [--team <Team ID>] | test
     let session = try await connect(options)

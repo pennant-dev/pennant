@@ -21,7 +21,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .vault: return "lock.shield"
         case .usage: return "chart.bar.xaxis"
         case .schedules: return "calendar.badge.clock"
-        case .goals: return "target"
+        case .goals: return ThreadMark.goalSymbol
         case .connections: return "point.3.connected.trianglepath.dotted"
         case .diagnostics: return "stethoscope"
         }
@@ -36,8 +36,8 @@ struct MainWindow: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
     @State private var selectedAgent: AgentID?
-    /// The window opens on the dashboard.
-    @State private var section: SidebarSection? = .dashboard
+    /// The window opens on the Pennant chat (on hosts from before it, the dashboard; see `pickDefaultAgent`).
+    @State private var section: SidebarSection?
     /// A goal the dashboard asked the Goals page to open.
     @State private var openGoal: GoalID?
     @State private var conversationID: ConversationID?
@@ -56,6 +56,8 @@ struct MainWindow: View {
     @State private var showAccountSetup = false
     @State private var accountSetupDismissed = false
     @State private var permissionsDismissed = false
+    /// The window has been put on the Pennant chat once; after that, it stays where the owner goes.
+    @State private var placedOnChat = false
 
     /// Height of the band under the window's traffic lights. Matches the compact toolbar height.
     private let titleBand: CGFloat = 38
@@ -85,9 +87,27 @@ struct MainWindow: View {
         .environment(\.openInNewWindow, { [openWindow] agent, conversation in
             openWindow(id: "conversation", value: ConversationRef(agentID: agent, conversationID: conversation))
         })
+        // Threads lead back to the one place to talk.
+        .environment(\.openPennantChat, { [section = $section, conversation = $conversationID, agent = $selectedAgent, session] in
+            guard let chat = session.state.mainConversation else { return }
+            section.wrappedValue = nil
+            conversation.wrappedValue = chat.id
+            agent.wrappedValue = chat.agentID
+        })
         .onAppear { pickDefaultAgent() }
         .onReceive(NotificationCenter.default.publisher(for: .pennantNewThread)) { _ in
-            if let lead = session.state.leadAgent?.id { openConversation(agentID: lead, conversationID: nil) }
+            if let chat = session.state.mainConversation { openConversation(agentID: chat.agentID, conversationID: chat.id) }
+            else if let lead = session.state.leadAgent?.id { openConversation(agentID: lead, conversationID: nil) }
+        }
+        // There are no new threads to start by hand: an empty pane is the Pennant chat.
+        .onChange(of: conversationID) { _, new in
+            if new == nil, section == nil, let chat = session.state.mainConversation {
+                conversationID = chat.id
+                selectedAgent = chat.agentID
+            }
+        }
+        .onChange(of: session.state.mainConversation?.id) { old, new in
+            if old == nil, new != nil, !placedOnChat { pickDefaultAgent(force: true) }
         }
         .task {
             #if DEBUG
@@ -167,13 +187,22 @@ struct MainWindow: View {
                 .gesture(WindowDragGesture())
             Button { section = .dashboard } label: {
                 UtilityRowLabel(title: "Dashboard", symbol: SidebarSection.dashboard.symbol, selected: section == .dashboard,
-                                count: session.state.pendingApprovals.count)
+                                count: session.state.mainConversation == nil ? session.state.pendingApprovals.count : 0)
             }
             .buttonStyle(.plain)
             .keyboardShortcut("1", modifiers: .command)
             .padding(.horizontal, 8)
             .padding(.bottom, 4)
-            // One agent to talk to: its threads, what needs you on top, closed ones folded away.
+            if let chat = session.state.mainConversation {
+                // The one place to talk, always right here above the work: Pennant. What needs you lands there.
+                PennantChatRow(chat: chat, selected: inMainChat, count: needsYouCount) {
+                    openConversation(agentID: chat.agentID, conversationID: chat.id)
+                }
+                .padding(.horizontal, 8)
+                .padding(.top, 2)
+                .padding(.bottom, 8)
+            }
+            // The work: what's going on, earlier threads folded away, closed ones below.
             ThreadListView(selected: section == nil ? conversationID : nil,
                            onOpen: { agentID, conversation in openConversation(agentID: agentID, conversationID: conversation) },
                            onNewThread: { if let lead = session.state.leadAgent?.id { openConversation(agentID: lead, conversationID: nil) } })
@@ -302,6 +331,9 @@ struct MainWindow: View {
             } else if let id = selectedAgent, let agent = session.state.agent(id) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(conversationTitle).font(.zoomed(.headline)).foregroundStyle(PennantTheme.ink).lineLimit(1)
+                    if let c = conversationID.flatMap({ session.state.conversation($0) }), !c.isMain, session.state.mainConversation != nil {
+                        Text("A thread \(agent.name) runs").font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkSecondary).lineLimit(1)
+                    }
                     if agent.kind == .worker {
                         Text(agent.name).font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkSecondary).lineLimit(1)
                     }
@@ -310,7 +342,10 @@ struct MainWindow: View {
                 Text("pennant").font(.zoomed(.headline).weight(.bold)).foregroundStyle(PennantTheme.ink)
             }
             Spacer(minLength: 8)
-            if section != .dashboard {
+            if let chat = session.state.mainConversation {
+                // What needs you lands in the Pennant chat.
+                if !inMainChat { ApprovalsBubble { openConversation(agentID: chat.agentID, conversationID: chat.id) } }
+            } else if section != .dashboard {
                 // Waiting approvals are dealt with on the dashboard.
                 ApprovalsBubble { section = .dashboard }
             }
@@ -323,12 +358,16 @@ struct MainWindow: View {
                     .padding(.trailing, 2)
             }
             if section == nil, let id = selectedAgent, let agent = session.state.agent(id) {
-                CloseConversationButton(conversationID: $conversationID, iconOnly: true)
-                    .buttonStyle(.pennantIcon)
-                    .keyboardShortcut("w", modifiers: [.command, .shift])
-                Button { conversationID = nil } label: { Image(systemName: "square.and.pencil") }
-                    .buttonStyle(.pennantIcon)
-                    .help("New thread (⌘N)")
+                if !inMainChat {
+                    CloseConversationButton(conversationID: $conversationID, iconOnly: true)
+                        .buttonStyle(.pennantIcon)
+                        .keyboardShortcut("w", modifiers: [.command, .shift])
+                }
+                if session.state.mainConversation == nil {
+                    Button { conversationID = nil } label: { Image(systemName: "square.and.pencil") }
+                        .buttonStyle(.pennantIcon)
+                        .help("New thread (⌘N)")
+                }
                 Menu {
                     ConversationMenuItems(agentID: id, conversationID: $conversationID)
                 } label: {
@@ -423,7 +462,19 @@ struct MainWindow: View {
 
     private var conversationTitle: String {
         guard let id = conversationID, let c = session.state.conversation(id) else { return "New thread" }
-        return conversationLabel(c)
+        return c.isMain ? (session.state.agent(c.agentID)?.name ?? "Pennant") : conversationLabel(c)
+    }
+
+    /// The Pennant chat is on screen.
+    private var inMainChat: Bool {
+        section == nil && conversationID != nil && conversationID == session.state.mainConversation?.id
+    }
+
+    /// Cards and questions waiting on you, for the Pennant row's badge.
+    private var needsYouCount: Int {
+        let carded = Set(session.state.pendingApprovals.map(\.conversationID))
+        let questions = session.state.tasks.filter { $0.state == .waitingForUser && $0.parentTaskID == nil && !carded.contains($0.conversationID) }.count
+        return session.state.pendingApprovals.count + questions
     }
 
     private var computerSymbol: String {
@@ -466,7 +517,7 @@ struct MainWindow: View {
         func job(_ name: String) -> (Conversation) -> Bool { { $0.title.hasPrefix("⏰ \(name)") && !$0.isClosed } }
         let steps: [(String, () -> Void)] = [
             ("home", { section = .dashboard }),
-            ("lead", { open { $0.title == "Harbor 2.0 launch" } }),
+            ("lead", { open { $0.isMain } }),
             ("coding", { open { $0.isCodingRun } }),
             ("approval", { open(job("Company post")) }),
             ("inbox", { open(job("Inbox drafts")) }),
@@ -526,14 +577,88 @@ struct MainWindow: View {
         session.connect()
     }
 
-    /// At launch: the thread that needs you, else the newest one, with Pennant.
-    private func pickDefaultAgent() {
-        guard selectedAgent == nil, section == nil, let lead = session.state.leadAgent?.id else { return }
+    /// At launch: the Pennant chat. On a host from before it, the dashboard over the thread that needs you, else the
+    /// newest one.
+    private func pickDefaultAgent(force: Bool = false) {
+        if let chat = session.state.mainConversation {
+            guard force || (selectedAgent == nil && section == nil) else { return }
+            placedOnChat = true
+            section = nil
+            conversationID = chat.id
+            selectedAgent = chat.agentID
+            return
+        }
+        guard selectedAgent == nil, let lead = session.state.leadAgent?.id else { return }
+        if section == nil { section = .dashboard }
         let open = session.state.conversations.filter { !$0.isClosed && $0.parentID == nil && session.state.agent($0.agentID)?.kind == .persistent }
             .sorted { $0.updatedAt > $1.updatedAt }
         let pick = open.first { session.state.conversationNeedsUser($0.id) } ?? open.first
         conversationID = pick?.id
         selectedAgent = pick?.agentID ?? lead
+    }
+}
+
+/// The Pennant chat in the sidebar: bigger than anything around it and always in the same place, right above the
+/// threads, with what needs you counted on it.
+private struct PennantChatRow: View {
+    @Environment(\.hostSession) private var session
+    var chat: Conversation
+    var selected: Bool
+    var count: Int
+    var action: () -> Void
+    @State private var hovering = false
+
+    private var working: Bool {
+        session.state.tasks.contains { $0.conversationID == chat.id && !$0.state.isTerminal && $0.state != .waitingForUser }
+    }
+
+    private var subtitle: String {
+        if working { return "Thinking…" }
+        if count > 0 { return count == 1 ? "One thing needs you" : "\(count) things need you" }
+        let preview = chat.preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        return preview.isEmpty ? "Ask for anything" : preview
+    }
+
+    var body: some View {
+        let agent = session.state.agent(chat.agentID)
+        Button(action: action) {
+            HStack(spacing: 11) {
+                if let agent { AgentAvatar(agent: agent, size: 36) }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(agent?.name ?? "Pennant")
+                        .font(.zoomed(.title3).weight(.semibold))
+                        .foregroundStyle(PennantTheme.ink)
+                    Text(subtitle)
+                        .font(.zoomed(.caption))
+                        .foregroundStyle(count > 0 ? PennantTheme.brandInk : PennantTheme.inkSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.zoomed(.caption).weight(.bold).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(PennantTheme.attention, in: Capsule())
+                } else if working {
+                    ProgressView().controlSize(.small)
+                } else if !selected, session.state.isUnread(chat) {
+                    Circle().fill(PennantTheme.info).frame(width: 8, height: 8).help("New since you last looked")
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(PennantTheme.brand.opacity(selected ? 0.16 : (hovering ? 0.10 : 0.06)),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(PennantTheme.brand.opacity(selected ? 0.45 : 0.18)))
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("The Pennant chat (⌘N)")
+        .accessibilityIdentifier("pennant-chat")
+        .accessibilityLabel("\(agent?.name ?? "Pennant"), \(subtitle)")
     }
 }
 

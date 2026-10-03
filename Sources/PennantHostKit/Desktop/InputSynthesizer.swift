@@ -10,6 +10,8 @@ final class InputSynthesizer: @unchecked Sendable {
     private let actionDelayMilliseconds: Int
     private let lock = NSLock()
     private var interrupted = false
+    /// The button the owner's live pointer is holding down, so its moves are posted as drags.
+    private var heldButton: PointerButton?
 
     init(actionDelayMilliseconds: Int) {
         self.actionDelayMilliseconds = max(0, actionDelayMilliseconds)
@@ -65,7 +67,42 @@ final class InputSynthesizer: @unchecked Sendable {
         await settle()
     }
 
-    func click(at point: CGPoint, button: PointerButton, count: Int) async throws {
+    /// The owner's pointer from another device, posted as it comes: no settling pause (that's for the agent's
+    /// actions, and at sixty moves a second it left the pointer seconds behind the finger), and moves while a
+    /// button is held go out as drags, so apps see one.
+    func live(_ event: RemoteInput, at point: CGPoint) async throws {
+        switch event {
+        case .pointerMove:
+            try beginAction()
+            if let held = lock.withLock({ heldButton }) {
+                let types = buttonTypes(held)
+                post(try mouseEvent(types.dragged, at: point, button: types.button))
+            } else {
+                post(try mouseEvent(.mouseMoved, at: point))
+            }
+        case .pointerDown(_, _, let button):
+            try beginAction()
+            let types = buttonTypes(button)
+            post(try mouseEvent(.mouseMoved, at: point))
+            let down = try mouseEvent(types.down, at: point, button: types.button)
+            down.setIntegerValueField(.mouseEventClickState, value: 1)
+            post(down)
+            lock.withLock { heldButton = button }
+        case .pointerUp(_, _, let button):
+            try beginAction()
+            let types = buttonTypes(button)
+            let up = try mouseEvent(types.up, at: point, button: types.button)
+            up.setIntegerValueField(.mouseEventClickState, value: 1)
+            post(up)
+            lock.withLock { heldButton = nil }
+        case .click(_, _, let button, let count):
+            try await click(at: point, button: button, count: count, settling: false)
+        case .scroll, .typeText, .key:
+            break
+        }
+    }
+
+    func click(at point: CGPoint, button: PointerButton, count: Int, settling: Bool = true) async throws {
         try beginAction()
         let types = buttonTypes(button)
         post(try mouseEvent(.mouseMoved, at: point))
@@ -81,27 +118,7 @@ final class InputSynthesizer: @unchecked Sendable {
             post(up)
             if i < clicks { await pause(70) }
         }
-        await settle()
-    }
-
-    func mouseDown(at point: CGPoint, button: PointerButton) async throws {
-        try beginAction()
-        let types = buttonTypes(button)
-        post(try mouseEvent(.mouseMoved, at: point))
-        await pause(20)
-        let down = try mouseEvent(types.down, at: point, button: types.button)
-        down.setIntegerValueField(.mouseEventClickState, value: 1)
-        post(down)
-        await settle()
-    }
-
-    func mouseUp(at point: CGPoint, button: PointerButton) async throws {
-        try beginAction()
-        let types = buttonTypes(button)
-        let up = try mouseEvent(types.up, at: point, button: types.button)
-        up.setIntegerValueField(.mouseEventClickState, value: 1)
-        post(up)
-        await settle()
+        if settling { await settle() }
     }
 
     func drag(from start: CGPoint, to end: CGPoint) async throws {

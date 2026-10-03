@@ -25,7 +25,7 @@ public struct ChatGPTAccount: Hashable, Codable, Sendable {
     }
 }
 
-/// Models the ChatGPT backend serves to Codex clients. A static list: that backend has no models endpoint.
+/// A model a ChatGPT account can use: from the account's own list, or Pennant's built-in one when it can't be asked.
 public struct ChatGPTModel: Hashable, Codable, Sendable, Identifiable {
     public var id: String
     public var title: String

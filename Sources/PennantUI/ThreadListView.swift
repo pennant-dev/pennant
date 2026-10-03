@@ -2,8 +2,8 @@ import PennantClientKit
 import PennantCore
 import SwiftUI
 
-/// The sidebar now that Pennant is the one agent: what needs you on top, then every thread newest first, then the
-/// closed ones folded away.
+/// Pennant's threads: what needs you on top, then every thread newest first, then the closed ones folded away. With a
+/// Pennant chat, this is where you look in on the work; you talk to Pennant in the chat, not in the threads.
 ///
 /// A thread closes with a swipe to the left (two fingers on a trackpad, one on a phone) or the ✕ that shows on hover,
 /// and each close can be undone for a few seconds. Closing only tidies: nothing stops, and a closed thread comes back
@@ -11,6 +11,7 @@ import SwiftUI
 /// the thread that asked and aren't listed.
 public struct ThreadListView: View {
     @Environment(\.hostSession) private var session
+    @Environment(\.openPennantChat) private var openPennantChat
     var selected: ConversationID?
     var onOpen: (AgentID, ConversationID?) -> Void
     var onNewThread: () -> Void
@@ -18,6 +19,7 @@ public struct ThreadListView: View {
     @State private var showClosed = false
     @State private var closedShown = 30
     @State private var lastClosed: Conversation?
+    @State private var showEarlier = false
 
     public init(selected: ConversationID?, onOpen: @escaping (AgentID, ConversationID?) -> Void, onNewThread: @escaping () -> Void) {
         self.selected = selected
@@ -29,8 +31,14 @@ public struct ThreadListView: View {
         VStack(spacing: 0) {
             searchField
             List {
-                needsYouSection
-                threadsSection
+                if inChatMode {
+                    // With a Pennant chat, what needs you is in the chat: the list is the work, what's going first.
+                    activeSection
+                    earlierSection
+                } else {
+                    needsYouSection
+                    threadsSection
+                }
                 closedSection
             }
             .listStyle(.sidebar)
@@ -43,14 +51,20 @@ public struct ThreadListView: View {
 
     // MARK: Data
 
-    /// Threads the list shows: the agents' own (not a helper's, not one started for another thread).
+    /// Threads the list shows: Pennant's own (not the chat, not a helper's, not one started inside another thread).
     private var listed: [Conversation] {
-        session.state.conversations.filter { c in
-            c.parentID == nil && session.state.agent(c.agentID)?.kind == .persistent && matches(c)
-        }
+        session.state.conversations.filter { c in session.state.isWorkThread(c) && matches(c) }
     }
 
     private var openThreads: [Conversation] { listed.filter { !$0.isClosed }.sorted { $0.updatedAt > $1.updatedAt } }
+
+    /// There's a Pennant chat: you talk there, and the threads are the work you look in on.
+    private var inChatMode: Bool { session.state.mainConversation != nil }
+
+    /// Threads with work going or something waiting on you (a question, a card).
+    private func isActive(_ c: Conversation, _ facts: RowFacts) -> Bool {
+        facts.needsYou.contains(c.id) || facts.going.contains(c.id)
+    }
     private var closedThreads: [Conversation] { listed.filter(\.isClosed).sorted { ($0.closedAt ?? .distantPast) > ($1.closedAt ?? .distantPast) } }
 
     private func matches(_ c: Conversation) -> Bool {
@@ -116,8 +130,12 @@ public struct ThreadListView: View {
                     .plainRow()
             }
             ForEach(items) { ask in
-                AskRow(ask: ask) { onOpen(ask.conversation.agentID, ask.conversation.id) }
-                    .plainRow()
+                AskRow(ask: ask) {
+                    // A question is answered in the Pennant chat; a card can be decided in its thread too.
+                    if ask.id.hasPrefix("q:"), let openPennantChat, session.state.mainConversation != nil { openPennantChat() }
+                    else { onOpen(ask.conversation.agentID, ask.conversation.id) }
+                }
+                .plainRow()
             }
         } header: {
             SectionTitle(text: "Needs you", count: items.count, tint: PennantTheme.brandInk)
@@ -151,12 +169,69 @@ public struct ThreadListView: View {
         } header: {
             HStack(spacing: 6) {
                 SectionTitle(text: "Threads", count: threads.count)
-                Button(action: onNewThread) { Image(systemName: "square.and.pencil") }
-                    .buttonStyle(.pennantIcon)
-                    .help("New thread")
-                    .accessibilityLabel("New thread")
+                // With a Pennant chat, Pennant starts the threads.
+                if session.state.mainConversation == nil {
+                    Button(action: onNewThread) { Image(systemName: "square.and.pencil") }
+                        .buttonStyle(.pennantIcon)
+                        .help("New thread")
+                        .accessibilityLabel("New thread")
+                }
             }
         }
+    }
+
+    /// With a Pennant chat: what's going on now, in full.
+    @ViewBuilder private var activeSection: some View {
+        let facts = facts
+        let threads = query.isEmpty ? openThreads.filter { isActive($0, facts) } : openThreads
+        Section {
+            if threads.isEmpty {
+                Text(query.isEmpty ? (session.connection.isConnected ? "Nothing going on right now." : "Waiting for the host…") : "No threads match.")
+                    .font(.zoomed(.caption))
+                    .foregroundStyle(PennantTheme.inkSecondary)
+                    .padding(.horizontal, 8)
+                    .plainRow()
+            }
+            ForEach(threads) { c in row(c, facts: facts, dim: false) }
+        } header: {
+            SectionTitle(text: query.isEmpty ? "Working on" : "Threads", count: threads.count)
+        }
+    }
+
+    /// With a Pennant chat: threads with nothing going, folded away and quieter.
+    @ViewBuilder private var earlierSection: some View {
+        let facts = facts
+        let earlier = query.isEmpty ? openThreads.filter { !isActive($0, facts) } : []
+        if !earlier.isEmpty {
+            Section {
+                if showEarlier {
+                    ForEach(earlier) { c in row(c, facts: facts, dim: true) }
+                }
+            } header: {
+                Button { withAnimation(.easeInOut(duration: 0.15)) { showEarlier.toggle() } } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.right")
+                            .font(.zoomed(size: 8, weight: .bold))
+                            .rotationEffect(.degrees(showEarlier ? 90 : 0))
+                        SectionTitle(text: "Earlier", count: earlier.count)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(showEarlier ? "Hide earlier threads" : "Show earlier threads")
+            }
+        }
+    }
+
+    private func row(_ c: Conversation, facts: RowFacts, dim: Bool) -> some View {
+        ThreadRow(model: facts.row(c, selected: selected == c.id, dim: dim), action: { open(c) }, onToggle: { close(c) })
+            .equatable()
+            .plainRow()
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                Button { close(c) } label: { Label("Close", systemImage: "checkmark.circle") }
+                    .tint(PennantTheme.inkSecondary)
+            }
+            .contextMenu { rowMenu(c) }
     }
 
     @ViewBuilder private var closedSection: some View {
@@ -329,22 +404,29 @@ private struct AskRow: View {
 @MainActor struct RowFacts {
     let needsYou: Set<ConversationID>
     let working: Set<ConversationID>
+    /// Threads with any work not finished (working, queued, paused or waiting).
+    let going: Set<ConversationID>
     let goals: Set<ConversationID>
+    /// With a Pennant chat, news comes from Pennant: threads show no unread or needs-you marks of their own (the
+    /// Pennant row counts what needs you).
+    let quiet: Bool
     let state: ClientState
 
     init(state: ClientState) {
         self.state = state
         needsYou = Set(state.pendingApprovals.map(\.conversationID)).union(state.tasks.filter { $0.state == .waitingForUser }.map(\.conversationID))
         working = Set(state.tasks.filter { [.running, .waitingForTool, .waitingForDesktop].contains($0.state) }.map(\.conversationID))
+        going = Set(state.tasks.filter { !$0.state.isTerminal }.map(\.conversationID))
         goals = Set(state.goals.compactMap(\.conversationID))
+        quiet = state.mainConversation != nil
     }
 
-    func row(_ c: Conversation, selected: Bool) -> ThreadRowModel {
+    func row(_ c: Conversation, selected: Bool, dim: Bool = false) -> ThreadRowModel {
         let title = conversationLabel(c)
-        let symbol = goals.contains(c.id) ? "target" : (threadSymbol(c) ?? (c.isCodingRun ? "chevron.left.forwardslash.chevron.right" : "bubble.left"))
-        return ThreadRowModel(title: title, preview: c.preview, time: conversationTimestamp(c.updatedAt), closed: c.isClosed,
-                              symbol: symbol, needsYou: !c.isClosed && needsYou.contains(c.id),
-                              working: working.contains(c.id), unread: state.isUnread(c) && !selected, selected: selected)
+        let symbol = goals.contains(c.id) ? ThreadMark.goalSymbol : (threadSymbol(c) ?? (c.isCodingRun ? "chevron.left.forwardslash.chevron.right" : "bubble.left"))
+        return ThreadRowModel(title: title, preview: ThreadMark.strip(c.preview).text, time: conversationTimestamp(c.updatedAt), closed: c.isClosed,
+                              symbol: symbol, needsYou: !quiet && !c.isClosed && needsYou.contains(c.id),
+                              working: working.contains(c.id), unread: !quiet && state.isUnread(c) && !selected, selected: selected, dim: dim)
     }
 }
 
@@ -359,6 +441,8 @@ struct ThreadRowModel: Equatable {
     var working: Bool
     var unread: Bool
     var selected: Bool
+    /// Nothing going in it: drawn quieter.
+    var dim = false
 }
 
 /// One thread: what kind it is, its name and latest line, when it last moved, and whether it needs you, is working,
@@ -414,6 +498,7 @@ struct ThreadRow: View, Equatable {
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .opacity(m.dim && !m.selected && !hovering ? 0.6 : 1)
             .background(m.selected ? PennantTheme.selection : (hovering ? PennantTheme.hover : PennantTheme.sidebarBackground),
                         in: RoundedRectangle(cornerRadius: PennantTheme.radiusSmall + 1, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: PennantTheme.radiusSmall + 1, style: .continuous))

@@ -49,7 +49,7 @@ public enum DesktopTools {
             AppleScriptTool(),
             JXATool(),
             WaitTool(),
-        ]
+        ] + AppTools.all()
     }
 
     static func text(_ name: String, _ text: String, isError: Bool = false) -> ToolResult {

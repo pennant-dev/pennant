@@ -8,7 +8,11 @@ import SwiftUI
 enum DelegatedWork {
     static let coding = "code"
     static let delegation = "delegate_task"
-    static func isDelegated(_ name: String) -> Bool { name == coding || name == delegation }
+    /// A thread the Pennant chat started (see PennantChatViews).
+    static let thread = "start_thread"
+    /// The chat's other thread tools: not shown, they're how Pennant works.
+    static let quietThreadTools: Set<String> = ["message_thread", "read_thread", "stop_thread"]
+    static func isDelegated(_ name: String) -> Bool { name == coding || name == delegation || name == thread }
 
     /// The task a call started, read from its result ("Coding run started (task <id>…").
     static func taskID(from activity: ToolActivity) -> TaskID? {

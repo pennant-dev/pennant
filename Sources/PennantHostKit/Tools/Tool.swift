@@ -74,10 +74,15 @@ public struct RuntimeHooks: Sendable {
     /// Posts a proposed change to an agent or a skill: a card whose action (an approval-only tool) applies it once
     /// the user approves. Only the proposal tools post these.
     public var postProposal: @Sendable (_ taskID: TaskID, _ request: ApprovalRequest) async throws -> Void = { _, _ in throw ToolError.failed("Proposals are unavailable in this context") }
+    /// Before an agent's card goes up: withdraws the cards it replaces (named, or exact repeats from the same goal,
+    /// job or thread) and stops it while others wait there, unless `alongside`. Returns the replaced titles.
+    public var makeRoom: @Sendable (_ taskID: TaskID, _ card: ApprovalRequest, _ replaces: [String], _ alongside: Bool) async throws -> [String] = { _, _, _, _ in [] }
     /// Posts a card (a report) into the task's conversation as an assistant message.
     public var postPart: @Sendable (_ taskID: TaskID, _ part: ContentPart) async throws -> Void = { _, _ in throw ToolError.failed("Cards are unavailable in this context") }
     /// Records where approved content went live.
     public var markPublished: @Sendable (_ id: String, _ url: String) async throws -> Void = { _, _ in }
+    /// The Pennant chat's threads: start, message, read, stop. Nil where there's no runtime.
+    public var threads: ThreadHooks? = nil
 
     public init(delegate: @escaping @Sendable (TaskID, String, String, String, String, String?, String?) async throws -> TaskID, awaitTask: @escaping @Sendable (TaskID, TimeInterval) async throws -> TaskRecord, askUser: @escaping @Sendable (TaskID, String) async throws -> String, learnSkill: @escaping @Sendable (TaskID, Skill) async throws -> Skill, scheduleJob: @escaping @Sendable (String, String, String, SkillID?) async throws -> ScheduledJob, deleteSchedule: @escaping @Sendable (ScheduleID) async throws -> Void, importSkills: @escaping @Sendable (String) async throws -> ([Skill], [String]), shareFile: @escaping @Sendable (TaskID, FileRef) async throws -> Void = { _, _ in throw ToolError.failed("share_file is unavailable in this context") }) {
         self.delegate = delegate

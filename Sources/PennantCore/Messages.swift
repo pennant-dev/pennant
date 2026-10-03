@@ -92,8 +92,10 @@ public indirect enum ContentPart: Hashable, Codable, Sendable {
     case report(ReportCard)
     /// Multiple-choice questions waiting for the user (a coding CLI's AskUserQuestion), answered by tapping.
     case choices(ChoiceQuestion)
+    /// News from one of Pennant's threads in the Pennant chat: it finished, failed, asks something or put up a card.
+    case update(WorkUpdate)
 
-    private enum CodingKeys: String, CodingKey { case type, text, image, toolCall, toolResult, file, approval, report, choices }
+    private enum CodingKeys: String, CodingKey { case type, text, image, toolCall, toolResult, file, approval, report, choices, update }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -108,6 +110,7 @@ public indirect enum ContentPart: Hashable, Codable, Sendable {
         case "approval": self = .approval(try c.decode(ApprovalRequest.self, forKey: .approval))
         case "report": self = .report(try c.decode(ReportCard.self, forKey: .report))
         case "choices": self = .choices(try c.decode(ChoiceQuestion.self, forKey: .choices))
+        case "update": self = .update(try c.decode(WorkUpdate.self, forKey: .update))
         // A part from a newer host: show a placeholder rather than failing the whole message.
         default: self = .text("[\(type) — update Pennant to see this]")
         }
@@ -125,6 +128,7 @@ public indirect enum ContentPart: Hashable, Codable, Sendable {
         case .approval(let a): try c.encode("approval", forKey: .type); try c.encode(a, forKey: .approval)
         case .report(let r): try c.encode("report", forKey: .type); try c.encode(r, forKey: .report)
         case .choices(let q): try c.encode("choices", forKey: .type); try c.encode(q, forKey: .choices)
+        case .update(let u): try c.encode("update", forKey: .type); try c.encode(u, forKey: .update)
         }
     }
 
@@ -163,6 +167,9 @@ public struct Conversation: Hashable, Codable, Sendable, Identifiable {
     /// coding tools), which works in a project folder and streams its steps here. Nil: an ordinary thread.
     public var engine: CodingEngine?
     public var isCodingRun: Bool { engine != nil }
+    /// The Pennant chat: the one conversation people have with Pennant. Pennant starts threads from it for the work,
+    /// and their results, questions and cards come back to it.
+    public var isMain: Bool = false
 
     public init(id: ConversationID = ConversationID(), agentID: AgentID, title: String = "", preview: String = "", createdAt: Date = Date(), updatedAt: Date = Date()) {
         self.id = id
@@ -173,7 +180,7 @@ public struct Conversation: Hashable, Codable, Sendable, Identifiable {
         self.updatedAt = updatedAt
     }
 
-    private enum CodingKeys: String, CodingKey { case id, agentID, title, preview, createdAt, updatedAt, engineSessionID, workingDirectory, engineCursor, engineMode, engineModel, closedAt, parentID, engine }
+    private enum CodingKeys: String, CodingKey { case id, agentID, title, preview, createdAt, updatedAt, engineSessionID, workingDirectory, engineCursor, engineMode, engineModel, closedAt, parentID, engine, isMain }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -192,6 +199,7 @@ public struct Conversation: Hashable, Codable, Sendable, Identifiable {
         closedAt = try c.decodeIfPresent(Date.self, forKey: .closedAt)
         parentID = try c.decodeIfPresent(ConversationID.self, forKey: .parentID)
         engine = (try? c.decodeIfPresent(CodingEngine.self, forKey: .engine)) ?? nil
+        isMain = try c.decodeIfPresent(Bool.self, forKey: .isMain) ?? false
     }
 
     /// Trims a message body to one preview line.

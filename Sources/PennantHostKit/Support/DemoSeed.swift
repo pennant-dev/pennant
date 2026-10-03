@@ -3,8 +3,9 @@ import Foundation
 
 /// A fictional host for screenshots, the site and demo films: `pennant-host --root <empty folder> --seed-demo`.
 /// One agent, Pennant, and the jobs it runs for Maya Okafor in the week Harbor 2.0 launches (the same invented company
-/// as the Binders demo): scheduled jobs that each run in a thread of their own, a coding run under the thread that
-/// asked for it, helpers on a product demo, cards waiting, reports, memory and the usage ledger.
+/// as the Binders demo): Maya's Pennant chat, scheduled jobs that each run in a thread of their own and report back to
+/// the chat, a coding run the chat started, helpers on a product demo, cards waiting, reports, memory and the usage
+/// ledger.
 /// The seeded host listens on 127.0.0.1:7431 only, doesn't advertise itself, and has no reachable model, so nothing
 /// in it runs on its own: work shown in progress is paused mid-task, exactly as the app draws it while it works.
 public enum DemoSeed {
@@ -57,17 +58,18 @@ public enum DemoSeed {
 
         // MARK: Pennant, the one agent
 
-        let pennant = AgentProfile(name: HostService.defaultAgentName, role: HostService.defaultAgentRole, style: "calm, concise, and precise; says what was verified",
+        let pennant = AgentProfile(name: HostService.defaultAgentName, role: HostService.defaultAgentRole, style: "warm, plain-spoken and brief; straight about what's done and what isn't",
                                    instructions: "Each job has a skill: follow it. Code changes go to a coding run (the code tool) in ~/code/harbor-web.",
                                    avatar: "flag:compass", accentColorHex: "#2F80ED")
         try await store.upsertAgent(pennant)
 
         // MARK: Helpers
 
-        func thread(_ title: String, preview: String = "", created: Date, updated: Date, closed: Date? = nil, parent: ConversationID? = nil) async throws -> Conversation {
+        func thread(_ title: String, preview: String = "", created: Date, updated: Date, closed: Date? = nil, parent: ConversationID? = nil, main: Bool = false) async throws -> Conversation {
             var c = Conversation(agentID: pennant.id, title: title, preview: preview, createdAt: created, updatedAt: updated)
             c.closedAt = closed
             c.parentID = parent
+            c.isMain = main
             try await store.upsertConversation(c)
             return c
         }
@@ -141,9 +143,30 @@ public enum DemoSeed {
         let checkSkill = try await skill("service-check", "Check the API, the web app and the import queue, and report only what changed.", [
             "Check each service's health and latency.", "Compare with the last run.", "If something is off, report it with the numbers; otherwise say so in one line."])
 
-        // MARK: Harbor launch: Maya's own thread with Pennant
+        // MARK: Harbor launch: Maya's Pennant chat
 
-        let harbor = try await thread("Harbor 2.0 launch", preview: "I've started a coding run in harbor-web.", created: ago(6 * 60), updated: ago(20))
+        let harbor = try await thread(HostService.defaultAgentName, preview: "On it. I'll find what broke in harbor-web.", created: ago(30 * 60), updated: ago(4), main: true)
+        /// News from a thread in the chat, as the runtime posts it: in Pennant's words, with where it came from.
+        func update(_ t: Conversation, _ task: TaskRecord?, _ kind: WorkUpdate.Kind, _ text: String, at when: Date, card: ApprovalRequest? = nil, saying: String) async throws {
+            let u = WorkUpdate(kind: kind, threadID: t.id, taskID: task?.id, thread: t.title, text: text, approvalID: card?.id,
+                               outcome: card.flatMap { $0.state == .pending ? nil : TaskRuntime.outcome(of: $0) }, createdAt: when)
+            try await store.appendMessage(Message(conversationID: harbor.id, agentID: pennant.id, role: .assistant, parts: [.text(saying), .update(u)], createdAt: when))
+        }
+        /// How Pennant introduced each card, by its title.
+        let intros = [
+            "Delete: run a command": "The Safari fix is up for review. While it was at it, it wants to delete the branch from the old pop-up workaround, which nothing uses now. OK to remove it?",
+            "LinkedIn post: launch teaser": "Here's a one-line teaser for tomorrow's launch, ready to go out when you say.",
+            "LinkedIn post: Harbor 2.0 is live": "Today's launch post is ready. It leads with the faster imports; have a look before it goes out.",
+            "Reply to Jonas Lindqvist": "Jonas asked when Northwind can switch on shared views. I drafted a reply, and it mentions the checklist you promised him for Friday.",
+        ]
+        /// Every card in a thread, in the chat too.
+        func cardsToChat(_ t: Conversation, _ task: TaskRecord) async throws {
+            for m in try await store.messagesAfter(conversationID: t.id, after: nil, limit: 400) {
+                for case .approval(let a) in m.parts {
+                    try await update(t, task, .approval, a.title, at: a.createdAt.addingTimeInterval(2), card: a, saying: intros[a.title] ?? "This one's ready for your OK.")
+                }
+            }
+        }
         let planTask = try await task(harbor, "Run the Harbor 2.0 launch", state: .completed, started: ago(6 * 60), finished: ago(6 * 60 - 4), steps: 6, input: 64_000, output: 2_900,
                                       summary: "Launch plan set: the post, the beta list, the checks and the flaky test.")
         try await ask(harbor, planTask, "Harbor 2.0 goes live today. Get the post out on the company page, answer the beta list, keep an eye on the services, and tell me if anything breaks.", ago(6 * 60))
@@ -190,7 +213,7 @@ public enum DemoSeed {
         try await say(harbor, fixTask, .tool, [.toolResult(ToolResult.text(startCall.id, name: "code",
             "Coding run started (task \(codeTask.id.rawValue), thread \(coding.id.rawValue)). Call await_task with the task id for the result; pass the thread id to follow up."))], ago(23))
         try await store.upsertToolRecord(ToolRecord(taskID: fixTask.id, agentID: pennant.id, call: startCall, status: .succeeded, resultSummary: "Coding run started", startedAt: ago(23.5), finishedAt: ago(23)))
-        try await say(harbor, fixTask, .assistant, [.text("I've started a coding run in harbor-web. It works in its own thread under this one; I'll bring you the pull request when it's up.")], ago(22))
+        try await say(harbor, fixTask, .assistant, [.text("On it. I'll find what broke in harbor-web and let you know when the fix is up for review.")], ago(22))
         try await spend(fixTask, .lead, at: ago(22), input: 29_000, cached: 24_000, output: 900, calls: 2)
 
         let file = codeFolder + "/src/checkout/PayButton.tsx"
@@ -224,6 +247,7 @@ public enum DemoSeed {
         cleanup.approveLabel = "Allow"
         cleanup.allowRestLabel = "Allow for the rest of this task"
         try await say(coding, codeTask, .assistant, [.approval(cleanup)], ago(4))
+        try await cardsToChat(coding, codeTask)
         try await spend(codeTask, .coding, at: ago(5), input: 612_000, cached: 540_000, output: 21_400, calls: 6)
 
         // MARK: Company post: today's launch post, waiting for approval; yesterday's teaser, posted
@@ -263,6 +287,8 @@ public enum DemoSeed {
                 details: [ApprovalDetail(label: "When", value: "As soon as you approve"), ApprovalDetail(label: "Length", value: "74 words")],
                 notes: "Kept to two hashtags and under 120 words, as you prefer.", createdAt: postFired.addingTimeInterval(400)))], postFired.addingTimeInterval(400))
         try await spend(postTask, .lead, at: postFired.addingTimeInterval(400), input: 41_000, cached: 29_000, output: 2_100, calls: 4)
+        try await cardsToChat(teaserThread, teaserTask)
+        try await cardsToChat(postThread, postTask)
 
         // MARK: Inbox drafts: the latest run has a reply waiting and a report; the one before was all handled
 
@@ -299,6 +325,9 @@ public enum DemoSeed {
                 ])),
             ], createdAt: inboxFired.addingTimeInterval(540)))], inboxFired.addingTimeInterval(540))
         try await spend(mailTask, .lead, at: inboxFired.addingTimeInterval(540), input: 96_000, cached: 71_000, output: 7_800, calls: 6)
+        try await cardsToChat(mailThread, mailTask)
+        try await update(mailThread, mailTask, .finished, "14 read, 36 beta replies sent from the approved template. Jonas's reply waits for you.", at: inboxFired.addingTimeInterval(545),
+                         saying: "Your inbox is sorted: the 38 beta sign-ups all got the launch note, and the newsletters are archived. Just the reply to Jonas is waiting for you.")
 
         let earlierThread = try await thread(runTitle("Inbox drafts", inboxEarlier), preview: "All handled", created: inboxEarlier, updated: inboxEarlier.addingTimeInterval(300))
         let earlierTask = try await task(earlierThread, "Inbox drafts", objective: scheduled("Inbox drafts", "Sort the new mail, archive the noise and draft the replies that need Maya."), state: .completed,
@@ -327,6 +356,40 @@ public enum DemoSeed {
                 ReportSection(title: "Calendar", items: [ReportItem(text: "10:30 Launch stand-up with Tomás and Delphine"), ReportItem(text: "15:00 Northwind partner call")]),
             ], createdAt: briefFired.addingTimeInterval(240)))], briefFired.addingTimeInterval(240))
         try await spend(briefTask, .lead, at: briefFired.addingTimeInterval(240), input: 48_000, cached: 36_000, output: 2_200, calls: 3)
+        try await update(briefThread, briefTask, .finished, """
+            **Launch day. Three things need you:**
+            - Approve the launch post before 10:00
+            - Jonas's question about shared views: a reply is drafted
+            - The final launch checklist for Jonas is due Friday
+            """, at: briefFired.addingTimeInterval(245),
+            saying: "Morning! It's launch day. Three things for you: the launch post needs your OK before 10, there's a reply to Jonas to look over, and his checklist is due Friday.")
+
+        // MARK: Team offsite: a thread the chat started, with its question asked in the chat in Pennant's words
+
+        let offsiteAsk = try await task(harbor, "A place for the team offsite in Lisbon", state: .completed, started: ago(52), finished: ago(51), steps: 2, input: 21_000, output: 400,
+                                        summary: "I'll look into it and let you know.")
+        try await ask(harbor, offsiteAsk, "Can you find a place for the team offsite in Lisbon in November? Eight of us, three nights, near the office.", ago(52))
+        let offsite = try await thread("Team offsite in Lisbon", preview: "Two places fit.", created: ago(51), updated: ago(12), parent: harbor.id)
+        let brief = "Find somewhere for Harbor's team offsite in Lisbon: 8 people, 3 nights in mid-November, walking distance of the office in Chiado, with room for a workshop day. Compare two or three options with prices; hold nothing without asking Maya."
+        let offsiteTask = try await task(offsite, "Team offsite in Lisbon", objective: brief, state: .waitingForUser, reason: "Waiting for your answer", started: ago(51), steps: 7,
+                                         input: 58_000, output: 2_600, requestedBy: offsiteAsk.id)
+        try await tool(harbor, offsiteAsk, "start_thread", ["title": .string("Team offsite in Lisbon"), "instructions": .string(brief)],
+                       result: "Started the thread “Team offsite in Lisbon” (thread \(offsite.id.rawValue.prefix(8)), task \(offsiteTask.id.rawValue)). Its result comes back to this chat on its own.",
+                       at: ago(51.5), seconds: 0.3)
+        try await say(harbor, offsiteAsk, .assistant, [.text("I'll look into it and let you know.")], ago(51))
+        try await spend(offsiteAsk, .lead, at: ago(51), input: 21_000, cached: 17_000, output: 400)
+        try await say(offsite, offsiteTask, .user, [.text(brief)], ago(51), author: MessageAuthor(id: PersonID("pennant"), name: pennant.name))
+        try await tool(offsite, offsiteTask, "browser_read_page", ["url": .string("https://www.casadolargo.example/rooms")],
+                       result: "Casa do Largo, Chiado: whole house, 8 beds in 5 rooms, garden. 14–17 Nov available. €780/night. Free 48-hour hold.", at: ago(40), seconds: 3)
+        try await tool(offsite, offsiteTask, "browser_read_page", ["url": .string("https://www.lumiares.example/suites")],
+                       result: "Lumiares Suites, Bairro Alto: 4 two-bedroom apartments, rooftop terrace bookable for groups. 14–17 Nov available. €2,980 for 3 nights.", at: ago(30), seconds: 3)
+        let question = "Two options fit. Casa do Largo (whole house, 8 beds, €2,340 for 3 nights, 10 min walk to the office, free 48 h hold) or Lumiares Suites (4 apartments, €2,980, rooftop terrace for the workshop day). Which one, and should I put the hold on now?"
+        try await say(offsite, offsiteTask, .assistant, [.text(question)], ago(12.2))
+        try await spend(offsiteTask, .lead, at: ago(12), input: 58_000, cached: 40_000, output: 2_600, calls: 4)
+        try await store.appendMessage(Message(conversationID: harbor.id, agentID: pennant.id, role: .assistant, parts: [
+            .text("For Lisbon I've found two that work. **Casa do Largo** has all eight of you under one roof for €2,340, ten minutes' walk from the office. **Lumiares Suites** is €2,980, in four apartments, with a rooftop for the workshop day. Which do you like? I can hold either one for two days at no cost."),
+            .update(WorkUpdate(kind: .question, threadID: offsite.id, taskID: offsiteTask.id, thread: offsite.title, text: question, createdAt: ago(12))),
+        ], createdAt: ago(12)))
 
         // MARK: Product demo: run now, with three helpers on a cheaper model
 
@@ -432,8 +495,9 @@ public enum DemoSeed {
                               measure: "p95 import time on the Service check dashboard", ownerAgentID: pennant.id, freedom: .proposeOnly,
                               workSchedule: "weekdays at 14:00", createdAt: ago(150), updatedAt: ago(150))
         try await store.upsertGoal(importGoal)
-        let importThread = try await thread("Import queue", preview: "Proposed a goal: Faster imports.", created: ago(155), updated: ago(150))
-        let importTask = try await task(importThread, "Import queue", state: .completed, started: ago(155), finished: ago(150), steps: 3, input: 22_000, output: 800,
+        // Asked in the chat: the goal's card is there.
+        let importThread = harbor
+        let importTask = try await task(importThread, "Imports felt slow during the beta", state: .completed, started: ago(155), finished: ago(150), steps: 3, input: 22_000, output: 800,
                                         summary: "Proposed the goal Faster imports.")
         try await ask(importThread, importTask, "Imports felt slow during the beta. Is that worth a goal?", ago(155))
         var proposal = ApprovalRequest(taskID: importTask.id, title: "Goal: \(importGoal.title)", destination: "Goal", text: importGoal.outcome,

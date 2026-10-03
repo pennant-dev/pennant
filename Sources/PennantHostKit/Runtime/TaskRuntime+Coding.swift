@@ -234,7 +234,7 @@ extension TaskRuntime {
         var request = ApprovalRequest(taskID: taskID, title: title, destination: "Coding · \(folder)", text: text.isEmpty ? tool : text,
                                       notes: input["description"]?.stringValue ?? "")
         request.details = [ApprovalDetail(label: "Tool", value: tool)]
-        request.approveLabel = "Allow"
+        request.approveLabel = ApprovalRequest.commandLabel
         if mode != .manual { request.allowRestLabel = "Allow for the rest of this task" }
         let decided = try await requestApproval(taskID: taskID, request)
         switch decided.state {
@@ -304,6 +304,7 @@ extension TaskRuntime {
         await publishConversation(task.conversationID, after: message)
         let first = question.items[0].question
         try await transition(taskID, to: .waitingForUser, reason: question.items.count == 1 ? first : "\(question.items.count) questions: \(first)")
+        await reportQuestion(task, question.summary)
         await setAgentStatus(task.agentID, .waitingForUser, line: "Waiting for your answer")
         await publish(.notice(level: .info, agentID: task.agentID, text: "\(first) is waiting for your answer."))
         openChoices[taskID] = question.id

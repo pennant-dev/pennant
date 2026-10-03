@@ -141,6 +141,7 @@ public actor SQLiteStore: StoreProtocol {
             case .approval(let a): parts.append([a.title, a.finalText].joined(separator: " "))
             case .report(let r): parts.append(r.markdown)
             case .choices(let q): parts.append(q.summary)
+            case .update(let u): parts.append([u.thread, u.text].joined(separator: " "))
             case .reasoning: break
             }
         }

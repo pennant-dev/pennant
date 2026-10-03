@@ -55,6 +55,8 @@ Usage: pennant [--host H] [--port P] [--token T] <command> [args]
   health enable              Pennant reviews its own runs, skills and jobs daily and proposes fixes as cards
   threads                    Open threads newest first (! = needs you), and how many are closed
   threads close-after <days|never>  How long a quiet thread stays in the list
+  heartbeat [on|off|every <minutes>|cap <n>]  Pennant checking in on its own: whether, how often, how many times a day
+  tool <name> [json]         Run one of Pennant's tools by hand (owner only); images it returns are saved here
   send <text…>               Send a message and stream the reply until the task finishes
   tasks                      List tasks
   pause <taskID>             Pause a task
@@ -79,6 +81,8 @@ Usage: pennant [--host H] [--port P] [--token T] <command> [args]
   export [--to <folder>] [--passphrase P]  Export this host's Pennant (secrets only with a passphrase, sealed)
   import <folder> [--passphrase P]  Import an export on this host (restarts it; keeps the previous data)
   chrome-signins [<site>… --profile P]  List Chrome profiles, or copy sites' sign-ins into Pennant's browser
+  chrome [status | setup [--browser <bundle id>] | forget <site>]
+                             Pennant's Chrome extension: whether it's connected; add it to Chrome for you; forget a site
   library add <collection> <file>… [--notes N]  Upload files into a collection (created if new)
   library notes <collection> <text>  Set a collection's usage guidance
   schedules [run <id>]       List scheduled jobs, or run one now
@@ -104,6 +108,6 @@ Usage: pennant [--host H] [--port P] [--token T] <command> [args]
   chatgpt import             Reuse the Codex CLI login on this Mac (~/.codex/auth.json)
   chatgpt status             The signed-in ChatGPT account, plan, and session expiry
   chatgpt logout             Forget the ChatGPT tokens
-  chatgpt models             Models the ChatGPT backend serves; * marks the configured one
+  chatgpt models             Models your ChatGPT account can use; * marks the configured one
   diag                       Diagnostics report (JSON)
 """

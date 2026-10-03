@@ -14,7 +14,7 @@ public func conversationLabel(_ conversation: Conversation) -> String {
     return "New conversation"
 }
 
-/// The icon for a thread's kind: a clock for a scheduled run, a target for a goal, nil for a conversation.
+/// The icon for a thread's kind: a clock for a scheduled run, a goal's for a goal, nil for a conversation.
 public func threadSymbol(_ conversation: Conversation) -> String? { ThreadMark.strip(conversation.title).symbol }
 
 /// A schedule's name without the goal mark (its icon is drawn separately).
@@ -22,13 +22,19 @@ public func scheduleLabel(_ name: String) -> String { ThreadMark.strip(name).tex
 
 /// The emoji marks at the start of generated names, and the SF Symbols the apps show in their place.
 public enum ThreadMark {
-    static let marks: [(prefix: String, symbol: String)] = [("⏰", "clock"), ("🎯", "target")]
+    /// What a goal looks like everywhere in the apps: a finish line.
+    public static let goalSymbol = "flag.checkered"
+    static let marks: [(prefix: String, symbol: String)] = [("⏰", "clock"), ("🎯", goalSymbol)]
 
+    /// Every mark at the start goes ("⏰ 🎯 Book the place · work", a goal's scheduled session); the goal's icon wins.
     public static func strip(_ s: String) -> (symbol: String?, text: String) {
-        for m in marks where s.hasPrefix(m.prefix) {
-            return (m.symbol, String(s.dropFirst(m.prefix.count)).trimmingCharacters(in: .whitespaces))
+        var text = s.trimmingCharacters(in: .whitespaces)
+        var symbol: String?
+        while let m = marks.first(where: { text.hasPrefix($0.prefix) }) {
+            if symbol == nil || m.symbol == goalSymbol { symbol = m.symbol }
+            text = String(text.dropFirst(m.prefix.count)).trimmingCharacters(in: .whitespaces)
         }
-        return (nil, s)
+        return (symbol, symbol == nil ? s : text)
     }
 }
 

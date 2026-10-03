@@ -91,6 +91,26 @@ public struct VaultItem: Hashable, Codable, Sendable, Identifiable {
     }
 }
 
+/// Pennant's Chrome extension, as the host sees it.
+public struct ChromeStatus: Hashable, Codable, Sendable {
+    public var connected: Bool
+    /// "Chrome 141", from the extension.
+    public var browser: String?
+    /// Sites the owner let Pennant use there.
+    public var sites: [String]
+    public var extensionID: String
+    /// The folder Chrome loads the extension from, on the host's Mac.
+    public var folder: String?
+
+    public init(connected: Bool, browser: String? = nil, sites: [String] = [], extensionID: String, folder: String? = nil) {
+        self.connected = connected
+        self.browser = browser
+        self.sites = sites
+        self.extensionID = extensionID
+        self.folder = folder
+    }
+}
+
 /// A Chrome profile on this Mac, for importing sign-ins.
 public struct ChromeProfile: Hashable, Codable, Sendable, Identifiable {
     /// The profile folder: "Default", "Profile 1".

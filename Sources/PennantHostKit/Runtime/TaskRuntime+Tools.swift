@@ -48,6 +48,18 @@ extension TaskRuntime {
             await publish(.toolRecordUpserted(record))
             return (ToolResult.text(call.id, name: call.name, "Refused: approving a pull request, resolving a review thread or passing a deployment review with the owner's GitHub account is their sign-off, and agents never give it as them. Approve as your GitHub App instead (through its ghapp.sh), or ask the people with request_reviews. If an approval doesn't count (GitHub still says review required), say why: code-owner rules usually need a person other than the author or the last pusher.", isError: true), false)
         }
+        // AppleScript that drives the owner's Chrome takes over the window they're working in. From the chat that's a
+        // thread's job, and with Pennant's extension connected a thread works in its own tabs instead.
+        if !codingRun, spec.name == "shell", ChromeGuard.drivesChrome(call.arguments["command"]?.stringValue ?? "", in: shellDirectory(call.arguments)) {
+            let fromChat = await inMainChat(task)
+            let linked = await deps.chromeConnected?() ?? false
+            if fromChat || linked {
+                record.status = .denied; record.isError = true; record.resultSummary = "Drives the owner's Chrome"; record.finishedAt = Date()
+                try? await deps.store.upsertToolRecord(record)
+                await publish(.toolRecordUpserted(record))
+                return (ToolResult.text(call.id, name: call.name, fromChat ? Self.chromeFromChat : Self.chromeInThread, isError: true), false)
+            }
+        }
         // A goal set to "only propose" changes nothing by itself.
         if spec.isConsequential, let freedom = await deps.goalFreedom?(task.id), freedom == .proposeOnly {
             record.status = .denied; record.isError = true; record.resultSummary = "Held back in goal work"; record.finishedAt = Date()
@@ -86,7 +98,7 @@ extension TaskRuntime {
                                           destination: spec.source.hasPrefix("mcp:") ? String(spec.source.dropFirst(4)) : spec.name, text: shown,
                                           notes: "Pennant asks before anything \(reason.why). Approving runs exactly this.")
             request.details = [ApprovalDetail(label: "Tool", value: spec.name)]
-            request.approveLabel = "Approve & run"
+            request.approveLabel = ApprovalRequest.signOffLabel
             let decided: ApprovalRequest
             do { decided = try await requestApproval(taskID: task.id, request) } catch {
                 if stopping { throw error }
@@ -239,6 +251,12 @@ extension TaskRuntime {
     }
 
     /// A tool hit a missing macOS grant: show the system prompt now (once per label per process) and tell the user.
+    /// Where a shell call runs: its working_directory, from the host's working directory.
+    private func shellDirectory(_ arguments: JSONValue) -> String {
+        let base = deps.config.workingDirectory
+        return arguments["working_directory"]?.stringValue.map { PathResolver.resolve($0, base: base) } ?? base
+    }
+
     private func promptForPermission(_ label: String, agent: AgentProfile) async {
         let targets = PermissionCheck.targets(forMissing: label)
         let grantee = PermissionCheck.grantee()
@@ -318,10 +336,21 @@ extension TaskRuntime {
         hooks.delegateOnModel = { [self] parent, title, objective, criteria, context, name, role, model in
             try await self.delegate(parentTaskID: parent, title: title, objective: objective, completionCriteria: criteria, context: context, workerName: name, workerRole: role, model: model)
         }
+        hooks.threads = ThreadHooks(
+            start: { [self] taskID, title, instructions in try await self.startThread(from: taskID, title: title, instructions: instructions) },
+            message: { [self] taskID, thread, text in try await self.messageThread(from: taskID, thread: thread, text: text) },
+            read: { [self] thread, limit in try await self.readThread(thread, limit: limit) },
+            stop: { [self] thread in try await self.stopThread(thread) }
+        )
         hooks.approval = { [self] id in try await self.findApproval(id)?.request }
         hooks.markPublished = { [self] id, url in try await self.updateApproval(id) { $0.publishedURL = url } }
         hooks.postApproval = { [self] taskID, request in try await self.postApproval(taskID: taskID, request) }
-        hooks.postProposal = { [self] taskID, request in try await self.postApproval(taskID: taskID, request, proposal: true) }
+        hooks.postProposal = { [self] taskID, request in
+            // The proposal tools' cards (a goal, a change to one, a skill's new version) replace an exact repeat.
+            _ = try await self.makeRoom(for: request, taskID: taskID, replaces: [], alongside: true)
+            try await self.postApproval(taskID: taskID, request, proposal: true)
+        }
+        hooks.makeRoom = { [self] taskID, card, replaces, alongside in try await self.makeRoom(for: card, taskID: taskID, replaces: replaces, alongside: alongside) }
         hooks.postPart = { [self] taskID, part in try await self.postPart(taskID: taskID, part) }
         return hooks
     }

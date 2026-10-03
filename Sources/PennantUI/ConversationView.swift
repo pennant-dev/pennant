@@ -89,11 +89,13 @@ public struct ConversationView: View {
             case codingRun(ToolActivity)
             /// Workers the agent split a job across; consecutive delegations share one card.
             case workers([ToolActivity])
+            /// A thread the Pennant chat started.
+            case threadStarted(ToolActivity)
         }
         var id: String
         var kind: Kind
         var isAgent: Bool {
-            switch kind { case .work, .agentText, .agentPart, .codingRun, .workers: return true; default: return false }
+            switch kind { case .work, .agentText, .agentPart, .codingRun, .workers, .threadStarted: return true; default: return false }
         }
     }
 
@@ -166,6 +168,8 @@ public struct ConversationView: View {
                         work.append(.reasoning(id: "\(m.id.rawValue)-r\(i)", text: r, streaming: m.isStreaming && i == m.parts.count - 1))
                     case .toolCall(let call):
                         flushText(i)
+                        // Passing word to a thread, checking on one, stopping one: how Pennant works, not news.
+                        if DelegatedWork.quietThreadTools.contains(call.name) { continue }
                         let record = records.first { $0.call.id == call.id }
                         let activity = ToolActivity(call: call, result: pairing.results[call.id], record: record, taskActive: taskActive)
                         if DelegatedWork.isDelegated(call.name) {
@@ -175,6 +179,9 @@ public struct ConversationView: View {
                                 out[last].kind = .workers(group + [activity])
                             } else if call.name == DelegatedWork.delegation {
                                 out.append(TimelineEntry(id: "workers-" + call.id.rawValue, kind: .workers([activity])))
+                            } else if call.name == DelegatedWork.thread || isMainChat {
+                                // In the Pennant chat a coding run is one more piece of work: a quiet line, like a thread.
+                                out.append(TimelineEntry(id: "thread-" + call.id.rawValue, kind: .threadStarted(activity)))
                             } else {
                                 out.append(TimelineEntry(id: "coding-" + call.id.rawValue, kind: .codingRun(activity)))
                             }
@@ -186,6 +193,9 @@ public struct ConversationView: View {
                         if pairing.calls.contains(result.callID) { continue }
                         let record = records.first { $0.call.id == result.callID }
                         work.append(.activity(ToolActivity(call: nil, result: result, record: record)))
+                    case .update(let u) where u.silent == true:
+                        // Pennant kept it to itself: they already knew.
+                        continue
                     default:
                         flushText(i)
                         flushWork()
@@ -218,7 +228,11 @@ public struct ConversationView: View {
                                 .padding(.bottom, 6)
                         }
                         if messages.isEmpty, !loading {
-                            EmptyConversation(agent: session.state.agent(agentID))
+                            if isMainChat {
+                                PennantChatIntro(agent: session.state.agent(agentID))
+                            } else {
+                                EmptyConversation(agent: session.state.agent(agentID))
+                            }
                         }
                         let entries = timeline(pairing)
                         let taskActive = currentTask.map { !$0.state.isTerminal } ?? false
@@ -254,7 +268,7 @@ public struct ConversationView: View {
                                 .padding(.top, afterAgent ? 8 : 14)
                             case .agentPart(let part, let message):
                                 PartView(part: part, message: message, task: task(for: message), alignTrailing: false)
-                                    .frame(maxWidth: part.isApproval ? ApprovalCard.maxWidth : 720, alignment: .leading)
+                                    .frame(maxWidth: part.isApproval || part.isUpdate ? ApprovalCard.maxWidth + 15 : 720, alignment: .leading)
                                     .padding(.top, afterAgent ? 8 : 14)
                             case .checkpoint(let c):
                                 CheckpointDivider(checkpoint: c)
@@ -264,6 +278,9 @@ public struct ConversationView: View {
                                     .padding(.top, afterAgent ? 8 : 14)
                             case .workers(let activities):
                                 WorkersCard(activities: activities, lead: session.state.agent(agentID))
+                                    .padding(.top, afterAgent ? 8 : 14)
+                            case .threadStarted(let activity):
+                                ThreadStartedRow(activity: activity)
                                     .padding(.top, afterAgent ? 8 : 14)
                             }
                         }
@@ -351,7 +368,7 @@ public struct ConversationView: View {
                 CodingBar(conversationID: conversationID)
                     .padding(.horizontal, 20)
                     .padding(.top, 2)
-            } else if conversationID != nil {
+            } else if conversationID != nil, threadInChat == nil {
                 ContextMeterView(conversationID: conversationID, agentID: agentID, hasMessages: !messages.isEmpty)
                     .padding(.horizontal, 20)
                     .padding(.top, 2)
@@ -377,18 +394,30 @@ public struct ConversationView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
             }
-            ComposerView(
-                text: $draft,
-                attachments: $attachments,
-                placeholder: composerPlaceholder,
-                isEnabled: session.connection.isConnected,
-                onSend: { send() },
-                conversationID: conversationID,
-                onNewConversation: { conversationID = nil }
-            )
+            if let thread = threadInChat {
+                // Pennant runs its threads; you talk to Pennant.
+                // Waiting on a question; a card it waits on is decided right here.
+                ThreadFooter(conversation: thread, waiting: currentTask?.state == .waitingForUser && !session.state.pendingApprovals.contains { $0.conversationID == thread.id })
+            } else {
+                ComposerView(
+                    text: $draft,
+                    attachments: $attachments,
+                    placeholder: composerPlaceholder,
+                    isEnabled: session.connection.isConnected,
+                    onSend: { send() },
+                    conversationID: conversationID,
+                    onNewConversation: isMainChat || session.state.mainConversation != nil ? nil : { conversationID = nil }
+                )
+            }
         }
         .background(PennantTheme.windowBackground)
         .task(id: conversationID) { await initialLoad() }
+        // "Talk to Pennant" in a thread: its name goes into the chat's box.
+        .onChange(of: ChatDraft.shared.pending, initial: true) { _, pending in
+            guard isMainChat, let pending else { return }
+            ChatDraft.shared.pending = nil
+            draft = draft.isEmpty ? pending : pending + draft
+        }
         .onChange(of: conversationID) { old, new in
             let next = threadDrafts.switching(from: old, to: new, leaving: ThreadDrafts.Draft(text: draft, attachments: attachments))
             draft = next.text
@@ -402,6 +431,17 @@ public struct ConversationView: View {
                 Task { try? await session.loadToolRecords(taskID: new) }
             }
         }
+    }
+
+    /// This is the Pennant chat.
+    private var isMainChat: Bool {
+        conversationID.flatMap { session.state.conversation($0)?.isMain } ?? false
+    }
+
+    /// The thread on screen, when there's a Pennant chat to talk in instead: threads are read, not written in.
+    private var threadInChat: Conversation? {
+        guard session.state.mainConversation != nil, let id = conversationID, let c = session.state.conversation(id), !c.isMain else { return nil }
+        return c
     }
 
     private var composerPlaceholder: String {
@@ -901,6 +941,8 @@ struct PartView: View {
             ReportCardView(report: report)
         case .choices(let question):
             ChoiceCard(question: question, task: task)
+        case .update(let update):
+            WorkUpdateRow(update: update, worded: message.parts.contains { !($0.plainText ?? "").isEmpty })
         }
     }
 }
@@ -1028,4 +1070,5 @@ struct ThreadDrafts {
 
 private extension ContentPart {
     var isApproval: Bool { if case .approval = self { return true }; return false }
+    var isUpdate: Bool { if case .update = self { return true }; return false }
 }

@@ -102,8 +102,9 @@ The provider choice lives in Settings › Host settings › Inference, as a chip
 keeps the base-URL presets, model discovery, key, window, and capability toggles; **ChatGPT account** replaces
 them with an Account block (Sign in with ChatGPT opens the browser and the card waits for the host's loopback
 redirect; Use Codex CLI login reuses `~/.codex/auth.json`; signed in shows the email, plan and source chips, and
-Sign out) and a Model menu over the host's static list, whose subtitle carries the context window that the
-model brings with it. The model chip in the conversation header follows the host's word, not the unsaved form:
+Sign out) and a Model menu over the account's own list (the host's built-in one when the account can't be asked,
+with a line saying why), whose subtitle carries the context window that the model brings with it, and Other model…
+for any id. The model chip in the conversation header follows the host's word, not the unsaved form:
 for a ChatGPT host its endpoint line reads "ChatGPT account · email", its rows are that list with the window
 and vision note, picking one saves the model and window together, and a "Signed out · Sign in…" line points
 at Settings. The Connections inference card shows the provider first, then the account or the endpoint.

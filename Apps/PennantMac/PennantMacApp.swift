@@ -38,7 +38,7 @@ struct PennantMacApp: App {
     }
 
     var body: some Scene {
-        // One main window: File › New Thread starts a thread in it. A window group gave File › New Window (⌘N), which
+        // One main window: File › Talk to Pennant opens the Pennant chat in it. A window group gave File › New Window (⌘N), which
         // opened a second, empty Pennant whose messages turned up as threads in the first.
         Window("Pennant", id: "main") {
             MainWindow()

@@ -12,6 +12,17 @@ final class CommandRoundTripTests: XCTestCase {
         }
     }
 
+    /// The sign-in screen's first question. iPhone apps from before 0.1.0 decode this reply with a `password` flag
+    /// and can't sign in without it, so it stays on the wire.
+    func testSignInOptionsStillCarryTheFlagOlderIPhonesNeed() throws {
+        let reply = WireMessage.reply(HostReply(commandID: CommandID(), result: .signInOptions([.microsoft], hostName: "Studio Mac")))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: try reply.encoded()) as? [String: Any])
+        let options = (((json["reply"] as? [String: Any])?["_0"] as? [String: Any])?["result"] as? [String: Any])?["signInOptions"] as? [String: Any]
+        XCTAssertEqual(options?["password"] as? Bool, true)
+        XCTAssertEqual(options?["hostName"] as? String, "Studio Mac")
+        XCTAssertEqual(options?["_0"] as? [String], ["microsoft"])
+    }
+
     func testCodingCommandsRoundTrip() throws {
         let bodies: [CommandBody] = [
             .checkGitHubApp(GitHubAppIdentity(appID: 42, installationID: 7, vaultEntry: "app-key", slug: "example-bot")),

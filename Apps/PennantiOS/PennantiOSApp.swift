@@ -126,7 +126,7 @@ enum PhoneSettings {
 
 /// Debug builds only: the simulator opens one screen against the host on this Mac, for layout checks.
 /// `SIMCTL_CHILD_PENNANT_DEBUG_HOST=127.0.0.1:7331`, `SIMCTL_CHILD_PENNANT_DEBUG_TOKEN_FILE=<the host's client-token
-/// file>`, `SIMCTL_CHILD_PENNANT_DEBUG_SCREEN=skills`. Release builds ignore all of it.
+/// file>`, `SIMCTL_CHILD_PENNANT_DEBUG_SCREEN=skills` (or pennant, computer, fullscreen, memory, home, threads, approval:<job>, agent:<name>; touchlab needs no host). Release builds ignore all of it.
 enum DebugLaunch {
     static var screen: String? {
         #if DEBUG
@@ -155,10 +155,25 @@ enum DebugLaunch {
             NavigationStack { SkillsView().navigationTitle("Skills") }
         case "computer":
             ComputerTab()
+        case "fullscreen":
+            FullScreenComputer()
+        #if DEBUG
+        case "touchlab":
+            TouchLab()
+        #endif
         case "memory":
             MemoryTab()
         case "home":
             HomeTab()
+        case "pennant":
+            DebugPennantChat()
+        case "threads":
+            NavigationStack {
+                ThreadListView(selected: nil, onOpen: { _, _ in }, onNewThread: {})
+                    .background(PennantTheme.sidebarBackground)
+                    .navigationTitle("Threads")
+                    .navigationBarTitleDisplayMode(.inline)
+            }
         case let s where s.hasPrefix("approval:"):
             DebugLatestApproval(name: String(s.dropFirst(9)))
         case let s where s.hasPrefix("agent:"):
@@ -166,6 +181,14 @@ enum DebugLaunch {
         default:
             Text("Unknown debug screen \(screen)")
         }
+    }
+}
+
+/// Debug screen "pennant": the Pennant tab, without asking for notifications.
+private struct DebugPennantChat: View {
+    @Environment(\.hostSession) private var session
+    var body: some View {
+        if let chat = session.state.mainConversation { PennantTab(chat: chat) } else { ProgressView("Waiting for the Pennant chat…") }
     }
 }
 
@@ -227,3 +250,58 @@ private struct DebugLatestApproval: View {
         }
     }
 }
+
+#if DEBUG
+/// Debug screen "touchlab": the live screen's gestures against a test grid the shape of a Mac display, with no host.
+/// It shows the input it would send and the zoom (as the screen's accessibility value), for the touch UI tests.
+/// `PENNANT_DEBUG_POINTER=trackpad` starts in trackpad mode.
+private struct TouchLab: View {
+    @State private var last = "none"
+    @State private var zoomRequest: ScreenZoomRequest?
+    @State private var viewport = "whole"
+    @State private var keyboard = false
+    private let mode = RemotePointerMode(rawValue: ProcessInfo.processInfo.environment["PENNANT_DEBUG_POINTER"] ?? "") ?? .touch
+    private static let grid: UIImage = {
+        let size = CGSize(width: 1728, height: 1117)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.darkGray.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            UIColor.lightGray.setStroke()
+            for x in stride(from: 0, through: size.width, by: 144) { context.cgContext.stroke(CGRect(x: x, y: 0, width: 1, height: size.height)) }
+            for y in stride(from: 0, through: size.height, by: 144) { context.cgContext.stroke(CGRect(x: 0, y: y, width: size.width, height: 1)) }
+        }
+    }()
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 24) {
+                Button("Zoom out") { zoomRequest = ScreenZoomRequest(zoomIn: false) }.accessibilityIdentifier("zoom-out")
+                Button("Zoom in") { zoomRequest = ScreenZoomRequest(zoomIn: true) }.accessibilityIdentifier("zoom-in")
+                Button("Keyboard") { keyboard.toggle() }.accessibilityIdentifier("keyboard")
+            }
+            .background { RemoteKeyboard(isActive: $keyboard) { last = Self.describe($0) }.frame(width: 1, height: 1) }
+            ScreenImageView(image: Self.grid, interactive: true, zoomRequest: zoomRequest, onViewport: { region in
+                viewport = region.map { String(format: "%.3f %.3f %.3f %.3f", $0.x, $0.y, $0.width, $0.height) } ?? "whole"
+            }) { input in last = Self.describe(input) }
+                .aspectRatio(1728.0 / 1117.0, contentMode: .fit)
+                .environment(\.remotePointerMode, mode)
+            Text(last).font(.caption.monospaced()).accessibilityIdentifier("last-input")
+            Text(viewport).font(.caption.monospaced()).accessibilityIdentifier("viewport")
+        }
+        .padding(.vertical, 40)
+    }
+
+    static func describe(_ input: RemoteInput) -> String {
+        func f(_ v: Double) -> String { String(format: "%.3f", v) }
+        switch input {
+        case .click(let x, let y, let b, let n): return "click \(b.rawValue) \(f(x)) \(f(y)) \(n)"
+        case .pointerMove(let x, let y): return "move \(f(x)) \(f(y))"
+        case .pointerDown(let x, let y, let b): return "down \(b.rawValue) \(f(x)) \(f(y))"
+        case .pointerUp(let x, let y, let b): return "up \(b.rawValue) \(f(x)) \(f(y))"
+        case .scroll(_, _, let dx, let dy): return "scroll \(f(dx)) \(f(dy))"
+        case .typeText(let text): return "type \(text)"
+        case .key(let chord): return "key \(chord.key)"
+        }
+    }
+}
+#endif

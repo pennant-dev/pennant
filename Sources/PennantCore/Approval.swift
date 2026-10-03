@@ -53,6 +53,20 @@ public struct ApprovalRequest: Hashable, Codable, Sendable, Identifiable {
     public var allowRestLabel: String?
     /// The second button was the one pressed.
     public var approvedForRest: Bool?
+    /// A newer card from the same agent took this one's place (its id). The card reads as rejected on clients that
+    /// don't know about replacing.
+    public var replacedBy: String?
+
+    /// The approve button of the gate's card before a command that publishes, deletes or spends.
+    public static let signOffLabel = "Approve & run"
+    /// The approve button of a coding run's card before a command.
+    public static let commandLabel = "Allow"
+
+    /// An agent's own proposal (request_approval, the proposal tools), which a newer card can replace. The cards the
+    /// gates put before one command (`signOffLabel`, `commandLabel`) never are.
+    public var isAgentProposal: Bool {
+        allowRestLabel == nil && approveLabel != Self.signOffLabel && approveLabel != Self.commandLabel
+    }
 
     public init(id: String = UUID().uuidString, taskID: TaskID, title: String, destination: String, text: String, images: [ImageRef] = [], video: ApprovalVideo? = nil, headline: String? = nil, tags: [String] = [], details: [ApprovalDetail] = [], notes: String = "", state: State = .pending, approvedText: String? = nil, comment: String? = nil, createdAt: Date = Date(), decidedAt: Date? = nil, publishedURL: String? = nil) {
         self.id = id
@@ -92,7 +106,7 @@ public struct ApprovalRequest: Hashable, Codable, Sendable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, taskID, title, destination, text, images, video, headline, tags, details, notes, state, approvedText, comment, createdAt, decidedAt, decidedBy, publishedURL, action, actionResult, actionFailed, approveLabel, allowRestLabel, approvedForRest
+        case id, taskID, title, destination, text, images, video, headline, tags, details, notes, state, approvedText, comment, createdAt, decidedAt, decidedBy, publishedURL, action, actionResult, actionFailed, approveLabel, allowRestLabel, approvedForRest, replacedBy
     }
 
     public init(from decoder: Decoder) throws {
@@ -122,6 +136,7 @@ public struct ApprovalRequest: Hashable, Codable, Sendable, Identifiable {
         approveLabel = try c.decodeIfPresent(String.self, forKey: .approveLabel)
         allowRestLabel = try c.decodeIfPresent(String.self, forKey: .allowRestLabel)
         approvedForRest = try c.decodeIfPresent(Bool.self, forKey: .approvedForRest)
+        replacedBy = try c.decodeIfPresent(String.self, forKey: .replacedBy)
     }
 }
 

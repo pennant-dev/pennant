@@ -55,7 +55,8 @@ final class ReportTests: XCTestCase {
         XCTAssertEqual(card?.verdict, "2 drafts waiting")
         XCTAssertEqual(card?.sections.first?.stats?.first?.value, "2")
         // The model sees it as Markdown on the next turn.
-        let seen = provider.requests.last?.messages.map(\.text).joined() ?? ""
+        // (The thread's own last turn, not Pennant telling the chat about it.)
+        let seen = provider.requests.last { $0.messages.first?.text.contains("writing in your chat with them") != true }?.messages.map(\.text).joined() ?? ""
         XCTAssertTrue(seen.contains("[report card]"), seen)
         await s.stop()
     }

@@ -64,7 +64,7 @@ Set `inference.provider` to `"chatgpt"` (Settings › Host, or `config.json`) an
 
 **Requests.** Headers: `Authorization: Bearer <access token>`, `chatgpt-account-id`, `OpenAI-Beta: responses=experimental`, `originator: pennant`, `session_id` (one id per provider instance), `User-Agent: pennant-host/<version>`, and `x-openai-internal-codex-residency` when the token names a data-residency region. Body: `model`, `instructions` (the system prompt), `input` items (`message` with typed `input_text`/`input_image` parts for user turns — the backend rejects plain-string content — `output_text` for assistant text, `function_call`, `function_call_output`; images in tool results ride in a following user turn, as `input_image` is only accepted there), `tools` in the flat Responses shape with `strict: false`, `tool_choice: auto`, `parallel_tool_calls: true`, `reasoning: {effort: medium, summary: auto}`, `include: ["reasoning.encrypted_content"]`, `store: false`, `stream: true`, and a `prompt_cache_key` hashed from the session, instructions, and tools. No `temperature` or `max_output_tokens`: the backend sets those. JSON-mode requests (summaries, checkpoints) add an instruction line rather than `text.format`. The encrypted reasoning items of a tool-calling turn are kept in memory, keyed by the call ids they produced, and re-sent in front of that turn's `function_call` items on the next request, as the Codex CLI and Hermes do; if the backend answers 400 mentioning `encrypted_content`, the host drops them and retries once without. SSE events map to the same chunks as the OpenAI adapter: `response.output_text.delta` → text, `response.reasoning_summary_text.delta` (and commentary-phase messages) → reasoning, `function_call` items → tool calls once their arguments are done (settled at completion when a `done` event is missing), `response.completed`/`incomplete` → usage and the finish reason (`max_output_tokens` → length), `response.failed` and `error` events → errors. A 429 is the subscription's usage limit for the window; there is nothing to refresh, wait it out.
 
-**Models.** `pennant chatgpt models`: `gpt-5.6-sol` (default), `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` (272k context each on this backend, lower than the public API's for the same ids), and `gpt-5.3-codex-spark` (128k; a research preview for ChatGPT Pro). The list was taken from the Hermes Agent's Codex catalogue on 2026-09-22; the retired `gpt-5.x-codex` ids are refused by this backend ("not supported when using Codex with a ChatGPT account"). The backend's own list (`GET /backend-api/codex/models?client_version=0.0.0` with the account headers) is not fetched yet. Any other id typed in is sent verbatim with the config's `contextWindowTokens`.
+**Models.** Settings › Models and `pennant chatgpt models` show the account's own list: the host asks the backend (`GET /backend-api/codex/models?client_version=<Codex version>` with the account headers; without `client_version` it answers 400), leaves out the models it marks hidden, keeps the backend's order, and reuses the answer for ten minutes or until the account changes. When it can't be asked, the host falls back to a built-in list (what a Plus account listed on 2026-10-01: `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, 272k context each on this backend) and says why under the picker. The retired `gpt-5.x-codex` ids are refused by this backend ("not supported when using Codex with a ChatGPT account"). Other model… takes any id, sent verbatim with the config's `contextWindowTokens`.
 
 **Caveat.** This uses the same backend, client id, and sign-in as the Codex CLI, under your ChatGPT subscription and its usage limits; it is not an API key and has no API pricing. OpenAI's terms of use for ChatGPT and Codex govern it, and OpenAI can change the endpoint or which clients it accepts without notice; Pennant identifies itself as `pennant` the way third-party harnesses are asked to. Keep the tokens to yourself.
 
@@ -110,6 +110,38 @@ Permissions stick to a stable signature, so run the host from the app bundle (`P
 ## Installing the host as a LaunchAgent
 
 The Mac app embeds the host and a LaunchAgent plist (`dev.pennant.host.plist`, `KeepAlive`, `LimitLoadToSessionType Aqua`). Settings › Host › Register uses `SMAppService.agent(plistName:)`; launchd then keeps the host running in the graphical session whether or not the app is open. Unregister from the same place. While developing, the app instead spawns `pennant-host` from the package build directory if nothing is listening on the port.
+
+## Pennant in Chrome
+
+Pennant's extension lets it work in tabs of its own in your Chrome, with your sign-ins, without your pointer or keyboard.
+
+**To add it**, open Settings › Pennant › Chrome and click **Set it up for me**, or run `pennant chrome setup`. It takes about 15 seconds:
+1. Pennant opens Chrome's Extensions page.
+2. It turns on Developer mode and clicks Load unpacked. Both go through Accessibility, without Chrome in front.
+3. Chrome comes to the front for a moment while Pennant picks the extension's folder in the file picker. The picker only takes keys typed into the app in front, and Pennant stops if Chrome loses the front.
+4. Your app gets the front back.
+
+Chrome only adds extensions from its store or by hand, which is why Pennant goes through the page the way you would.
+
+**If a step fails**, the card says which one and shows the steps by hand:
+- Turn on Developer mode, click Load unpacked and choose the folder.
+- Show the folder and Copy its path help you find it.
+- If the picker was left open, press ⌘⇧G in it and paste the path.
+
+It connects by itself whenever Chrome and Pennant are both running; the card shows Connected. `--browser <bundle id>` picks another channel (Chrome Beta, Chrome for Testing).
+
+**Where the files live.** Chrome loads the extension from Pennant's data folder (`chrome-extension`), not from Pennant.app, so moving or updating the app doesn't break it. The host refreshes that copy when it starts. If the extension Chrome is running is from an older copy, the host asks it to reload.
+
+- **Where it works.** In a Chrome window of its own, in a purple "Pennant" tab group, and never in your tabs.
+- **Sites.** Pennant uses any site in its tabs. Sending, publishing, deleting and paying still stop for your OK.
+  - To be asked before it first uses a site, turn on "Ask before Pennant uses a site for the first time" on the Chrome card (`chromeAsksForNewSites`).
+  - With that on, the card lists the sites you allowed; remove one and it asks again.
+- **The extension's ID** is fixed by the key in its manifest (`dlfbggnpfmflkimllpinbaddpppjocba`). The host's listener on 127.0.0.1:7339 accepts only that origin.
+- **The debugging bar.** Chrome shows "Pennant started debugging this browser" while Pennant works in a tab. That bar is Chrome's own notice of `chrome.debugger`. It goes away a minute after Pennant stops working in its tabs. Clicking Cancel on it only stops the current step.
+- **From the terminal:**
+  - `pennant chrome` shows the status and the folder.
+  - `pennant chrome forget <site>` makes Pennant ask about that site again.
+  - `pennant tool web_open '{"url":"https://example.com"}'` tries a tool by hand.
 
 ## Deployment modes
 

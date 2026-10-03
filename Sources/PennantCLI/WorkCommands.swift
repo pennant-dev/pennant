@@ -16,6 +16,65 @@ func approvalCommand(_ options: CLIOptions) async throws {
     await session.disconnect()
 }
 
+/// pennant tool <name> [json]: one of Pennant's tools, run by hand. Images in the result are saved in the current folder.
+@MainActor
+func toolCommand(_ options: CLIOptions) async throws {
+    guard let name = options.args.first else { fail("Usage: pennant tool <name> [json arguments]") }
+    let raw = options.args.dropFirst().joined(separator: " ")
+    let arguments: JSONValue
+    if raw.isEmpty {
+        arguments = .object([:])
+    } else {
+        guard let parsed = try? JSONValue.from(Data(raw.utf8)) else { fail("The arguments aren't JSON: \(raw)") }
+        arguments = parsed
+    }
+    let session = try await connect(options)
+    let reply = try await session.send(.runTool(name: name, arguments: arguments), timeout: 180)
+    guard case .coderToolResult(let text, let isError) = reply else {
+        await session.disconnect()
+        if case .error(_, let message) = reply { fail(message) }
+        fail("Unexpected reply: \(reply)")
+    }
+    out(text)
+    for match in text.matches(of: /\[image: artifact ([A-Za-z0-9-]+)\]/) {
+        let id = String(match.1)
+        if case .artifact(_, let base64) = try await session.send(.getArtifact(ArtifactID(id))), let data = Data(base64Encoded: base64) {
+            let file = FileManager.default.currentDirectoryPath + "/\(id).jpg"
+            try data.write(to: URL(fileURLWithPath: file))
+            out("saved \(file)")
+        }
+    }
+    await session.disconnect()
+    if isError { exit(1) }
+}
+
+/// pennant heartbeat [on|off|every <minutes>|cap <n>]: Pennant checking in on its own.
+@MainActor
+func heartbeatCommand(_ options: CLIOptions) async throws {
+    let session = try await connect(options)
+    var c = try await session.getConfig().config
+    let args = options.args.map { $0.lowercased() }
+    switch args.first {
+    case nil: break
+    case "on": c.heartbeat.enabled = true
+    case "off": c.heartbeat.enabled = false
+    case "every" where args.count > 1:
+        guard let minutes = Int(args[1].trimmingCharacters(in: CharacterSet(charactersIn: "m"))), minutes >= 5 else {
+            await session.disconnect(); fail("Usage: pennant heartbeat every <minutes> (at least 5)")
+        }
+        c.heartbeat.intervalMinutes = minutes
+    case "cap" where args.count > 1:
+        guard let n = Int(args[1]), n >= 1 else { await session.disconnect(); fail("Usage: pennant heartbeat cap <check-ins a day>") }
+        c.heartbeat.maxTurnsPerDay = n
+    default:
+        await session.disconnect(); fail("Usage: pennant heartbeat [on|off|every <minutes>|cap <n>]")
+    }
+    if args.first != nil { _ = try await session.updateConfig(c) }
+    await session.disconnect()
+    let h = c.heartbeat
+    out(h.enabled ? "Pennant checks in every \(h.intervalMinutes) minutes, and stops to think at most \(h.maxTurnsPerDay) times a day. Goals run on it." : "Heartbeat off: goals run on their own schedules.")
+}
+
 @MainActor
 func threadsCommand(_ options: CLIOptions) async throws {
     let session = try await connect(options)
@@ -66,7 +125,8 @@ func sendCommand(_ options: CLIOptions) async throws {
     let text = sendArgs.joined(separator: " ")
     let session = try await connect(options)
     guard let agent = session.state.leadAgent else { await session.disconnect(); fail("There's no agent yet.") }
-    var conversationID = wantsNew ? nil : session.state.conversations(for: agent.id).first?.id
+    // By default, the Pennant chat (on a host from before it, the latest conversation).
+    var conversationID = wantsNew ? nil : (session.state.mainConversation?.id ?? session.state.conversations(for: agent.id).first?.id)
     if let conversationArg {
         guard let match = session.state.conversations(for: agent.id).first(where: { $0.id.rawValue.hasPrefix(conversationArg) }) else {
             await session.disconnect()

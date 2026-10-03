@@ -62,6 +62,26 @@ final class PromptInspectionTests: XCTestCase {
         let agent = try XCTUnwrap(agents.first)
         let preview = try await s.runtime.inspectPrompt(agent.id)
         XCTAssertTrue(preview.systemPrompt.contains(HouseRules.default))
+        XCTAssertFalse(preview.systemPrompt.contains(ContextBuilder.workingAlongsideRules), "the chat hands the web and the Mac to threads")
+        await s.stop()
+    }
+
+    /// A thread is told to use its own Chrome tabs and apps in the background before the owner's pointer and screen.
+    func testThreadsAreToldToWorkWithoutTakingOverTheMac() async throws {
+        let s = try await service(ScriptedProvider([]))
+        let agents = try await s.store.listAgents(includeRetired: false)
+        let agent = try XCTUnwrap(agents.first { $0.kind == .persistent })
+        let task = TaskRecord(agentID: agent.id, conversationID: ConversationID(), title: "Sign up", objective: "Sign Harbor up for the newsletter")
+        let specs = try await s.runtime.turnSpecs(task: task, agent: agent)
+        XCTAssertTrue(specs.contains { $0.name == "web_open" } && specs.contains { $0.name == "app_click" })
+        let output = await ContextBuilder().build(
+            ContextBuilder.Input(agent: agent, task: task, config: HostConfig(), preferences: [], memoryHits: [], skills: [], checkpoint: nil, messages: [], toolSpecs: specs, desktopStatus: DesktopStatus(), runtimeNotes: [], artifactLoader: { _ in nil }),
+            estimator: { _, _ in 0 }
+        )
+        let prompt = output.messages.first?.text ?? ""
+        XCTAssertTrue(prompt.contains("## Using the Mac and the web without taking them over"))
+        let web = try XCTUnwrap(prompt.range(of: "1. On the web")), apps = try XCTUnwrap(prompt.range(of: "2. In a Mac app")), last = try XCTUnwrap(prompt.range(of: "3. Only when neither"))
+        XCTAssertTrue(web.lowerBound < apps.lowerBound && apps.lowerBound < last.lowerBound)
         await s.stop()
     }
 }

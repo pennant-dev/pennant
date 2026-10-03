@@ -44,7 +44,10 @@ One WebSocket per client. Text frames carry `WireMessage` JSON; binary frames ca
 | Models | `testModel`, `usageReport`, `listModels`, `azureStatus`, `azureLogin`, `azureSubscriptions`, `azureResources`, `azureDeployments` |
 | ChatGPT account as the inference provider | `beginChatGPTSignIn`, `importCodexLogin`, `signOutChatGPT`, `getChatGPTAccount`, `listChatGPTModels` |
 | Any signed-in provider | `beginProviderSignIn`, `importProviderLogin`, `signOutProvider`, `getProviderAccount`, `listProviderModels` |
-| The host | `getDiagnostics`, `listEvents`, `getConfig`, `updateConfig`, `exportData`, `importData` |
+| Pennant in Chrome | `chromeStatus` (connected, browser, allowed sites, the extension's ID and folder), `chromeForgetSite`, `chromeSetup` (owner only: Pennant adds the extension to Chrome on the host's Mac) |
+| The host | `getDiagnostics`, `listEvents`, `getConfig`, `updateConfig`, `exportData`, `importData`, `runTool` (owner only: one built-in tool run by hand, as `pennant tool`) |
+
+The Pennant chat is the conversation with `isMain: true` (one per host, made at start; older hosts have none). Messages in it can carry `update` parts (`WorkUpdate`: a thread finished or failed, asks something, or put up a card, with the card's `approvalID` and, once decided, its `outcome`); clients from before them show a placeholder line. A card in an update is decided with `decideApproval` like any other.
 
 `sendMessage` returns `messageAccepted(messageID, conversationID, taskID)`; the reply itself arrives as events (`messageAppended` for the streaming assistant message, `messageDelta` while it streams, `messageFinalized` when done, `taskTransition` as the task moves).
 

@@ -366,7 +366,7 @@ public struct DashboardView: View {
                 ForEach(Array(upcoming.prefix(5).enumerated()), id: \.element.id) { i, job in
                     if i > 0 { Divider().padding(.leading, 44) }
                     HStack(spacing: 10) {
-                        Image(systemName: job.goalID != nil ? "target" : "clock")
+                        Image(systemName: job.goalID != nil ? ThreadMark.goalSymbol : "clock")
                             .font(.zoomed(size: 12, weight: .medium))
                             .foregroundStyle(PennantTheme.inkSecondary)
                             .frame(width: 22, height: 22)
@@ -526,7 +526,7 @@ struct CompactGoalRow: View {
         let working = session_.contains { [.running, .waitingForTool, .waitingForDesktop].contains($0.state) }
         let waitingOnYou = session_.contains { $0.state == .waitingForUser }
         HStack(spacing: 10) {
-            Image(systemName: "target")
+            Image(systemName: ThreadMark.goalSymbol)
                 .font(.zoomed(size: 12, weight: .medium))
                 .foregroundStyle(PennantTheme.brandInk)
                 .frame(width: 22, height: 22)

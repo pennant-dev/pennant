@@ -23,8 +23,13 @@ public actor TaskRuntime {
         /// Teams sends through a connector go from Pennant's bot (see `ChannelService.routeTeamsSend`); nil when it isn't
         /// one, or there's no bot. Nil in tests.
         public var routeTeamsSend: (@Sendable (_ tool: String, _ arguments: JSONValue, _ agentID: AgentID, _ conversationID: ConversationID) async -> ChannelService.TeamsRoute?)?
+        /// Whether Pennant's Chrome extension is connected, so threads work in its tabs instead of driving Chrome with
+        /// AppleScript. Nil in tests that don't set it.
+        public var chromeConnected: (@Sendable () async -> Bool)?
         /// The freedom of the goal a task works for (nil: not goal work). Nil in tests.
         public var goalFreedom: (@Sendable (TaskID) async -> Goal.Freedom?)?
+        /// Every goal, for telling which one a card comes from. Nil in tests that have no goals.
+        public var goals: (@Sendable () async -> [Goal])?
         /// The environment a coding session runs with to act as its agent's GitHub App (a fresh token each run).
         public var gitHubEnvironment: (@Sendable (GitHubAppIdentity) async throws -> [String: String])?
 
@@ -78,6 +83,11 @@ public actor TaskRuntime {
     var pausedForDesktop: Set<TaskID> = []
     var pausedForInference: Set<TaskID> = []
     var pendingQuestions: [TaskID: CheckedContinuation<String, Error>] = [:]
+    /// Answers that came while a task's question or card was up but before it started waiting (it was still posting
+    /// the update to the Pennant chat, say): handed over the moment it waits.
+    var earlyAnswers: [TaskID: String] = [:]
+    /// Work told to wrap up at its limit (once; past that, it pauses and asks).
+    var wrappedUp: Set<TaskID> = []
     var taskWaiters: [TaskID: [CheckedContinuation<TaskRecord, Error>]] = [:]
     var runtimeNotes: [TaskID: [String]] = [:]
     var freshScreen: Set<TaskID> = []
@@ -102,11 +112,20 @@ public actor TaskRuntime {
     /// Tool names that act on the screen and therefore require a fresh screenshot after a resume.
     static let pointerTools: Set<String> = ["click", "double_click", "right_click", "drag", "move_mouse", "scroll", "type_text", "press_key", "ui_action", "ui_set_value"]
     static let observationTools: Set<String> = ["screenshot", "ui_tree"]
+    /// Why AppleScript that drives the owner's Chrome was refused, and what to do instead.
+    static let chromeFromChat = "Refused: this drives the owner's Chrome (bringing it forward, opening tabs, changing or clicking in pages), which takes over the window they're working in. Start a thread for it: threads work on the web in your own tabs in their Chrome, with their sign-ins, and leave their windows alone. Reading which page they have open, or its text, is fine from here."
+    static let chromeInThread = "Refused: this drives the owner's Chrome (bringing it forward, opening tabs, changing or clicking in pages), which takes over the window they're working in. Work in your own tabs in their Chrome instead, with the same sign-ins: web_open the page, then web_read, web_click and web_type. Reading which page they have open, or its text, is still fine."
     /// Tools that wait for the person, who may be away for hours. The 15-minute tool limit would end the wait while the
     /// question or card is still up, and the agent would carry on without an answer.
     static let waitsForUser: Set<String> = ["ask_user", "request_approval"]
 
     var scheduler: Scheduler?
+    /// The Pennant chat, once found or made.
+    var mainChatID: ConversationID?
+    /// Card id → its update in the Pennant chat, so the update can say how it was decided.
+    var updateMessages: [String: MessageID] = [:]
+    /// The work board as last built, reused for a minute (a turn reads it on every step).
+    var boardCache: (at: Date, text: String)?
     /// macOS permissions whose system prompt this process has already shown, by label.
     var promptedPermissions: Set<String> = []
 
@@ -293,6 +312,7 @@ public actor TaskRuntime {
     /// Closes a conversation: it leaves the list until something happens in it (a message, an answer, a reply) or it's
     /// reopened. Closing stops nothing: work in it carries on, and a question or card in it waits (Stop ends a task).
     public func closeConversation(_ id: ConversationID, closed: Bool) async throws {
+        if closed, try await deps.store.conversation(id)?.isMain == true { return }
         let at: Date? = closed ? Date() : nil
         guard let conversation = try await deps.store.mutateConversation(id, { $0.closedAt = at }) else { throw ToolError.failed("No such conversation") }
         await publish(.conversationUpserted(conversation))
@@ -344,6 +364,11 @@ public actor TaskRuntime {
             c.resume(returning: text)
             return
         }
+        // Its loop is live and about to wait (its question or card is up): the answer waits for it.
+        if loops[taskID] != nil, task.state == .waitingForUser || awaitingApproval[taskID] != nil {
+            earlyAnswers[taskID] = text
+            return
+        }
         // No live continuation (host restarted while waiting): answer the recorded call and requeue.
         if task.state == .waitingForUser {
             let records = try await deps.store.toolRecords(taskID: taskID)
@@ -360,7 +385,10 @@ public actor TaskRuntime {
                 await publish(.messageAppended(toolMessage))
             }
             if let why = task.budget.exhaustedReason(usage: task.usage) {
-                let allowance = deps.config.defaultBudget
+                // Going on gets another allowance of the size the work had: a chat thread's or a helper's, not the
+                // host's whole one.
+                let fromChat = await askedByChat(task)
+                let allowance = task.parentTaskID != nil || fromChat ? Self.chatThreadBudget(deps.config.defaultBudget) : deps.config.defaultBudget
                 try await updateTask(taskID) { $0.budget.extend(by: allowance, usage: $0.usage) }
                 log.info("Extended budget of task \(taskID) after user reply (\(why))", category: "runtime")
             }
@@ -378,6 +406,7 @@ public actor TaskRuntime {
         await publish(.messageAppended(message))
         await publishConversation(task.conversationID, after: message)
         try await transition(taskID, to: .waitingForUser, reason: "Task limit: \(reason). Reply to continue.")
+        await reportQuestion(task, "It \(reason), the limit set in Settings. Should it keep going?")
         await setAgentStatus(agent.id, .waitingForUser, line: "At the task limit, waiting for you")
         await publish(.notice(level: .warning, agentID: agent.id, text: "\(agent.name) \(reason) on \"\(task.title)\" and is waiting for you to say whether to continue."))
         await deps.lease.forget(taskID: taskID)
@@ -402,7 +431,12 @@ public actor TaskRuntime {
         do {
             let tasks = try await deps.store.listTasks(agentID: nil, includeFinished: false)
             let queued = tasks.filter { $0.state == .queued && loops[$0.id] == nil }.sorted { $0.createdAt < $1.createdAt }
-            for task in queued where loops.count - parked.intersection(loops.keys).count < maxConcurrentTasks {
+            // The Pennant chat answers at once: its turns never wait behind threads for a slot, nor take one.
+            let chat = mainChatID
+            let inChat = Set(tasks.filter { $0.conversationID == chat }.map(\.id))
+            for task in queued {
+                let busy = loops.keys.filter { !parked.contains($0) && !inChat.contains($0) }.count
+                guard task.conversationID == chat || busy < maxConcurrentTasks else { continue }
                 var ready = true
                 for dep in task.dependencies {
                     if let d = try await deps.store.task(dep), d.state != .completed { ready = false; break }
@@ -445,6 +479,31 @@ public actor TaskRuntime {
                 try Task.checkCancellation()
                 task = try await deps.store.task(taskID) ?? task
                 if let why = task.budget.exhaustedReason(usage: task.usage) {
+                    // A helper never stops to ask the owner: it reports what it has to the task that asked for it, and
+                    // past that, it finishes with what it has (its parent was waiting on it, and nobody else would answer).
+                    let helper = task.parentTaskID != nil
+                    // Work that reports to the Pennant chat, and helpers, wrap up once with what they have (a few steps
+                    // to write it); the owner (or the parent) says whether to go on.
+                    let toChat = helper ? false : await reportsToChat(task)
+                    if !wrappedUp.contains(taskID), helper || toChat {
+                        wrappedUp.insert(taskID)
+                        // Helpers still at work would be stopped when this finishes (mid-change, maybe): it collects
+                        // them first, a step each.
+                        let working = ((try? await deps.store.childTasks(parentTaskID: taskID)) ?? []).filter { !$0.state.isTerminal }
+                        var note = helper ? Self.helperWrapUpNote(why) : Self.wrapUpNote(why)
+                        if !working.isEmpty { note += " " + Self.collectHelpersNote(working) }
+                        runtimeNotes[taskID, default: []].append(note)
+                        task = try await updateTask(taskID) {
+                            $0.budget.extend(by: TaskBudget(maxSteps: 3 + working.count, maxTokens: 200_000, maxDuration: 600 + 900 * Double(working.count)), usage: $0.usage)
+                        }
+                        continue
+                    }
+                    if helper {
+                        let last = (try? await deps.store.listMessages(conversationID: task.conversationID, before: nil, limit: 30))?
+                            .first { $0.taskID == taskID && $0.role == .assistant && !$0.text.isEmpty }?.text
+                        try await complete(task: taskID, summary: "Stopped at its limit (\(why)) before it finished." + (last.map { " Its last note:\n" + $0 } ?? ""))
+                        break
+                    }
                     // A limit is a checkpoint, not a verdict: ask the user and carry on if they say so.
                     task = try await pauseForBudget(taskID: taskID, task: task, agent: agent, reason: why)
                     continue
@@ -458,6 +517,10 @@ public actor TaskRuntime {
                 task = try await updateTask(taskID) {
                     $0.usage.addTurn(input: response.usage.inputTokens, output: response.usage.outputTokens)
                     $0.usage.steps += 1
+                }
+                // Long work takes stock now and then, so more of the same doesn't go on unnoticed.
+                if !response.toolCalls.isEmpty, task.usage.steps % Self.checkInEvery == 0, !wrappedUp.contains(taskID) {
+                    runtimeNotes[taskID, default: []].append(Self.checkInNote(steps: task.usage.steps))
                 }
 
                 if response.toolCalls.isEmpty {
@@ -495,7 +558,9 @@ public actor TaskRuntime {
                         runtimeNotes[taskID, default: []].append(nudge)
                         continue
                     }
-                    if let nudge = offerNudge(task: task, reply: response.text) {
+                    // In the Pennant chat, offering a choice is how a person talks: only work elsewhere is sent back
+                    // to do what it offered.
+                    if await !inMainChat(task), let nudge = offerNudge(task: task, reply: response.text) {
                         runtimeNotes[taskID, default: []].append(nudge)
                         offerPending[taskID] = (assistant.id, response.text)
                         continue

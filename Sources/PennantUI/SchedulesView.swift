@@ -16,8 +16,9 @@ public struct SchedulesView: View {
         self.onOpenConversation = onOpenConversation
     }
 
+    /// The jobs you set. A goal's sessions belong to the goal (Pennant starts them on its heartbeat; see Goals).
     private var jobs: [ScheduledJob] {
-        session.state.schedules.sorted { ($0.nextRunAt ?? .distantFuture, $0.name) < ($1.nextRunAt ?? .distantFuture, $1.name) }
+        session.state.schedules.filter { $0.goalID == nil }.sorted { ($0.nextRunAt ?? .distantFuture, $0.name) < ($1.nextRunAt ?? .distantFuture, $1.name) }
     }
 
     private var canCreate: Bool { session.connection.isConnected && !session.state.persistentAgents.isEmpty }

@@ -9,7 +9,7 @@ public struct RequestApprovalTool: Tool {
     public var spec: ToolSpec {
         ToolSpec(
             name: "request_approval",
-            description: "Show the user something you want to publish (a post with its images, or a video with its title and description) as an approval card in the app, and wait for their decision: approve (possibly with their edits), request changes (with a comment), or reject. Call it with the FINAL text and images. On approval, publish with the returned approval_id; publishing tools use exactly the approved text and images.",
+            description: "Show the user something you want to publish (a post with its images, or a video with its title and description) as an approval card in the app, and wait for their decision: approve (possibly with their edits), request changes (with a comment), or reject. Call it with the FINAL text and images. On approval, publish with the returned approval_id; publishing tools use exactly the approved text and images. One card per decision: if a card of yours from the same goal, job or thread is still waiting and this one revises or replaces it, pass its id in `replaces` (fold what's still needed into this card); if they're about different things, pass `alongside: true`. Posting the same card again replaces the old one by itself.",
             inputSchema: JSONSchema.object([
                 "title": JSONSchema.string("What this is, e.g. \"LinkedIn post: why AI agents need approval gates\"."),
                 "destination": JSONSchema.string("Where it goes if approved, e.g. \"LinkedIn · Acme company page\"."),
@@ -26,6 +26,8 @@ public struct RequestApprovalTool: Tool {
                     "label": JSONSchema.string("The approve button's words (default \"Approve & send\")."),
                 ])]),
                 "notes": JSONSchema.string("For the reviewer: why this topic now, the sources behind each claim, and what checks the text passed."),
+                "replaces": .object(["type": "array", "items": .object(["type": "string"]), "description": "Ids (or id prefixes) of your cards still waiting that this one revises, replaces or combines. They're withdrawn and read \"Replaced\"."]),
+                "alongside": JSONSchema.boolean("True when your other cards still waiting from the same goal, job or thread are about different decisions and should stay."),
                 "approve_label": JSONSchema.string("Optional. The approve button's words when the default doesn't fit what approving does, e.g. \"Approve & deploy\" or \"Approve & pay\". Default: \"Approve & post\" for posts, \"Approve & send\" for messages, otherwise \"Approve\"."),
             ], required: ["title", "destination", "text"]),
             isConsequential: false,
@@ -79,6 +81,8 @@ public struct RequestApprovalTool: Tool {
         )
         var labelled = request
         labelled.approveLabel = arguments.string("approve_label")?.trimmingCharacters(in: .whitespaces).nilIfEmpty
+        let replaced = try await hooks.makeRoom(context.taskID, labelled, arguments.stringArray("replaces") ?? [], arguments["alongside"]?.boolValue ?? false)
+        let replacedNote = replaced.isEmpty ? "" : " It replaces " + replaced.map { "“\($0)”" }.joined(separator: ", ") + ", now withdrawn."
         if case .object(let spec)? = arguments["on_approve"] {
             guard let tool = spec["tool"]?.stringValue, !tool.isEmpty, let field = spec["text_field"]?.stringValue, !field.isEmpty else {
                 throw ToolError.invalidArguments("on_approve needs tool and text_field")
@@ -86,7 +90,7 @@ public struct RequestApprovalTool: Tool {
             var withAction = labelled
             withAction.action = ApprovalAction(tool: tool, arguments: spec["arguments"] ?? .object([:]), textField: field, label: spec["label"]?.stringValue ?? "Approve & send")
             try await hooks.postApproval(context.taskID, withAction)
-            return .text(ToolCallID("pending"), name: "request_approval", "Card \(withAction.id) is up. When the user approves, Pennant runs \(tool) with the approved text; you don't need to wait. A change request will come back to you as a new message.")
+            return .text(ToolCallID("pending"), name: "request_approval", "Card \(withAction.id) is up.\(replacedNote) When the user approves, Pennant runs \(tool) with the approved text; you don't need to wait. A change request will come back to you as a new message.")
         }
         let decided = try await hooks.requestApproval(context.taskID, labelled)
         let body: String
@@ -105,6 +109,6 @@ public struct RequestApprovalTool: Tool {
         case .pending:
             body = "No decision was recorded. Do not publish."
         }
-        return .text(ToolCallID("pending"), name: spec.name, body)
+        return .text(ToolCallID("pending"), name: spec.name, body + replacedNote)
     }
 }

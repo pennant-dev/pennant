@@ -133,6 +133,14 @@ public final class ClientState {
     public var persistentAgents: [AgentProfile] { agents.filter { $0.kind == .persistent && $0.status != .retired } }
     /// The agent the owner talks to (the only persistent one; workers are its helpers).
     public var leadAgent: AgentProfile? { persistentAgents.first }
+    /// The Pennant chat: the one conversation people have with Pennant (nil on hosts from before it).
+    public var mainConversation: Conversation? { conversations.first { $0.isMain } }
+    /// Pennant's threads, as the Work list shows them: its conversations but the chat, without the ones a thread
+    /// started inside another (a coding run's, a helper's), which open from their thread.
+    public func isWorkThread(_ c: Conversation) -> Bool {
+        guard !c.isMain, agent(c.agentID)?.kind == .persistent else { return false }
+        return c.parentID == nil || c.parentID == mainConversation?.id
+    }
     public var isStale: Bool { guard let t = lastUpdateAt else { return true }; return Date().timeIntervalSince(t) > 30 }
 
     public func apply(snapshot: StateSnapshot) {

@@ -66,3 +66,21 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(EventPayload.agentRemoved(AgentID()).isTransient)
     }
 }
+
+final class ScreenRegionTests: XCTestCase {
+    func testGrowingKeepsTheRegionOnTheDisplay() {
+        let middle = ScreenRegion(x: 0.4, y: 0.4, width: 0.2, height: 0.2).grown(by: 0.25)
+        XCTAssertEqual(middle.x, 0.35, accuracy: 1e-9)
+        XCTAssertEqual(middle.width, 0.3, accuracy: 1e-9)
+        let corner = ScreenRegion(x: 0, y: 0.9, width: 0.3, height: 0.1).grown(by: 0.5)
+        XCTAssertEqual(corner.x, 0)
+        XCTAssertEqual(corner.y + corner.height, 1, accuracy: 1e-9)
+    }
+
+    func testContains() {
+        let asked = ScreenRegion(x: 0.2, y: 0.2, width: 0.5, height: 0.5)
+        XCTAssertTrue(asked.contains(ScreenRegion(x: 0.3, y: 0.3, width: 0.2, height: 0.2)))
+        XCTAssertFalse(asked.contains(ScreenRegion(x: 0.6, y: 0.3, width: 0.2, height: 0.2)))
+    }
+}
+

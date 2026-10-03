@@ -3,34 +3,64 @@ import PennantCore
 import PennantUI
 import SwiftUI
 
+enum RootTab: Hashable { case pennant, threads, home, inbox, computer, memory, settings }
+
 struct RootTabs: View {
     @Environment(\.hostSession) private var session
     var onUnpair: () -> Void
     @State private var push = PushCenter.shared
     @State private var opened: ConversationTarget?
+    /// The app opens on the Pennant chat (on a host from before it, on the threads).
+    @State private var tab: RootTab = .pennant
+    @State private var placedOnChat = false
+
+    /// The host has a Pennant chat: that's where you talk, and what needs you lands there.
+    private var chat: Conversation? { session.state.mainConversation }
 
     var body: some View {
-        TabView {
-            ThreadsTab()
-                .tabItem { Label("Threads", systemImage: "bubble.left.and.bubble.right.fill") }
-                .badge(needsYouCount)
+        TabView(selection: $tab) {
+            if let chat {
+                PennantTab(chat: chat)
+                    .tabItem { Label(session.state.agent(chat.agentID)?.name ?? "Pennant", systemImage: "bubble.left.and.text.bubble.right.fill") }
+                    .badge(needsYouCount)
+                    .tag(RootTab.pennant)
+            } else {
+                // A host from before the Pennant chat: you talk in threads.
+                ThreadsTab()
+                    .tabItem { Label("Threads", systemImage: "rectangle.stack") }
+                    .badge(needsYouCount)
+                    .tag(RootTab.threads)
+            }
             HomeTab()
                 .tabItem { Label("Home", systemImage: "square.grid.2x2.fill") }
-            NavigationStack {
-                InboxView()
-                    .navigationTitle("Inbox")
+                .tag(RootTab.home)
+            if chat == nil {
+                NavigationStack {
+                    InboxView()
+                        .navigationTitle("Inbox")
+                }
+                .tabItem { Label("Inbox", systemImage: "tray") }
+                .badge(session.state.pendingApprovals.count)
+                .tag(RootTab.inbox)
             }
-            .tabItem { Label("Inbox", systemImage: "tray") }
-            .badge(session.state.pendingApprovals.count)
             ComputerTab()
                 .tabItem { Label("Computer", systemImage: "desktopcomputer") }
+                .tag(RootTab.computer)
             MemoryTab()
-            .tabItem { Label("Memory", systemImage: "brain") }
+                .tabItem { Label("Memory", systemImage: "brain") }
+                .tag(RootTab.memory)
             NavigationStack {
                 PhoneSettingsView(onUnpair: onUnpair)
                     .navigationTitle("Settings")
             }
             .tabItem { Label("Settings", systemImage: "gearshape") }
+            .tag(RootTab.settings)
+        }
+        // Threads lead back to the one place to talk.
+        .environment(\.openPennantChat, { [tab = $tab] in tab.wrappedValue = .pennant })
+        .onChange(of: chat?.id, initial: true) { _, id in
+            if id == nil, tab == .pennant { tab = .threads }
+            if id != nil, !placedOnChat { placedOnChat = true; tab = .pennant }
         }
         .safeAreaInset(edge: .top) {
             if session.needsAccessSignIn { AccessExpiredBanner().transition(.move(edge: .top).combined(with: .opacity)) }
@@ -43,15 +73,17 @@ struct RootTabs: View {
         }
         .onChange(of: push.pendingOpen?.conversationID) { _, _ in
             guard let p = push.pendingOpen else { return }
-            opened = ConversationTarget(agentID: p.agentID, conversationID: p.conversationID)
             push.pendingOpen = nil
+            // News for the Pennant chat opens the chat itself.
+            if p.conversationID == chat?.id { tab = .pennant; return }
+            opened = ConversationTarget(agentID: p.agentID, conversationID: p.conversationID)
         }
         .sheet(item: $opened) { t in
             NavigationStack { AgentConversationScreen(agentID: t.agentID, initialConversationID: t.conversationID) }
         }
     }
 
-    /// Cards and questions waiting on you, for the Threads tab's badge.
+    /// Cards and questions waiting on you, for the badge on the first tab.
     private var needsYouCount: Int {
         let cards = Set(session.state.pendingApprovals.map(\.conversationID))
         let questions = Set(session.state.tasks.filter { $0.state == .waitingForUser && $0.parentTaskID == nil }.map(\.conversationID))
@@ -59,10 +91,88 @@ struct RootTabs: View {
     }
 }
 
+// MARK: - Pennant
+
+/// The Pennant chat, the app's first screen. Its threads are a tap away in the title bar, as they sit under the chat
+/// on the Mac; updates link to their threads, which open on top of the chat.
+struct PennantTab: View {
+    @Environment(\.hostSession) private var session
+    var chat: Conversation
+    @State private var conversationID: ConversationID?
+    @State private var path: [Route] = []
+    @State private var editing: AgentProfile?
+
+    enum Route: Hashable {
+        case threads
+        case thread(ConversationTarget)
+    }
+
+    /// Threads with work going, for the count on the Threads button.
+    private var working: Int {
+        let busy: Set<TaskState> = [.running, .queued, .waitingForTool, .waitingForDesktop]
+        return Set(session.state.tasks.filter { busy.contains($0.state) && $0.conversationID != chat.id }.map(\.conversationID)).count
+    }
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            VStack(spacing: 0) {
+                ConnectionBanner()
+                ConversationView(agentID: chat.agentID, conversationID: $conversationID)
+            }
+            .background(PennantTheme.windowBackground)
+            .navigationTitle(session.state.agent(chat.agentID)?.name ?? "Pennant")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { path = [.threads] } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "rectangle.stack")
+                            if working > 0 { Text("\(working)").font(.footnote.weight(.semibold)).monospacedDigit() }
+                        }
+                    }
+                    .accessibilityLabel(working > 0 ? "Threads, \(working) working" : "Threads")
+                }
+                if let agent = session.state.agent(chat.agentID) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button { editing = agent } label: { Label("Edit \(agent.name)", systemImage: "slider.horizontal.3") }
+                        } label: { Image(systemName: "ellipsis.circle") }
+                            .accessibilityLabel("Pennant options")
+                    }
+                }
+            }
+            .sheet(item: $editing) { AgentEditorView(agent: $0) }
+            .environment(\.openChat, { agentID, conversationID in
+                if let conversationID, conversationID != chat.id { path.append(.thread(ConversationTarget(agentID: agentID, conversationID: conversationID))) }
+            })
+            .navigationDestination(for: Route.self) { route in
+                switch route {
+                case .threads:
+                    ThreadListView(selected: nil,
+                                   onOpen: { agentID, conversationID in
+                                       if let conversationID { path.append(.thread(ConversationTarget(agentID: agentID, conversationID: conversationID))) }
+                                   },
+                                   onNewThread: {})
+                        .background(PennantTheme.sidebarBackground)
+                        .navigationTitle("Threads")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .environment(\.openPennantChat, { path.removeAll() })
+                case .thread(let t):
+                    AgentConversationScreen(agentID: t.agentID, initialConversationID: t.conversationID)
+                        // "Talk to Pennant" in a thread comes back to the chat underneath.
+                        .environment(\.openPennantChat, { path.removeAll() })
+                }
+            }
+        }
+        .onAppear { if conversationID != chat.id { conversationID = chat.id } }
+        .onChange(of: chat.id) { _, id in conversationID = id }
+    }
+}
+
 // MARK: - Threads
 
-/// The main screen: what needs you, every thread newest first, and the closed ones folded away. Swipe a thread left
-/// to close it; it comes back on its own when something happens in it.
+/// The first screen on a host from before the Pennant chat: what needs you, every thread newest first, and the closed
+/// ones folded away. Swipe a thread left to close it; it comes back on its own when something happens in it.
 struct ThreadsTab: View {
     @Environment(\.hostSession) private var session
     struct Target: Hashable, Identifiable {
@@ -84,8 +194,11 @@ struct ThreadsTab: View {
             .background(PennantTheme.sidebarBackground)
             .navigationTitle("Threads")
             .toolbar {
-                Button { if let lead { target = Target(agentID: lead, conversationID: nil) } } label: { Image(systemName: "square.and.pencil") }
-                    .accessibilityLabel("New thread")
+                // With a Pennant chat, Pennant starts the threads.
+                if session.state.mainConversation == nil {
+                    Button { if let lead { target = Target(agentID: lead, conversationID: nil) } } label: { Image(systemName: "square.and.pencil") }
+                        .accessibilityLabel("New thread")
+                }
             }
             .navigationDestination(item: $target) { t in
                 AgentConversationScreen(agentID: t.agentID, initialConversationID: t.conversationID, startsNew: t.conversationID == nil)
@@ -178,8 +291,10 @@ struct AgentConversationScreen: View {
                 ConversationMenuItems(agentID: agentID, conversationID: $conversationID)
             }
             .toolbar {
-                Button { conversationID = nil } label: { Image(systemName: "square.and.pencil") }
-                    .accessibilityLabel("New conversation")
+                if session.state.mainConversation == nil {
+                    Button { conversationID = nil } label: { Image(systemName: "square.and.pencil") }
+                        .accessibilityLabel("New conversation")
+                }
                 Menu {
                     Button { showingList = true } label: { Label("All conversations", systemImage: "list.bullet") }
                     if conversationID != nil {
@@ -215,6 +330,7 @@ struct AgentConversationScreen: View {
 /// Live view with prominent controls. Touch maps to the pointer during takeover.
 struct ComputerTab: View {
     @State private var fullscreen = false
+    @AppStorage(RemotePointerMode.storageKey) private var pointerMode = RemotePointerMode.touch
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -223,7 +339,15 @@ struct ComputerTab: View {
                     VStack(alignment: .leading, spacing: 12) {
                         ComputerPanelView(compact: false)
                             .frame(maxWidth: .infinity)
-                        Text("Tap to click, touch and hold for a right click, drag to drag, two fingers to scroll the Mac. Pinch to zoom; zoomed in, two fingers move around and a two-finger double tap zooms back out. Use the keyboard button to type.")
+                            .environment(\.remotePointerMode, pointerMode)
+                        Picker("Pointer", selection: $pointerMode) {
+                            ForEach(RemotePointerMode.allCases, id: \.self) { mode in Label(mode.title, systemImage: mode.symbol).tag(mode) }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal, 16)
+                        Text(pointerMode == .touch
+                             ? "Tap to click where you touch, touch and hold for a right click, drag to drag, two fingers to scroll the Mac. Pinch to zoom (full screen also has zoom buttons); zoomed in, two fingers move around and a two-finger double tap zooms back out. A yellow ring shows where each click landed."
+                             : "Move one finger to move the pointer, tap to click where it is, tap with two fingers for a right click, and touch and hold, then move, to drag. Two fingers scroll the Mac; pinch to zoom for finer moves.")
                             .font(.caption)
                             .foregroundStyle(PennantTheme.inkTertiary)
                             .padding(.horizontal, 16)
@@ -250,74 +374,81 @@ struct ComputerTab: View {
 struct FullScreenComputer: View {
     @Environment(\.hostSession) private var session
     @Environment(\.dismiss) private var dismiss
-    @State private var decoded: (seq: Int64, image: PlatformImage)?
+    @State private var decoded: (seq: Int64, image: PlatformImage, region: ScreenRegion?)?
     @State private var keyboardVisible = false
-    @State private var keyboardBuffer = ""
+    @State private var zoomRequest: ScreenZoomRequest?
+    @AppStorage(RemotePointerMode.storageKey) private var pointerMode = RemotePointerMode.touch
 
     private var desktop: DesktopStatus { session.state.desktop }
     private var humanHasControl: Bool { if case .human = desktop.owner { return true }; return false }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Color.black
-            if let decoded {
-                ScreenImageView(image: decoded.image, interactive: humanHasControl) { input in
-                    Task { try? await session.sendRemoteInput(input) }
-                }
-            } else {
-                ProgressView().tint(.white)
-            }
-            VStack(spacing: 8) {
-                HStack(spacing: 16) {
-                    Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.title2) }
-                    Spacer()
-                    if humanHasControl {
-                        Button { keyboardVisible.toggle() } label: { Image(systemName: "keyboard") .font(.title3) }
+        // The controls sit in their own bar inside the safe area: held sideways, the island and the rounded corners
+        // cover the screen's edge, and a button laid over the live screen competes with its touches.
+        VStack(spacing: 0) {
+            controls
+            Group {
+                if let decoded {
+                    ScreenImageView(image: decoded.image, imageRegion: decoded.region, interactive: humanHasControl, zoomRequest: zoomRequest,
+                                    onViewport: { region in Task { await session.showScreenRegion(region) } }) { input in
+                        session.queueRemoteInput(input)
                     }
+                    .environment(\.remotePointerMode, pointerMode)
+                } else {
+                    ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .foregroundStyle(.white.opacity(0.9))
-                .shadow(color: .black.opacity(0.6), radius: 3)
-                if keyboardVisible, humanHasControl { keyboardRow }
-                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .ignoresSafeArea()
+        .background(Color.black.ignoresSafeArea())
+        // The keyboard button brings up the iPhone keyboard itself; keys go straight to the Mac.
+        .background { RemoteKeyboard(isActive: Binding(get: { keyboardVisible && humanHasControl }, set: { keyboardVisible = $0 })) { session.queueRemoteInput($0) }.frame(width: 1, height: 1) }
         .onChange(of: session.state.screenFrame?.header.sequence) { _, _ in decodeLatest() }
         .onAppear { decodeLatest() }
         .task { await session.watchScreen() }
-        .onDisappear { Task { await session.stopWatchingScreen() } }
+        .onDisappear {
+            Task {
+                // The panel underneath isn't zoomed: back to the whole screen before letting go.
+                await session.showScreenRegion(nil)
+                await session.stopWatchingScreen()
+            }
+        }
         .statusBarHidden(true)
     }
 
-    private var keyboardRow: some View {
-        HStack {
-            TextField("Type to send keystrokes", text: $keyboardBuffer)
-                .textFieldStyle(.plain)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .padding(10)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .onChange(of: keyboardBuffer) { old, new in
-            if new.count > old.count, new.hasPrefix(old) {
-                let added = String(new.dropFirst(old.count))
-                Task { try? await session.sendRemoteInput(.typeText(added)) }
-            } else if new.count < old.count {
-                for _ in 0 ..< (old.count - new.count) { Task { try? await session.sendRemoteInput(.key(KeyChord(key: "delete"))) } }
+    private var controls: some View {
+        HStack(spacing: 4) {
+            controlButton("xmark", label: "Close full screen") { dismiss() }
+            Spacer()
+            controlButton("minus.magnifyingglass", label: "Zoom out") { zoomRequest = ScreenZoomRequest(zoomIn: false) }
+            controlButton("plus.magnifyingglass", label: "Zoom in") { zoomRequest = ScreenZoomRequest(zoomIn: true) }
+            if humanHasControl {
+                let other: RemotePointerMode = pointerMode == .touch ? .trackpad : .touch
+                controlButton(other.symbol, label: "Switch to \(other.title.lowercased()) pointer") { pointerMode = other }
+                controlButton(keyboardVisible ? "keyboard.chevron.compact.down" : "keyboard", label: keyboardVisible ? "Hide keyboard" : "Keyboard") { keyboardVisible.toggle() }
             }
         }
-        .onSubmit {
-            Task { try? await session.sendRemoteInput(.key(KeyChord(key: "return"))) }
-            keyboardBuffer = ""
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+    }
+
+    private func controlButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(.white.opacity(0.14), in: Circle())
+                .contentShape(Circle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private func decodeLatest() {
         guard let frame = session.state.screenFrame else { decoded = nil; return }
         if decoded?.seq == frame.header.sequence { return }
-        if let img = PlatformImage(data: frame.jpeg) { decoded = (frame.header.sequence, img) }
+        if let img = PlatformImage(data: frame.jpeg) { decoded = (frame.header.sequence, img, frame.header.region) }
     }
 }
 
@@ -397,6 +528,15 @@ struct PhoneSettingsView: View {
             }
             .listRowBackground(PennantTheme.cardElevated)
 
+            if session.state.me == nil || session.state.me?.role == .owner {
+                Section {
+                    HeartbeatSettings()
+                } header: {
+                    SettingsHeader("Heartbeat")
+                }
+                .listRowBackground(PennantTheme.cardElevated)
+            }
+
             Section {
                 Toggle(isOn: Binding(
                     get: { session.state.desktop.pauseOnHumanInput },
@@ -438,7 +578,7 @@ struct PhoneSettingsView: View {
                         .navigationTitle("Goals")
                         .navigationDestination(item: $target) { t in AgentConversationScreen(agentID: t.agentID, initialConversationID: t.conversationID) }
                 } label: {
-                    Label("Goals", systemImage: "target")
+                    Label("Goals", systemImage: ThreadMark.goalSymbol)
                 }
                 NavigationLink {
                     SchedulesView { agentID, conversationID in target = ConversationTarget(agentID: agentID, conversationID: conversationID) }

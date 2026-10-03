@@ -252,6 +252,28 @@ public struct HostConfig: Hashable, Codable, Sendable {
     /// How the agent writes code: it hands a change to a coding engine, which works in one of the project folders and
     /// acts on GitHub as its own App. Nil: coding isn't set up.
     public var coding: Coding?
+    /// Pennant waking up on its own to look over its work.
+    public var heartbeat = Heartbeat()
+    /// Pennant asks on a card before it first uses a site in the owner's Chrome. Off: it uses any site; sending,
+    /// publishing, deleting and paying still stop for the owner's OK.
+    public var chromeAsksForNewSites = false
+
+    /// Every so often the host looks over Pennant's work without the model: it starts the goal sessions that are due
+    /// (goals need no schedules of their own) and, when something needs a look (work that stopped moving, a question
+    /// left for hours), Pennant takes one turn in its chat to deal with it or tell the owner. A look with nothing in
+    /// it costs nothing.
+    public struct Heartbeat: Hashable, Codable, Sendable {
+        public var enabled: Bool
+        public var intervalMinutes: Int
+        /// The most turns Pennant takes on heartbeats in a day.
+        public var maxTurnsPerDay: Int
+
+        public init(enabled: Bool = true, intervalMinutes: Int = 30, maxTurnsPerDay: Int = 48) {
+            self.enabled = enabled
+            self.intervalMinutes = intervalMinutes
+            self.maxTurnsPerDay = maxTurnsPerDay
+        }
+    }
 
     public struct Coding: Hashable, Codable, Sendable {
         public var engine: CodingEngine
@@ -354,7 +376,7 @@ public struct HostConfig: Hashable, Codable, Sendable {
         self.workingDirectory = workingDirectory
     }
 
-    private enum CodingKeys: String, CodingKey { case mode, inference, inferenceProfiles, defaultProfileID, fallbackProfileIDs, fallbackProfileID, workerProfileID, houseRules, embeddings, api, desktop, compaction, mcpServers, defaultBudget, workingDirectory, autoCloseIdleDays, coding }
+    private enum CodingKeys: String, CodingKey { case mode, inference, inferenceProfiles, defaultProfileID, fallbackProfileIDs, fallbackProfileID, workerProfileID, houseRules, embeddings, api, desktop, compaction, mcpServers, defaultBudget, workingDirectory, autoCloseIdleDays, coding, heartbeat, chromeAsksForNewSites }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -376,6 +398,8 @@ public struct HostConfig: Hashable, Codable, Sendable {
         workingDirectory = try c.decode(String.self, forKey: .workingDirectory)
         autoCloseIdleDays = try c.decodeIfPresent(Int.self, forKey: .autoCloseIdleDays)
         coding = try c.decodeIfPresent(Coding.self, forKey: .coding)
+        heartbeat = try c.decodeIfPresent(Heartbeat.self, forKey: .heartbeat) ?? Heartbeat()
+        chromeAsksForNewSites = try c.decodeIfPresent(Bool.self, forKey: .chromeAsksForNewSites) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -396,6 +420,8 @@ public struct HostConfig: Hashable, Codable, Sendable {
         try c.encode(workingDirectory, forKey: .workingDirectory)
         try c.encodeIfPresent(autoCloseIdleDays, forKey: .autoCloseIdleDays)
         try c.encodeIfPresent(coding, forKey: .coding)
+        try c.encode(heartbeat, forKey: .heartbeat)
+        try c.encode(chromeAsksForNewSites, forKey: .chromeAsksForNewSites)
     }
 
     // MARK: Models

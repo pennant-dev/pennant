@@ -9,33 +9,68 @@ public actor HostService: HostAPIDelegate {
     private var pushWatch: Task<Void, Never>?
 
     /// Turns "needs you" events into iPhone notifications: a pending approval card, a choice question, a task that
-    /// stopped to ask something. Each goes once, to the person who started the work (following hand-offs between
-    /// agents), else to the owners.
+    /// stopped to ask something, and the result of a thread the Pennant chat started. Each goes once, to the person
+    /// who started the work (following hand-offs between agents), else to the owners, and opens the Pennant chat,
+    /// where all of it shows up.
     private func watchForPush() async {
         for await event in await eventBus.subscribe() {
             if Task.isCancelled { return }
+            let chat = await runtime.mainChatID
             switch event.payload {
             case .messageAppended(let m), .messageFinalized(let m):
                 guard m.role == .assistant, !m.isStreaming else { continue }
                 let name = (try? await store.agent(m.agentID))?.name ?? "An agent"
+                let opens = (chat ?? m.conversationID).rawValue
                 for part in m.parts {
                     switch part {
                     case .approval(let a) where a.state == .pending:
                         let who = await pushRecipients(conversationID: m.conversationID, taskID: m.taskID)
                         await push.notify(title: "\(name) needs your approval", body: a.title, to: who, key: "approval:\(a.id)",
-                                          info: ["agentID": m.agentID.rawValue, "conversationID": m.conversationID.rawValue], thread: m.conversationID.rawValue)
+                                          info: ["agentID": m.agentID.rawValue, "conversationID": opens], thread: opens)
                     case .choices(let q) where q.answers == nil:
                         let who = await pushRecipients(conversationID: m.conversationID, taskID: m.taskID)
                         await push.notify(title: "\(name) asks", body: q.items.first?.question ?? "A question for you", to: who, key: "choices:\(q.id)",
-                                          info: ["agentID": m.agentID.rawValue, "conversationID": m.conversationID.rawValue], thread: m.conversationID.rawValue)
+                                          info: ["agentID": m.agentID.rawValue, "conversationID": opens], thread: opens)
+                    case .update(let u) where m.conversationID == chat:
+                        let thread = (try? await store.conversation(u.threadID)) ?? nil
+                        switch u.kind {
+                        case .question:
+                            // A coding run's choice card notifies on its own.
+                            if thread?.isCodingRun == true { continue }
+                            let who = await pushRecipients(conversationID: u.threadID, taskID: u.taskID)
+                            // Pennant's own words when it asked, else the thread's.
+                            let asked = m.text.isEmpty ? u.text : m.text
+                            await push.notify(title: "\(name) asks", body: Conversation.previewLine(asked, limit: 240), to: who, key: "update:\(u.id)",
+                                              info: ["agentID": m.agentID.rawValue, "conversationID": opens], thread: opens)
+                        case .finished, .failed:
+                            // What Pennant chose to tell them, in its words; nothing when it kept it to itself. Without
+                            // its words, only a failure of work the chat asked for.
+                            if u.silent == true { continue }
+                            if m.text.isEmpty, u.kind == .finished || thread?.parentID != chat { continue }
+                            let who = await pushRecipients(conversationID: u.threadID, taskID: u.taskID)
+                            await push.notify(title: name, body: Conversation.previewLine(m.text.isEmpty ? u.text : m.text, limit: 240),
+                                              to: who, key: "update:\(u.id)", info: ["agentID": m.agentID.rawValue, "conversationID": opens], thread: opens)
+                        case .approval:
+                            continue
+                        }
                     default: continue
                     }
                 }
+            case .taskTransition(let t) where t.to == .completed:
+                // Pennant mentioned something on its own (a heartbeat): that reaches the phone too.
+                guard let task = try? await store.task(t.taskID), TaskRuntime.isHeartbeat(task),
+                      let said = task.resultSummary?.trimmingCharacters(in: .whitespacesAndNewlines), !said.isEmpty, !TaskRuntime.saysNothing(said) else { continue }
+                let name = (try? await store.agent(task.agentID))?.name ?? "Pennant"
+                let who = await pushRecipients(conversationID: task.conversationID, taskID: task.id)
+                await push.notify(title: name, body: Conversation.previewLine(said, limit: 240), to: who, key: "heartbeat:\(task.id.rawValue)",
+                                  info: ["agentID": task.agentID.rawValue, "conversationID": task.conversationID.rawValue], thread: task.conversationID.rawValue)
             case .taskTransition(let t) where t.to == .waitingForUser:
                 guard let task = try? await store.task(t.taskID) else { continue }
                 let reason = task.stateReason
-                // Approval cards and choice questions notify on their own, with their content.
+                // Approval cards and choice questions notify on their own, with their content; a thread's other stops
+                // reach the chat as a question update, which notifies.
                 if reason.hasPrefix("Waiting for your approval") || reason.hasPrefix("Waiting for your answer") || reason.isEmpty { continue }
+                if chat != nil, task.conversationID != chat { continue }
                 let name = (try? await store.agent(task.agentID))?.name ?? "An agent"
                 let who = await pushRecipients(conversationID: task.conversationID, taskID: task.id)
                 await push.notify(title: "\(name) needs you", body: String(reason.prefix(240)), to: who, key: "ask:\(task.id.rawValue):\(reason.hashValue)",
@@ -104,6 +139,11 @@ public actor HostService: HostAPIDelegate {
     public let mcp: MCPManager
     public let chatGPT: ChatGPTAuthManager
     public let scheduler: Scheduler
+    /// Pennant waking up on its own to look over its work (and start goal sessions).
+    public let heartbeat: Heartbeat
+    /// Pennant's extension in the owner's Chrome, and the sites they let it work on there.
+    public let chrome: BrowserLink
+    public let chromeSites: ChromeSites
     public let goals: GoalService
     public let devices: DeviceTokens
     /// Teammates who sign in with Microsoft, Google or GitHub, and who may join.
@@ -167,7 +207,11 @@ public actor HostService: HostAPIDelegate {
         let sharedChats = channels
         // The goal service needs the scheduler, which needs the runtime: it's filled in once made.
         let goalBox = Locked<GoalService?>(nil)
+        let cursorDesktop = desktopImpl
+        let chromeLink = BrowserLink { x, y, click in await cursorDesktop.showCursor(x: x, y: y, click: click) }
+        runtimeDeps.chromeConnected = { await chromeLink.currentStatus().connected }
         runtimeDeps.goalFreedom = { taskID in await goalBox.get()?.freedom(forTask: taskID) }
+        runtimeDeps.goals = { (try? await goalBox.get()?.list()) ?? [] }
         let vaultForGitHub = vault
         runtimeDeps.gitHubEnvironment = { identity in try await HostService.gitHubEnvironment(for: identity, vault: vaultForGitHub) }
         let lookupBroker = broker
@@ -189,6 +233,9 @@ public actor HostService: HostAPIDelegate {
         }
         self.runtime = TaskRuntime(runtimeDeps)
         self.scheduler = Scheduler(store: store, eventBus: eventBus, runtime: runtime)
+        self.heartbeat = Heartbeat(runtime: runtime, scheduler: scheduler, settings: config.heartbeat)
+        self.chrome = chromeLink
+        self.chromeSites = ChromeSites(folder: paths.root)
         let goalStore = store
         let goalBus = eventBus
         self.goals = GoalService(store: store, scheduler: scheduler, publish: { payload in
@@ -219,7 +266,7 @@ public actor HostService: HostAPIDelegate {
         await broker.register([ShellTool(vault: vault), ReadFileTool(), WriteFileTool(), EditFileTool(), ListDirectoryTool(), FileShareTool(), OpenURLTool(), BrowserReadTool(headless: browserRunner), BrowserFillTool(),
                                MemorySearchTool(memory: memory), MemoryRememberTool(memory: memory), MemoryPreferenceTool(memory: memory),
                                LearnSkillTool(), FindSkillTool(), UseSkillTool(tracker: skillTracker),
-                               DelegateTaskTool(), AwaitTaskTool(), AskUserTool(),
+                               DelegateTaskTool(), AwaitTaskTool(), AskUserTool(), StartThreadTool(), MessageThreadTool(), ReadThreadTool(), StopThreadTool(),
                                CodeTool(),
                                ScheduleJobTool(), ListSchedulesTool(), CancelScheduleTool(), ImportSkillsTool(),
                                RequestApprovalTool(), WritingCheckTool(),
@@ -238,6 +285,8 @@ public actor HostService: HostAPIDelegate {
                                           updateAgent: { [unowned self] in try await self.saveAgentProfile($0) },
                                           setSkillStatus: { [unowned self] in try await self.setSkillStatus($0, $1) }).tools)
         try await ensureDefaultAgent()
+        // The Pennant chat: what every app opens on.
+        _ = try? await runtime.ensureMainChat()
         await BuiltinSkills.seed(store: store, eventBus: eventBus)
         await runtime.attach(scheduler: scheduler)
         await chatGPT.setOnChange { [weak self] in await self?.chatGPTAccountChanged() }
@@ -248,6 +297,17 @@ public actor HostService: HostAPIDelegate {
         await scheduler.setGoalPrompt { id, run in try await goalService.runPrompt(id, run: run) }
         await broker.register(GoalTools.all(goals: goals, store: store))
         await scheduler.start()
+        await heartbeat.start()
+        if let source = ChromeExtension.bundled() {
+            do {
+                let copy = try ChromeExtension.install(from: source, into: paths.root)
+                await chrome.setInstalled(folder: copy.folder, build: copy.build)
+            } catch {
+                log.warn("Couldn't copy the Chrome extension into the data folder: \(error)", category: "browser")
+            }
+        }
+        await chrome.start()
+        await broker.register(WebTools.all(link: chrome, sites: chromeSites))
         // Notifications: approvals, questions and choices reach the phones of whoever the work is for.
         pushWatch = Task { [weak self] in await self?.watchForPush() }
         // Tidy up once a day when the owner asked for it: idle conversations close (they can be reopened).
@@ -324,6 +384,8 @@ public actor HostService: HostAPIDelegate {
         pushWatch?.cancel()
         for m in monitors { m.cancel() }
         monitors = []
+        await heartbeat.stop()
+        await chrome.stop()
         await scheduler.stop()
         await channels.stop()
         await runtime.stop()
@@ -341,7 +403,7 @@ public actor HostService: HostAPIDelegate {
     private func ensureDefaultAgent() async throws {
         let agents = try await store.listAgents(includeRetired: false)
         guard !agents.contains(where: { $0.kind == .persistent }) else { return }
-        let agent = AgentProfile(name: Self.defaultAgentName, role: Self.defaultAgentRole, style: "calm, concise, and precise; says what was verified", avatar: "flag:compass", accentColorHex: "#2F80ED")
+        let agent = AgentProfile(name: Self.defaultAgentName, role: Self.defaultAgentRole, style: "warm, plain-spoken and brief; straight about what's done and what isn't", avatar: "flag:compass", accentColorHex: "#2F80ED")
         try await store.upsertAgent(agent)
         await publish(.agentUpserted(agent))
     }

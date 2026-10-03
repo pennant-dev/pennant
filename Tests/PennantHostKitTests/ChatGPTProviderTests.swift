@@ -106,6 +106,10 @@ private final class FakeChatGPTBackend: @unchecked Sendable {
     private var refreshCounter = 0
     private(set) var tokenRequests: [[String: String]] = []
     private(set) var responsesRequests: [TinyHTTPServer.Request] = []
+    /// The account's model list, as the backend answers `GET /models`, and the status it answers with.
+    var modelsBody = Data(#"{"models":[]}"#.utf8)
+    var modelsStatus = 200
+    private(set) var modelsRequests: [TinyHTTPServer.Request] = []
     private(set) var lastIssuedAccessToken: String?
 
     var baseURL: URL { http.baseURL }
@@ -157,6 +161,11 @@ private final class FakeChatGPTBackend: @unchecked Sendable {
             let bearer = request.header("Authorization")?.replacingOccurrences(of: "Bearer ", with: "") ?? ""
             guard validAccessTokens.contains(bearer), !rejectAllResponses else { return .json(["detail": "Unauthorized"], status: 401) }
             return TinyHTTPServer.Response(status: 200, headers: ["Content-Type": "text/event-stream"], body: Data(sse(transcript).utf8))
+        case ("GET", "/models"):
+            modelsRequests.append(request)
+            let bearer = request.header("Authorization")?.replacingOccurrences(of: "Bearer ", with: "") ?? ""
+            guard validAccessTokens.contains(bearer) else { return .json(["detail": "Unauthorized"], status: 401) }
+            return TinyHTTPServer.Response(status: modelsStatus, headers: ["Content-Type": "application/json"], body: modelsBody)
         default:
             return .status(404)
         }
@@ -546,6 +555,73 @@ final class ChatGPTProviderTests: XCTestCase {
         XCTAssertEqual(backend.tokenRequests.count, 2)
     }
 
+    // MARK: The account's models
+
+    /// What the backend lists for Codex clients: ranked by priority, with models it hides from pickers.
+    private static let accountModels = Data(#"""
+    {"models":[
+      {"slug":"gpt-6-luna","display_name":"GPT-6 Luna","context_window":400000,"visibility":"list","priority":2,"input_modalities":["text","image"]},
+      {"slug":"gpt-6-sol","display_name":"GPT-6 Sol","context_window":400000,"visibility":"list","priority":1,"input_modalities":["text","image"]},
+      {"slug":"gpt-5.5","display_name":"GPT-5.5","visibility":"list","priority":5,"input_modalities":["text"]},
+      {"slug":"codex-auto-review","display_name":"Codex Auto Review","visibility":"hide","priority":0}
+    ]}
+    """#.utf8)
+
+    func testTheAccountsOwnModelsAreListed() async throws {
+        let tokens = try storeTokens(expiresIn: 3600)
+        backend.validAccessTokens = [tokens.accessToken]
+        backend.modelsBody = Self.accountModels
+
+        let (models, note) = await auth.availableModels()
+        XCTAssertEqual(models.map(\.id), ["gpt-6-sol", "gpt-6-luna", "gpt-5.5"], "ranked by priority, hidden ones left out")
+        XCTAssertEqual(models.first?.title, "GPT-6 Sol")
+        XCTAssertEqual(models.first?.contextWindowTokens, 400_000)
+        XCTAssertEqual(models.last?.supportsVision, false, "text-only models say so")
+        XCTAssertEqual(models.last?.contextWindowTokens, 272_000, "a known model keeps its built-in context window when the backend gives none")
+        XCTAssertEqual(note, ChatGPTAuthManager.accountNote)
+        let request = try XCTUnwrap(backend.modelsRequests.first)
+        XCTAssertEqual(request.header("Authorization"), "Bearer \(tokens.accessToken)")
+        XCTAssertEqual(request.header("chatgpt-account-id"), "acct_123")
+        XCTAssertEqual(request.header("originator"), "pennant")
+        XCTAssertEqual(request.query["client_version"], ChatGPTAuthManager.codexClientVersion)
+
+        // Asked again soon, the list comes from memory; signing out drops it.
+        _ = await auth.availableModels()
+        XCTAssertEqual(backend.modelsRequests.count, 1)
+        _ = try await auth.signOut()
+        let (signedOut, signedOutNote) = await auth.availableModels()
+        XCTAssertEqual(signedOut, ChatGPTAuthManager.models)
+        XCTAssertTrue(signedOutNote.hasPrefix("Sign in"), signedOutNote)
+    }
+
+    func testARefusedTokenIsRefreshedOnceForTheModelList() async throws {
+        _ = try storeTokens(expiresIn: 3600, refreshToken: "rt-1")
+        backend.validRefreshTokens = ["rt-1"]
+        backend.modelsBody = Self.accountModels
+
+        let (models, _) = await auth.availableModels()
+        XCTAssertEqual(models.first?.id, "gpt-6-sol")
+        XCTAssertEqual(backend.modelsRequests.count, 2)
+        XCTAssertEqual(backend.tokenRequests.count, 1)
+        XCTAssertEqual(backend.modelsRequests[1].header("Authorization"), "Bearer \(backend.lastIssuedAccessToken!)")
+    }
+
+    func testWhenTheAccountCantBeAskedTheBuiltInListSaysWhy() async throws {
+        let tokens = try storeTokens(expiresIn: 3600)
+        backend.validAccessTokens = [tokens.accessToken]
+        backend.modelsStatus = 503
+
+        let (models, note) = await auth.availableModels()
+        XCTAssertEqual(models, ChatGPTAuthManager.models)
+        XCTAssertTrue(note.contains("HTTP 503") && note.contains("built-in"), note)
+
+        backend.modelsStatus = 200
+        backend.modelsBody = Data(#"{"models":[{"slug":"internal","visibility":"hide"}]}"#.utf8)
+        let (fallback, emptyNote) = await auth.availableModels()
+        XCTAssertEqual(fallback, ChatGPTAuthManager.models, "an empty list isn't shown as the account's")
+        XCTAssertTrue(emptyNote.contains("listed no models"), emptyNote)
+    }
+
     func testRefreshesWhenNearExpiry() async throws {
         _ = try storeTokens(expiresIn: 120, refreshToken: "rt-1")
         backend.validRefreshTokens = ["rt-1"]
@@ -707,10 +783,10 @@ final class ChatGPTProviderTests: XCTestCase {
         XCTAssertEqual(unknown.contextWindowTokens, 8000)
         XCTAssertEqual(unknown.model, "gpt-5.9-preview")
 
-        XCTAssertEqual(ChatGPTAuthManager.models.first?.id, "gpt-5.6-sol")
+        XCTAssertEqual(ChatGPTAuthManager.models.first?.id, "gpt-6.1-sol")
         XCTAssertEqual(Set(ChatGPTAuthManager.models.map(\.id)).count, ChatGPTAuthManager.models.count)
         XCTAssertTrue(ChatGPTAuthManager.models.allSatisfy { $0.contextWindowTokens >= 128_000 })
-        XCTAssertEqual(ChatGPTAuthManager.model(withID: "gpt-5.3-codex-spark")?.contextWindowTokens, 128_000)
+        XCTAssertEqual(ChatGPTAuthManager.model(withID: "gpt-6-sol")?.contextWindowTokens, 272_000)
     }
 }
 

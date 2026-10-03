@@ -38,6 +38,10 @@ targets:
           copyFiles:
             destination: wrapper
             subpath: Contents/Library/LaunchAgents
+      # Pennant's Chrome extension, for "Load unpacked" (Settings › Pennant › Chrome).
+      - path: Extensions/PennantChrome
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: Pennant
         product: PennantCore
@@ -76,8 +80,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.pennant.mac
         PRODUCT_NAME: Pennant
-        MARKETING_VERSION: 0.1.0
-        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 0.2.0
+        CURRENT_PROJECT_VERSION: 2
         ENABLE_HARDENED_RUNTIME: NO
         ENABLE_APP_SANDBOX: NO
         GENERATE_INFOPLIST_FILE: NO
@@ -172,14 +176,28 @@ targets:
         PENNANT_IOS_BUNDLE_ID: dev.pennant.ios
         PRODUCT_BUNDLE_IDENTIFIER: $(PENNANT_IOS_BUNDLE_ID)
         PRODUCT_NAME: Pennant
-        MARKETING_VERSION: 0.1.0
-        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 0.2.0
+        CURRENT_PROJECT_VERSION: 2
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Apps/PennantiOS/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+  PennantiOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Tests/PennantiOSUITests
+    dependencies:
+      - target: PennantiOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.pennant.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: PennantiOS
+        TARGETED_DEVICE_FAMILY: "1,2"
 schemes:
   PennantMac:
     build:
@@ -195,3 +213,6 @@ schemes:
         PennantiOS: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets: [PennantiOSUITests]

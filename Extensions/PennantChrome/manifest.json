@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Pennant",
+  "version": "0.2.0",
+  "description": "Lets Pennant, on this Mac, work in tabs of its own in your Chrome: it clicks and types there without your mouse, and you can watch.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyM5dUGV6aqiXt2FgJy/8P1W+YL8dv/d/JRxnUC7Do2p9FvVPvM9aOgtuw67wndxNu0i3g/0kTNdWWrcfEBqqy/LKCM0mOp0ttNfkdoEhzCr2EQFFOvXRx+kkdn55AktWL7zSX6JcAImRY1aYYy7mUCiPrWh7QIA/NBicyzEhMckEz+J/XHoRiQ9jW9iXi6jN6J4pYbB82bg4xQqDCg07OZLa+0gHz4HPGpprGu3vEszQ36mz+2+LgrJLk44IyJ+Qe0NfnmjHv17AjXHqL4z2jwXvDsF4YVVRBSp+m3MSWms6vToxajEAriGrcGkXfLgUe+gTfwg/k00gKPSKYMcCuQIDAQAB",
+  "minimum_chrome_version": "116",
+  "permissions": ["debugger", "tabs", "tabGroups", "scripting", "storage", "alarms"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Pennant", "default_popup": "popup.html", "default_icon": { "16": "icons/16.png", "32": "icons/32.png" } },
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" }
+}

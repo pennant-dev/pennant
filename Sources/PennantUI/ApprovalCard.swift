@@ -404,7 +404,7 @@ public struct ApprovalCard: View {
             if request.action != nil, let failed = request.actionFailed { return failed ? "Approved · not sent" : "Sent" }
             return request.publishedURL == nil ? "Approved" : "Published"
         case .changesRequested: return "Changes requested"
-        case .rejected: return "Rejected"
+        case .rejected: return request.replacedBy == nil ? "Rejected" : "Replaced"
         }
     }
 
@@ -412,7 +412,7 @@ public struct ApprovalCard: View {
         switch request.state {
         case .approved: return request.actionFailed == true ? PennantTheme.danger : PennantTheme.success
         case .changesRequested: return PennantTheme.warning
-        case .rejected: return PennantTheme.danger
+        case .rejected: return request.replacedBy == nil ? PennantTheme.danger : PennantTheme.inkSecondary
         case .pending: return PennantTheme.brandInk
         }
     }
@@ -421,7 +421,7 @@ public struct ApprovalCard: View {
         switch request.state {
         case .approved: return request.publishedURL == nil ? "checkmark.seal.fill" : "paperplane.fill"
         case .changesRequested: return "arrow.uturn.backward.circle"
-        case .rejected: return "xmark.seal"
+        case .rejected: return request.replacedBy == nil ? "xmark.seal" : "arrow.triangle.2.circlepath"
         case .pending: return "checkmark.seal"
         }
     }

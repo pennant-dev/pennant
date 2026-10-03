@@ -127,9 +127,20 @@ enum AppControl {
     static func waitUntilFrontmost(_ pid: pid_t, timeout: TimeInterval) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid { return true }
+            if frontmostPID() == pid { return true }
             try? await Task.sleep(for: .milliseconds(100))
         }
-        return NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        return frontmostPID() == pid
+    }
+
+    /// The app in front, as the window server has it. NSWorkspace's answer can lag in a background process.
+    static func frontmostPID() -> pid_t? {
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.5)
+        if let focused = AccessibilityReader.attribute(system, kAXFocusedApplicationAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID() {
+            var pid: pid_t = 0
+            if AXUIElementGetPid(unsafeDowncast(focused, to: AXUIElement.self), &pid) == .success { return pid }
+        }
+        return NSWorkspace.shared.frontmostApplication?.processIdentifier
     }
 }

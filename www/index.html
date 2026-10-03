@@ -150,14 +150,20 @@ code{font-family:var(--mono);font-size:.9em}
 .side-h{display:flex;align-items:center;gap:6px;padding:10px 8px 5px;font:700 10.5px/1 var(--text);letter-spacing:.07em;text-transform:uppercase;color:var(--ink3)}
 .side-h.brandy{color:var(--brand-ink)}
 .side-h span{margin-left:auto;font-weight:600}
-.needs{display:flex;flex-direction:column;gap:5px;padding:0 2px}
+.pchat{display:flex;align-items:center;gap:9px;margin:8px 2px 2px;padding:9px 10px;border-radius:12px;background:color-mix(in srgb,var(--brand) 7%,transparent);border:1px solid color-mix(in srgb,var(--brand) 20%,transparent)}
+.pchat .pav{width:30px;height:30px;border-radius:9px}
+.pchat .pav .ribbon{width:19px;height:19px}
+.pchat .pc{min-width:0;flex:1}
+.pchat b{display:block;font-size:14px;line-height:1.2}
+.pchat .pc span{display:block;font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pchat .pc span.need{color:var(--brand-ink);font-weight:600}
+.pchat .badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--orange);color:#fff;font:700 11px/18px var(--text);text-align:center}
 .nrow{position:relative;padding:7px 9px 7px 12px;border-radius:9px;background:var(--elev);border:1px solid var(--line);font-size:12px;line-height:1.35;cursor:pointer;transition:opacity .35s,transform .35s}
 .nrow::before{content:"";position:absolute;left:4px;top:7px;bottom:7px;width:3px;border-radius:2px;background:var(--brand)}
 .nrow .top{display:block;color:var(--brand-ink);font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nrow b{display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nrow .sub{display:block;color:var(--ink3);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nrow.out{opacity:0;transform:translateX(-12px)}
-.clear{padding:8px 9px;border-radius:9px;color:var(--ink3);font-size:12px}
 .threads{display:flex;flex-direction:column;flex:1 1 0;min-height:0;overflow:hidden}
 .trow{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:2px 9px;align-items:center;padding:6px 8px;border-radius:8px;font-size:12.5px}
 .trow .ti{grid-row:span 2;width:22px;height:22px;border-radius:50%;background:var(--card);display:grid;place-items:center;color:var(--ink2)}
@@ -801,10 +807,10 @@ h2{margin:0;font:800 clamp(34px,4.8vw,58px)/1.02 var(--display);letter-spacing:-
       <h1>The AI agent that <em>does the work</em>.</h1>
       <p class="lede">Pennant is one open-source agent that lives on your Mac. It runs your jobs on a schedule, remembers what you told it, uses your apps the way you do, writes and ships code, splits big jobs across workers and connects to the services you use, with any model you choose. <b>Anything it would publish, send, delete or pay for waits for your OK.</b></p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.1.0/Pennant-0.1.0.dmg"><i data-ic="download"></i>Download for Mac</a>
+        <a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.2.0/Pennant-0.2.0.dmg"><i data-ic="download"></i>Download for Mac</a>
         <a class="btn btn-ghost" href="https://github.com/pennant-dev/pennant"><i data-ic="code"></i>Get the source</a>
       </div>
-      <p class="fine-line">Version 0.1.0, a preview · free · macOS 15 or later, Apple silicon or Intel</p>
+      <p class="fine-line">Version 0.2.0, a preview · free · macOS 15 or later, Apple silicon or Intel</p>
     </div>
     <div class="duo">
       <p class="clock"><span class="clock-ic"><i data-ic="moon"></i></span><b data-clock="t">1:11 AM</b><span data-clock="s">Product demo: prep split across 3 workers</span></p>
@@ -829,9 +835,8 @@ h2{margin:0;font:800 clamp(34px,4.8vw,58px)/1.02 var(--display);letter-spacing:-
       <aside class="side" aria-hidden="true">
         <div class="lights"><i></i><i></i><i></i></div>
         <div class="srow on"><i data-ic="grid"></i>Dashboard<span class="badge" data-n="badge">3</span></div>
+        <div class="pchat" id="sidePennant"></div>
         <div class="search"><i data-ic="search"></i>Search threads</div>
-        <div class="side-h brandy">Needs you <span data-n="count">3</span></div>
-        <div class="needs" id="sideNeeds"></div>
         <div class="side-h">Threads <span>7</span></div>
         <div class="threads" id="sideThreads"></div>
         <div class="side-nav">
@@ -907,7 +912,7 @@ h2{margin:0;font:800 clamp(34px,4.8vw,58px)/1.02 var(--display);letter-spacing:-
           <div class="panel-h">Threads</div>
           <div class="tlist" id="threadPanel"></div>
         </div>
-        <p class="jobs-note"><b>Pennant is the only one you talk to.</b> Each job follows a skill, a folder of instructions and scripts you can read and change. Big jobs bring in workers on a cheaper model. Code changes go to Claude Code in your folder.</p>
+        <p class="jobs-note"><b>You talk to Pennant, in one chat.</b> It answers what it can and starts a thread for the rest, then tells you what came of it, in its own words. Each job follows a skill, a folder of instructions and scripts you can read and change. Big jobs bring in workers on a cheaper model, and code changes go to a coding run in your folder.</p>
       </div>
     </div>
   </div>
@@ -923,7 +928,7 @@ h2{margin:0;font:800 clamp(34px,4.8vw,58px)/1.02 var(--display);letter-spacing:-
     <div class="tour">
       <div class="t-tabs" role="tablist" aria-label="Capabilities">
         <button class="t-tab" role="tab" id="tt-0" aria-controls="tp-0" aria-selected="true" type="button"><span class="tico"><i data-ic="brain"></i></span><b>Memory</b><span>Remembers what you said, and where you said it.</span></button>
-        <button class="t-tab" role="tab" id="tt-1" aria-controls="tp-1" aria-selected="false" tabindex="-1" type="button"><span class="tico"><i data-ic="display"></i></span><b>Computer</b><span>Uses your apps. Stops the moment you take over.</span></button>
+        <button class="t-tab" role="tab" id="tt-1" aria-controls="tp-1" aria-selected="false" tabindex="-1" type="button"><span class="tico"><i data-ic="display"></i></span><b>Computer</b><span>Works beside you. Stops the moment you take over.</span></button>
         <button class="t-tab" role="tab" id="tt-2" aria-controls="tp-2" aria-selected="false" tabindex="-1" type="button"><span class="tico"><i data-ic="code"></i></span><b>Coding runs</b><span>Claude Code in your folder, in a thread of its own.</span></button>
         <button class="t-tab" role="tab" id="tt-3" aria-controls="tp-3" aria-selected="false" tabindex="-1" type="button"><span class="tico"><i data-ic="people"></i></span><b>Workers</b><span>Big jobs split across workers on a cheaper model.</span></button>
         <button class="t-tab" role="tab" id="tt-4" aria-controls="tp-4" aria-selected="false" tabindex="-1" type="button"><span class="tico"><i data-ic="sparkles"></i></span><b>Skills</b><span>Folders you own, with every version kept.</span></button>
@@ -1003,10 +1008,10 @@ Shared views are live for every Northwind workspace from today. Priya's team can
         <div class="ui"><div class="minibtns"><span class="go"><i data-ic="check"></i>Approve &amp; send</span><span>Request changes</span><span class="no">Reject</span></div></div>
       </div>
       <div class="fix">
-        <s>Forty tool calls in your face</s>
-        <h3>Quiet while it works.</h3>
-        <p>Tool calls fold into one line you can open. A run ends in a report card with a verdict, the numbers and a table, not a wall of text.</p>
-        <div class="ui"><span class="uichip"><span class="ok"><i data-ic="check"></i></span>Used 18 tools<code>41 s</code><span class="mu"><i data-ic="mail"></i> <i data-ic="search"></i> <i data-ic="file"></i></span></span></div>
+        <s>Stuck for hours, and nobody knows</s>
+        <h3>A heartbeat.</h3>
+        <p>Every 30 minutes, or what you choose, Pennant looks over its work on its own: it starts the goal sessions that are due, and anything stuck or waiting on you too long gets dealt with or brought to you. A look with nothing in it costs nothing.</p>
+        <div class="ui"><span class="uichip"><span class="ok"><i data-ic="clock"></i></span>Looked over the work<code>2 threads nudged</code></span></div>
       </div>
       <div class="fix">
         <s>One 429 and the run is gone</s>
@@ -1033,10 +1038,10 @@ Shared views are live for every Northwind workspace from today. Priya's team can
         <div class="ui"><span class="uichip"><span class="mu"><i data-ic="clock"></i></span>Skipped<code>previous run still going</code></span></div>
       </div>
       <div class="fix">
-        <s>Keeps clicking after you grab the mouse</s>
-        <h3>Hands off when you take over.</h3>
-        <p>One owner of the desktop at a time. Touch the mouse and the agent pauses; before its next click, it looks at the screen again.</p>
-        <div class="ui"><span class="uichip"><span class="am"><i data-ic="hand"></i></span>You took over<code>agent paused</code></span></div>
+        <s>Takes over your screen</s>
+        <h3>It works beside you.</h3>
+        <p>On the web, Pennant works in tabs of its own in your Chrome, with your sign-ins; your pointer, keyboard and tabs stay yours. It works in your Mac apps in the background, behind your windows. When it truly needs the screen, touch the mouse and it stops.</p>
+        <div class="ui"><span class="uichip"><span class="vi"><i data-ic="display"></i></span>In its own Chrome tab<code>your window untouched</code></span></div>
       </div>
       <div class="fix">
         <s>Retries the payment. Twice.</s>
@@ -1126,9 +1131,9 @@ Shared views are live for every Northwind workspace from today. Priya's team can
   <div class="wrap open-grid">
     <div>
       <h2 id="open-h">Free. Open source. Yours to change.</h2>
-      <p class="lede">Pennant is about 61,000 lines of Swift: a host that runs the agent, a native Mac app, an iPhone app and a command line. No sign-up, no telemetry, no server of ours in the middle. Build it, read it, fork it.</p>
-      <div class="cta-row"><a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.1.0/Pennant-0.1.0.dmg"><i data-ic="download"></i>Download Pennant</a><a class="btn btn-ghost" href="https://github.com/pennant-dev/pennant"><i data-ic="code"></i>View on GitHub</a></div>
-      <p class="fine-line">Version 0.1.0, a preview. Signed and notarized by Apple; it updates itself once you allow it. SHA-256 <code>b4c23fdba02f1b3660109097f4942053d5158a906e61e3b3b36c2aed0ae18ab3</code></p>
+      <p class="lede">Pennant is about 65,000 lines of Swift: a host that runs the agent, a native Mac app, an iPhone app and a command line. No sign-up, no telemetry, no server of ours in the middle. Build it, read it, fork it.</p>
+      <div class="cta-row"><a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.2.0/Pennant-0.2.0.dmg"><i data-ic="download"></i>Download Pennant</a><a class="btn btn-ghost" href="https://github.com/pennant-dev/pennant"><i data-ic="code"></i>View on GitHub</a></div>
+      <p class="fine-line">Version 0.2.0, a preview. Signed and notarized by Apple; it updates itself once you allow it. SHA-256 <code>19b69e6a99c3de93131cbb006ecb5d02e25a437ac5341c95a7911781d22bdd65</code></p>
       <div class="reqs"><span>macOS 15 or later</span><span>Apple silicon or Intel</span><span>Build it: Xcode 27</span><span>iPhone app: iOS 18 or later</span><span>Any OpenAI-compatible endpoint, or Ollama</span></div>
     </div>
     <div class="term">
@@ -1317,7 +1322,8 @@ Shared views are live for every Northwind workspace from today. Priya's team can
     $('#gRun').innerHTML = running ? `<span class="spin"></span>${running} running` : '<i class="dot"></i>All quiet';
   }
   function paintSide() {
-    $('#sideNeeds').innerHTML = open.length ? open.map(c => `<div class="nrow" data-id="${c.id}"><span class="top">${esc(c.side)}</span><b>${esc(c.title)}</b><span class="sub">${esc(c.sub)}</span></div>`).join('') : '<div class="clear">Nothing needs you.</div>';
+    const n = open.length;
+    $('#sidePennant').innerHTML = `${pav()}<span class="pc"><b>Pennant</b><span${n ? ' class="need"' : ''}>${n ? (n === 1 ? 'One thing needs you' : `${n} things need you`) : 'Ask for anything'}</span></span>${n ? `<span class="badge">${n}</span>` : ''}`;
     $('#sideThreads').innerHTML = THREADS.map(t => `<div class="trow${t.u ? ' unread' : ''}"><span class="ti">${ic(t.i)}</span><b>${esc(t.t)}</b><time>${t.at}</time><span class="pv">${esc(t.p)}</span></div>`).join('');
   }
   function cardHTML(c) {
@@ -1938,7 +1944,7 @@ I'll send the final launch checklist on Friday, as promised. Shall we walk throu
   /* ---------- Tabs, notes and playback ---------- */
   const DEMOS = [
     { run: memory, title: 'Harbor 2.0 launch · Memory', note: '<b>Memory with receipts.</b> After a task, Pennant writes down the facts worth keeping, and it keeps the passages of your conversations with it, so it can say where it heard something. It searches by keyword, and by meaning when you turn on an embedding model. What you said outranks what it guessed, and what you forget stays forgotten.' },
-    { run: computer, title: 'Computer use · Safari', note: '<b>One owner of the desktop at a time.</b> Touch the mouse and Pennant pauses; press Resume and it looks at the screen again before its next click. You can watch and take over from your iPhone too.' },
+    { run: computer, title: 'Computer use · Safari', note: '<b>Your screen comes last.</b> On the web Pennant works in tabs of its own in your Chrome, and in Mac apps it works in the background. When it does need the screen, one owner at a time: touch the mouse and Pennant pauses; press Resume and it looks again before its next click. You can watch and take over from your iPhone too.' },
     { run: code, title: 'Harbor 2.0 launch → coding run', note: '<b>Code changes run in a thread under the one that asked.</b> Claude Code edits, tests, pushes and opens the pull request in your folder, as its own GitHub App, never as you. Deleting, publishing and spending still wait for you.' },
     { run: workers, title: 'Product demo · 3 workers', note: '<b>Workers do the legwork; Pennant stays responsible.</b> They run in parallel on the model you pick for them, each with a clear brief, and Pennant checks their work before using it.' },
     { run: skills, title: 'Skills', note: '<b>Skills are folders in a git repository you own.</b> Pennant writes the next version when you give feedback, every version is kept, and skills from Claude Code or Codex import as they are.' },

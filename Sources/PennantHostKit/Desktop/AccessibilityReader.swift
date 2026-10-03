@@ -18,8 +18,8 @@ final class AccessibilityReader: @unchecked Sendable {
     static let chromiumBundlePrefixes = ["com.google.Chrome", "org.chromium", "com.microsoft.edgemac", "com.brave.Browser", "company.thebrowser", "com.vivaldi", "com.operasoftware", "com.electron", "com.microsoft.VSCode", "com.todesktop"]
 
     static func enableWebAccessibilityIfNeeded(app: AXUIElement, pid: pid_t) {
-        let bundleID = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? ""
-        guard chromiumBundlePrefixes.contains(where: { bundleID.hasPrefix($0) }) || hasEmptyWebArea(app) else { return }
+        let bundleID = (NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? "").lowercased()
+        guard chromiumBundlePrefixes.contains(where: { bundleID.hasPrefix($0.lowercased()) }) || hasEmptyWebArea(app) else { return }
         var current: CFTypeRef?
         let already = AXUIElementCopyAttributeValue(app, "AXManualAccessibility" as CFString, &current) == .success && (current as? Bool) == true
         guard !already else { return }
@@ -115,6 +115,17 @@ final class AccessibilityReader: @unchecked Sendable {
         let element = try cachedElement(index)
         let error = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString)
         guard error == .success else { throw DesktopError.inputFailed("Setting value on node \(index) failed (\(error.rawValue))") }
+    }
+
+    /// The middle of a node from the last tree read, in display points.
+    func center(index: Int) -> CGPoint? {
+        guard let element = try? cachedElement(index) else { return nil }
+        return Self.center(element)
+    }
+
+    static func center(_ element: AXUIElement) -> CGPoint? {
+        guard let p = point(element, kAXPositionAttribute), let s = size(element, kAXSizeAttribute) else { return nil }
+        return CGPoint(x: p.x + s.width / 2, y: p.y + s.height / 2)
     }
 
     private func cachedElement(_ index: Int) throws -> AXUIElement {

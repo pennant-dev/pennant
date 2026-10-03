@@ -15,6 +15,8 @@ func run(_ options: CLIOptions) async throws {
         try await importCommand(options)
     case "chrome-signins":
         try await chromeSignInsCommand(options)
+    case "chrome":
+        try await chromeCommand(options)
     case "approval":
         try await approvalCommand(options)
     case "push":
@@ -33,6 +35,10 @@ func run(_ options: CLIOptions) async throws {
         try await codingCommand(options)
     case "threads":
         try await threadsCommand(options)
+    case "heartbeat":
+        try await heartbeatCommand(options)
+    case "tool":
+        try await toolCommand(options)
     case "agent":
         try await agentCommand(options)
     case "tasks":
