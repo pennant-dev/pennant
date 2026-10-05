@@ -55,7 +55,7 @@ Usage: pennant [--host H] [--port P] [--token T] <command> [args]
   health enable              Pennant reviews its own runs, skills and jobs daily and proposes fixes as cards
   threads                    Open threads newest first (! = needs you), and how many are closed
   threads close-after <days|never>  How long a quiet thread stays in the list
-  heartbeat [on|off|every <minutes>|cap <n>]  Pennant checking in on its own: whether, how often, how many times a day
+  heartbeat [on|off|every <minutes>|cap <n>|also <text>|also off]  Pennant checking in on its own: whether, how often, how many times a day, and what else it does each time
   tool <name> [json]         Run one of Pennant's tools by hand (owner only); images it returns are saved here
   send <text…>               Send a message and stream the reply until the task finishes
   tasks                      List tasks

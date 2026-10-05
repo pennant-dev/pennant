@@ -107,8 +107,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.pennant.mac
         PRODUCT_NAME: Pennant
-        MARKETING_VERSION: 0.3.0
-        CURRENT_PROJECT_VERSION: 3
+        MARKETING_VERSION: 0.3.1
+        CURRENT_PROJECT_VERSION: 4
         ENABLE_HARDENED_RUNTIME: NO
         ENABLE_APP_SANDBOX: NO
         GENERATE_INFOPLIST_FILE: NO
@@ -199,8 +199,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.pennant.voice
         PRODUCT_NAME: Pennant Voice
-        MARKETING_VERSION: 0.3.0
-        CURRENT_PROJECT_VERSION: 3
+        MARKETING_VERSION: 0.3.1
+        CURRENT_PROJECT_VERSION: 4
         # MLX runs on Apple silicon only; on an Intel Mac Talk mode keeps the system voices.
         ARCHS: arm64
         ENABLE_HARDENED_RUNTIME: NO
@@ -261,8 +261,8 @@ targets:
         PENNANT_IOS_BUNDLE_ID: dev.pennant.ios
         PRODUCT_BUNDLE_IDENTIFIER: $(PENNANT_IOS_BUNDLE_ID)
         PRODUCT_NAME: Pennant
-        MARKETING_VERSION: 0.3.0
-        CURRENT_PROJECT_VERSION: 3
+        MARKETING_VERSION: 0.3.1
+        CURRENT_PROJECT_VERSION: 4
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Apps/PennantiOS/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"

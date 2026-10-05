@@ -260,15 +260,17 @@ public struct HostConfig: Hashable, Codable, Sendable {
 
     /// Every so often the host looks over Pennant's work without the model: it starts the goal sessions that are due
     /// (goals need no schedules of their own) and, when something needs a look (work that stopped moving, a question
-    /// left for hours), Pennant takes one turn in its chat to deal with it or tell the owner. A look with nothing in
-    /// it costs nothing.
+    /// left for hours, or something the owner asked for on each check-in), Pennant takes one turn in its chat to deal
+    /// with it or tell the owner. A look with nothing in it costs nothing.
     public struct Heartbeat: Hashable, Codable, Sendable {
         public var enabled: Bool
         public var intervalMinutes: Int
         /// The most turns Pennant takes on heartbeats in a day.
         public var maxTurnsPerDay: Int
-        /// Each beat looks for unread mail that arrived since the last one (Microsoft 365, when it's connected); nil: on.
-        public var checksMail: Bool?
+        /// What Pennant also does on each beat, in the owner's words ("Check my email for anything that needs me
+        /// today"), with whatever tools it has. Empty: a beat only looks over Pennant's own work. Something here makes
+        /// every beat a turn of the model.
+        public var instructions: String?
 
         public init(enabled: Bool = true, intervalMinutes: Int = 30, maxTurnsPerDay: Int = 48) {
             self.enabled = enabled

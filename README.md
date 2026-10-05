@@ -45,9 +45,9 @@ choose. Before it publishes, sends, deletes or spends, it hands you a card and w
   in that folder go ahead.
 - **Goals.** Outcomes Pennant works toward on its own, with a measure, a weekly budget and a board of what's next, waiting on
   you, in progress and done, and a weekly review. Start, pause, edit or delete any goal yourself, or approve the ones it proposes.
-- **A heartbeat.** Every 30 minutes (you choose) Pennant looks over its work and your inbox: it starts the goal sessions that
-  are due, and if something is stuck, has waited on you too long, or new mail needs you, it deals with it or tells you. A look
-  with nothing in it costs nothing.
+- **A heartbeat.** Every 30 minutes (you choose) Pennant looks over its work: it starts the goal sessions that are due, and
+  if something is stuck or has waited on you too long, it deals with it or tells you. A look with nothing in it costs nothing.
+  Anything else you want on each check-in, you write in your own words ("check my email for anything that needs me today").
 - **Coding.** Code changes go to a coding run in one of your project folders, in a thread of its own: Claude Code,
   or Pennant's own engine on any of your models. Runs push and open pull requests as their own GitHub App, never as you, and
   can plan first or ask before every edit.

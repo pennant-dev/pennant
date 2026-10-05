@@ -66,13 +66,18 @@ func heartbeatCommand(_ options: CLIOptions) async throws {
     case "cap" where args.count > 1:
         guard let n = Int(args[1]), n >= 1 else { await session.disconnect(); fail("Usage: pennant heartbeat cap <check-ins a day>") }
         c.heartbeat.maxTurnsPerDay = n
+    case "also" where args.count > 1:
+        // What Pennant also does on each check-in, in the owner's own words (their capitals kept).
+        let text = options.args.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        c.heartbeat.instructions = text.lowercased() == "off" ? nil : text
     default:
-        await session.disconnect(); fail("Usage: pennant heartbeat [on|off|every <minutes>|cap <n>]")
+        await session.disconnect(); fail("Usage: pennant heartbeat [on|off|every <minutes>|cap <n>|also <what to do on each check-in>|also off]")
     }
     if args.first != nil { _ = try await session.updateConfig(c) }
     await session.disconnect()
     let h = c.heartbeat
     out(h.enabled ? "Pennant checks in every \(h.intervalMinutes) minutes, and stops to think at most \(h.maxTurnsPerDay) times a day. Goals run on it." : "Heartbeat off: goals run on their own schedules.")
+    if h.enabled { out(h.instructions.map { "On each check-in, also: \($0)" } ?? "On each check-in, it only looks over its own work. Add something with: pennant heartbeat also <what to do>") }
 }
 
 @MainActor

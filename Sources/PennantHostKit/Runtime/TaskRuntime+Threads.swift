@@ -204,9 +204,8 @@ extension TaskRuntime {
         \(brief)
         Decide what, if anything, to do about it. Nudge or stop work that's stuck (message_thread, stop_thread), or \
         tell the owner something they'd want to know now, in a line or two, the way you'd mention it in passing. \
-        For new email, mention only what needs them soon (a person waiting on them, something with a deadline, \
-        anything urgent), a line each; leave newsletters, notifications and receipts. Replies are drafted by the \
-        inbox runs, not now. \
+        What the owner asked for on each check-in, do with the tools you have, and tell them only what needs them \
+        soon, a line each; leave the routine out. \
         Don't remind them of something you already told them today. If nothing needs doing or saying, reply with \
         exactly \(Self.nothingToSay): they won't see this check.
         """
@@ -264,29 +263,6 @@ extension TaskRuntime {
             }
         }
         return out
-    }
-
-    /// The owner's inbox, through Microsoft 365 when it's connected.
-    static let inboxTool = "microsoft_365__mail_search"
-    static let mailCheckedKey = "heartbeat.mailCheckedAt"
-
-    /// Unread mail that arrived since the last look, as something for a heartbeat to look at; nil when there's none,
-    /// or no mail is connected. Read straight from the mailbox, without the model. The first look covers the last half
-    /// hour.
-    func newMailSignal(now: Date = Date()) async -> (key: String, text: String)? {
-        guard let tool = await deps.broker.tool(named: Self.inboxTool), let chat = try? await ensureMainChat() else { return nil }
-        let iso = ISO8601DateFormatter()
-        let since = ((try? await deps.store.setting(Self.mailCheckedKey)) ?? nil).flatMap { iso.date(from: $0) } ?? now.addingTimeInterval(-30 * 60)
-        let context = ToolContext(agentID: chat.agentID, taskID: TaskID("heartbeat-mail"), conversationID: chat.id, store: deps.store,
-                                  desktop: deps.desktop, lease: deps.lease, config: deps.config)
-        let arguments: JSONValue = ["folder": "inbox", "unread_only": true, "received_after": .string(iso.string(from: since)), "limit": 20]
-        guard let result = try? await tool.invoke(arguments, context: context), !result.isError else { return nil }
-        try? await deps.store.setSetting(Self.mailCheckedKey, value: iso.string(from: now))
-        let list = result.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
-        let count = list.components(separatedBy: "• ").count - 1
-        guard count > 0 else { return nil }
-        let when = since.formatted(date: .omitted, time: .shortened)
-        return ("mail:\(iso.string(from: now))", "\(count) new unread email\(count == 1 ? "" : "s") in the inbox since \(when):\n\(list)")
     }
 
     /// Work with no step for this long has stopped moving.

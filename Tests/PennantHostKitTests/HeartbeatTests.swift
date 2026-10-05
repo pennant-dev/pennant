@@ -51,63 +51,40 @@ final class HeartbeatTests: XCTestCase {
         return task
     }
 
-    /// The inbox as Microsoft 365's mail search shows it: what came in after `received_after`, unread.
-    final class FakeInbox: Tool, @unchecked Sendable {
-        let lock = NSLock()
-        var mail: [(received: Date, subject: String, from: String)] = []
-        var asked: [String] = []
-        var spec: ToolSpec { ToolSpec(name: TaskRuntime.inboxTool, description: "mail", inputSchema: JSONSchema.object([:]), source: "mcp:microsoft_365") }
-        func invoke(_ arguments: JSONValue, context: ToolContext) async throws -> ToolResult {
-            let after = arguments["received_after"]?.stringValue ?? ""
-            let since = ISO8601DateFormatter().date(from: after) ?? .distantPast
-            let found = lock.withLock { () -> [(received: Date, subject: String, from: String)] in
-                asked.append(after)
-                return mail.filter { $0.received > since }
-            }
-            let list = found.map { "• \($0.subject) [unread]\n  from \($0.from) · \(ISO8601DateFormatter().string(from: $0.received))\n  id: m1" }
-            return .text(ToolCallID("x"), name: spec.name, list.isEmpty ? "No messages." : list.joined(separator: "\n"))
-        }
-    }
-
-    func testEachBeatLooksForNewMailAndPennantLooksAtItOnlyWhenThereIsSome() async throws {
-        let provider = ScriptedProvider([.init(text: "Dana from Acme needs the signed contract back today.")])
-        let s = try await service(provider)
-        let inbox = FakeInbox()
-        await s.broker.register([inbox])
-        inbox.lock.withLock { inbox.mail = [(Date().addingTimeInterval(-5 * 60), "Contract to sign today", "Dana <dana@acme.example>")] }
+    /// What the owner asked for on each check-in is in their words, so it works with whatever they use (Gmail,
+    /// Outlook, a calendar, a dashboard): each beat is a turn to do it, told how often it comes and when it last did.
+    func testWhatTheOwnerAskedForIsDoneOnEachCheckIn() async throws {
+        var settings = HostConfig.Heartbeat()
+        settings.instructions = "Check my email for anything that needs me today."
+        settings.maxTurnsPerDay = 2
+        let provider = ScriptedProvider([.init(text: "Dana needs the signed contract back today."), .init(text: TaskRuntime.nothingToSay)])
+        let s = try await service(provider, heartbeat: settings)
 
         let first = await s.heartbeat.beat()
-        XCTAssertEqual(first.signals.count, 1)
-        XCTAssertTrue(first.signals[0].hasPrefix("1 new unread email in the inbox since"), first.signals[0])
-        let turn = try XCTUnwrap(first.turn, "new mail gets Pennant's look")
+        XCTAssertEqual(first.signals, ["On each check-in the owner asked you to: Check my email for anything that needs me today. (you check in every 30 minutes)"])
+        let turn = try XCTUnwrap(first.turn)
         try await wait(s, turn, .completed)
-        let task = try await s.store.task(turn)
-        XCTAssertTrue(task?.objective.contains("Contract to sign today") ?? false)
-        XCTAssertTrue(task?.objective.contains("mention only what needs them soon") ?? false)
+        let objective = try await s.store.task(turn)?.objective ?? ""
+        XCTAssertTrue(objective.contains("Check my email for anything that needs me today."), objective)
+        XCTAssertTrue(objective.contains("What the owner asked for on each check-in, do with the tools you have"), objective)
+        XCTAssertFalse(objective.contains("inbox runs"), "nothing assumes a setup the owner may not have")
 
-        // Nothing new since: no turn, no model call.
-        let requests = provider.requests.count
         let second = await s.heartbeat.beat()
-        XCTAssertTrue(second.signals.isEmpty)
-        XCTAssertNil(second.turn)
-        XCTAssertEqual(provider.requests.count, requests)
-        let asked = inbox.lock.withLock { inbox.asked }
-        XCTAssertEqual(asked.count, 2)
-        XCTAssertGreaterThan(asked[1], asked[0], "each look starts where the last one ended")
+        XCTAssertTrue(second.signals.first?.contains("the last one was at") ?? false, "\(second.signals)")
+        try await wait(s, try XCTUnwrap(second.turn, "every check-in, not just when something changed"), .completed)
+
+        let third = await s.heartbeat.beat()
+        XCTAssertNil(third.turn)
+        XCTAssertEqual(third.skipped, "already took 2 turns today", "the daily cap still holds")
         await s.stop()
     }
 
-    func testMailIsntCheckedWhenTheOwnerTurnsItOff() async throws {
-        var settings = HostConfig.Heartbeat()
-        settings.checksMail = false
-        let s = try await service(ScriptedProvider([]), heartbeat: settings)
-        let inbox = FakeInbox()
-        await s.broker.register([inbox])
-        inbox.lock.withLock { inbox.mail = [(Date(), "Hello", "Dana <dana@acme.example>")] }
-        let beat = await s.heartbeat.beat()
-        XCTAssertTrue(beat.signals.isEmpty)
-        XCTAssertTrue(inbox.lock.withLock { inbox.asked.isEmpty }, "the mailbox wasn't touched")
-        await s.stop()
+    /// A config written before the setting (with the old on/off for mail) still loads, with nothing asked.
+    func testAnOlderHeartbeatSettingLoadsWithNothingAsked() throws {
+        let old = #"{"enabled":true,"intervalMinutes":30,"maxTurnsPerDay":48,"checksMail":true}"#
+        let settings = try JSONDecoder().decode(HostConfig.Heartbeat.self, from: Data(old.utf8))
+        XCTAssertTrue(settings.enabled)
+        XCTAssertNil(settings.instructions)
     }
 
     func testABeatWithNothingInItCostsNothing() async throws {

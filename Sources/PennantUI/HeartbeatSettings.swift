@@ -2,13 +2,15 @@ import PennantClientKit
 import PennantCore
 import SwiftUI
 
-/// Settings › Pennant › Heartbeat: whether Pennant checks in on its own, how often, whether it looks at new email,
-/// and how many times a day it may stop to think about what it found.
+/// Settings › Pennant › Heartbeat: whether Pennant checks in on its own, how often, what else it does on each check-in
+/// (in the owner's words), and how many times a day it may stop to think.
 public struct HeartbeatSettings: View {
     @Environment(\.hostSession) private var session
     @State private var heartbeat = HostConfig.Heartbeat()
     @State private var loaded = false
     @State private var error: String?
+    /// The save waiting for typing to pause.
+    @State private var saving: Task<Void, Never>?
 
     public init() {}
 
@@ -30,10 +32,12 @@ public struct HeartbeatSettings: View {
                 }
             }
             .disabled(!heartbeat.enabled)
-            Toggle("Check email on each check-in", isOn: Binding(get: { heartbeat.checksMail != false }, set: { heartbeat.checksMail = $0 }))
+            PennantTextField("On each check-in, also", placeholder: "e.g. Check my email for anything that needs me today", text: Binding(
+                get: { heartbeat.instructions ?? "" },
+                set: { heartbeat.instructions = $0.isEmpty ? nil : $0 }), lines: 2 ... 5)
                 .disabled(!heartbeat.enabled)
             Text(heartbeat.enabled
-                 ? "Each check looks over your threads and goals without the model, and starts a goal's next session when it's due, so goals don't need schedules. Pennant only stops to think, and only costs anything, when something needs a look: work that stopped moving, something left waiting on you, or new unread email (Microsoft 365). Then it nudges the work, or tells you in the chat about what needs you; routine mail stays quiet."
+                 ? "Each check looks over your threads and goals without the model, and starts a goal's next session when it's due, so goals don't need schedules. Pennant only stops to think, and only costs anything, when something needs a look: work that stopped moving, or something left waiting on you. Whatever you write above, it does on every check-in with the tools and connections it has, and tells you only what needs you; that's a turn of the model each time."
                  : "Off: goals run on their own schedules, and Pennant only works when you ask or a schedule fires.")
                 .font(.zoomed(.caption))
                 .foregroundStyle(PennantTheme.inkSecondary)
@@ -48,7 +52,10 @@ public struct HeartbeatSettings: View {
         }
         .onChange(of: heartbeat) { _, new in
             guard loaded else { return }
-            Task {
+            saving?.cancel()
+            saving = Task {
+                try? await Task.sleep(for: .milliseconds(600))
+                guard !Task.isCancelled else { return }
                 do {
                     var c = try await session.getConfig().config
                     guard c.heartbeat != new else { return }

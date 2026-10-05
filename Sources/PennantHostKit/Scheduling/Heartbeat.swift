@@ -3,8 +3,9 @@ import Foundation
 
 /// Pennant's heartbeat. Every so often (Settings › Pennant › Heartbeat) it looks over the work without the model:
 /// the goal sessions that are due start (a goal needs no schedule of its own), and when something needs a look (work
-/// that stopped moving, a question or draft left waiting for hours, new unread mail), Pennant takes one turn in its
-/// chat to nudge, stop or tell. A beat with nothing in it costs nothing, and Pennant's turns are capped per day.
+/// that stopped moving, a question or draft left waiting for hours), Pennant takes one turn in its chat to nudge, stop
+/// or tell. What the owner asked for on each check-in (Settings › Pennant › Heartbeat, in their own words) is a turn on
+/// every beat. A beat with nothing in it costs nothing, and Pennant's turns are capped per day.
 public actor Heartbeat {
     /// What one beat did, for the log and the tests.
     public struct Beat: Sendable {
@@ -21,6 +22,8 @@ public actor Heartbeat {
     /// When each signal was last raised: the same stalled thread isn't raised on every beat.
     private var raised: [String: Date] = [:]
     private var turns: (day: String, count: Int) = ("", 0)
+    /// When Pennant last did what the owner asks for on each check-in.
+    private var lastAsked: Date?
 
     /// How long before the same thing is raised again.
     static let raiseAgainAfter: TimeInterval = 6 * 3600
@@ -66,7 +69,11 @@ public actor Heartbeat {
         var fresh = await runtime.heartbeatSignals(now: now).filter { signal in
             raised[signal.key].map { now.timeIntervalSince($0) > Self.raiseAgainAfter } ?? true
         }
-        if settings.checksMail != false, let mail = await runtime.newMailSignal(now: now) { fresh.append(mail) }
+        let ask = settings.instructions?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !ask.isEmpty {
+            let last = lastAsked.map { "; the last one was at \($0.formatted(date: .omitted, time: .shortened))" } ?? ""
+            fresh.append(("asked:\(now.timeIntervalSince1970)", "On each check-in the owner asked you to: \(ask) (you check in every \(settings.intervalMinutes) minutes\(last))"))
+        }
         beat.signals = fresh.map(\.text)
         if !fresh.isEmpty {
             let day = Self.day(now)
@@ -77,6 +84,7 @@ public actor Heartbeat {
                 beat.turn = id
                 turns.count += 1
                 for signal in fresh { raised[signal.key] = now }
+                if !ask.isEmpty { lastAsked = now }
             } else {
                 beat.skipped = "the chat was busy"
             }
