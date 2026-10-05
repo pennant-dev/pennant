@@ -159,8 +159,13 @@ extension HostService {
 
     private func dispatch(_ body: CommandBody, client: ConnectedClient) async throws -> ReplyBody {
         switch body {
-        case .hello, .ping, .subscribeScreen, .unsubscribeScreen, .screenFrameReceived, .listEvents, .signInOptions, .beginSignIn, .completeSignIn, .signInWithPassword, .redeemInvite:
+        case .hello, .ping, .subscribeScreen, .unsubscribeScreen, .screenFrameReceived, .listEvents, .signInOptions, .beginSignIn, .completeSignIn, .signInWithPassword, .redeemInvite, .speak, .stopSpeaking:
             return .ok
+
+        case .listVoices:
+            return .voices(await voices.available())
+        case .spokenVersion(let text, let alreadySaid):
+            return .spokenVersion(await runtime.spokenVersion(of: text, alreadySaid: alreadySaid) ?? "")
 
         // People: anyone signed in may see who's here; only the owner changes it.
         case .listPeople:
@@ -207,9 +212,9 @@ extension HostService {
             return .ok
 
         // Conversation
-        case .sendMessage(let agentID, let conversationID, let text, let attachments):
+        case .sendMessage(let agentID, let conversationID, let text, let attachments, let spoken):
             let (m, c, t) = try await runtime.submitUserMessage(agentID: agentID, conversationID: conversationID, text: text, attachments: attachments,
-                                                                author: Self.author(of: client))
+                                                                author: Self.author(of: client), spoken: spoken ?? false)
             return .messageAccepted(messageID: m, conversationID: c, taskID: t)
         case .listMessages(let conversationID, let before, let limit):
             let capped = max(1, min(limit, 200))
@@ -220,6 +225,9 @@ extension HostService {
             return .ok
         case .compactConversation(let id):
             return .task(try await runtime.compactConversation(id))
+        case .startOver(let id):
+            try await runtime.startOver(id)
+            return .ok
         case .closeConversation(let id, let closed):
             try await runtime.closeConversation(id, closed: closed)
             return .ok
@@ -695,7 +703,7 @@ extension HostService {
         case .getConfig:
             return .config(config, restartRequired: false)
         case .updateConfig(var newConfig):
-            newConfig.reconcileModels(previous: config)
+            newConfig.reconcileModels()
             let inferenceChanged = newConfig.inference != config.inference
             let restart = newConfig.api != config.api || newConfig.embeddings != config.embeddings || newConfig.mode != config.mode
             config = newConfig

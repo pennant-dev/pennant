@@ -12,6 +12,8 @@ public struct ConversationView: View {
     var agentID: AgentID
     @Binding var conversationID: ConversationID?
     @State private var draft = ""
+    /// Talk mode in the Pennant chat.
+    @State private var talk = TalkSession()
     @State private var attachments: [ComposerAttachment] = []
     /// Unsent text and files stay with their own thread (see `ThreadDrafts`).
     @State private var threadDrafts = ThreadDrafts()
@@ -399,6 +401,19 @@ public struct ConversationView: View {
                 // Waiting on a question; a card it waits on is decided right here.
                 ThreadFooter(conversation: thread, waiting: currentTask?.state == .waitingForUser && !session.state.pendingApprovals.contains { $0.conversationID == thread.id })
             } else {
+                if talk.isOn {
+                    TalkBar(talk: talk)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 6)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if let problem = talk.problem {
+                    Text(problem)
+                        .font(.zoomed(.caption))
+                        .foregroundStyle(PennantTheme.attention)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 4)
+                }
                 ComposerView(
                     text: $draft,
                     attachments: $attachments,
@@ -406,10 +421,16 @@ public struct ConversationView: View {
                     isEnabled: session.connection.isConnected,
                     onSend: { send() },
                     conversationID: conversationID,
-                    onNewConversation: isMainChat || session.state.mainConversation != nil ? nil : { conversationID = nil }
+                    onNewConversation: isMainChat || session.state.mainConversation != nil ? nil : { conversationID = nil },
+                    onTalk: isMainChat ? { toggleTalk() } : nil,
+                    talking: talk.isOn
                 )
             }
         }
+        .animation(.easeOut(duration: 0.2), value: talk.isOn)
+        // Talk mode belongs to the Pennant chat: leaving it stops listening.
+        .onChange(of: conversationID) { _, _ in talk.stop() }
+        .onDisappear { talk.stop() }
         .background(PennantTheme.windowBackground)
         .task(id: conversationID) { await initialLoad() }
         // "Talk to Pennant" in a thread: its name goes into the chat's box.
@@ -434,6 +455,12 @@ public struct ConversationView: View {
     }
 
     /// This is the Pennant chat.
+    private func toggleTalk() {
+        if talk.isOn { return talk.stop() }
+        guard let conversationID else { return }
+        Task { await talk.start(session: session, agentID: agentID, chatID: conversationID) }
+    }
+
     private var isMainChat: Bool {
         conversationID.flatMap { session.state.conversation($0)?.isMain } ?? false
     }

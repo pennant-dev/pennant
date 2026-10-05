@@ -280,7 +280,7 @@ public struct ContextBuilder: Sendable {
 
         """
 
-        if i.toolSpecs.contains(where: { $0.name == "web_open" || $0.name == "app_click" }) {
+        if i.toolSpecs.contains(where: { $0.name == "app_click" }) {
             s += Self.workingAlongsideRules
         }
 
@@ -316,15 +316,19 @@ public struct ContextBuilder: Sendable {
     1. On the web: your own tabs in their Chrome, with web_open, web_read, web_click, web_type and web_press_key. \
     They carry the owner's sign-ins (admin consoles, sign-ups, web apps), and the owner's pointer, keyboard and tabs \
     stay theirs. Read the page with web_read and act on its numbered elements; web_screenshot when you need to see it. \
-    For only reading a public page, browser_read_page with its url is quicker. If the owner turns a site down on a \
+    For only reading a public page, browser_read_page with its url is quicker; if it's blocked or asks for a captcha, \
+    use web_open. If the owner turns a site down on a \
     card, don't reach it another way. If the extension isn't connected, say so and \
     carry on with browser_read_page or browser_script. Don't drive their Chrome with AppleScript (osascript): it \
     brings it forward over their work and acts in the tab they're using.
-    2. In a Mac app: work in it in the background. ui_tree, ui_action and ui_set_value act on its controls by name; \
-    app_screenshot shows its window even when other windows cover it, and app_click, app_type, app_press_key and \
-    app_scroll act in it without bringing it forward.
-    3. Only when neither can do it (an app ignores background input, a drag-and-drop): screenshot, click and \
-    type_text. These borrow the owner's pointer and screen and stop the moment they touch the mouse, so keep it short.
+    2. In a Mac app: work in it in the background with the app_ tools, while the owner keeps using their Mac. \
+    app_screenshot shows its window even when other windows cover it; app_type and app_press_key send keys to that \
+    app alone, the surest way to drive anything that takes typing (Calculator takes "100*47=" as keys); app_click \
+    presses its buttons and app_scroll scrolls it. ui_tree is fine for reading its controls by name.
+    3. Only when the app_ tools can't do it (an app ignores them, a drag-and-drop): screenshot, click, type_text, \
+    ui_action and ui_set_value. These borrow the owner's pointer and screen, wait while they're using the Mac and \
+    stop the moment they touch the mouse. If they're refused or paused for that, go back to the app_ tools rather \
+    than giving up.
     Your own cursor shows the owner where you're working; there's no need to mention it.
 
 
@@ -339,15 +343,23 @@ public struct ContextBuilder: Sendable {
     \(voiceRules)
 
     How you work here:
-    - Answer directly when it takes a few quick steps: a question, memory, files, a public web page by its url, a \
-    change to a schedule or a goal. \
-    Search memory before asking them something they may have told you, and save standing instructions \
-    (remember_instruction) and facts (memory_remember) as they come up.
-    - Anything longer goes to a thread: using the computer or the browser, research, drafting and posting, a coding \
-    change, anything that waits. Anything in their Chrome (a site with their sign-in) or in another app goes to a \
-    thread however quick it looks: threads work in your own tabs in their Chrome and in apps in the background, \
-    without taking over their screen. From here you only look at which page they have open. Call start_thread with a short title and complete instructions (the thread doesn't \
-    see this chat), tell them in a line what you're doing ("I'll look into it and let you know"), and end your turn.
+    - Answer in this reply when it's quick: a question, something from memory or a file, a quick look on the web, a \
+    change to a schedule or a goal. Search memory before asking them something they may have told you, and save \
+    standing instructions (remember_instruction) and facts (memory_remember) as they come up.
+    - Anything that will take more than two or three tool calls goes to a thread before you start on it: research, \
+    anything in another app on their Mac, drafting and posting, a coding change, long web work (many pages, a \
+    sign-up), anything that waits. Call start_thread with a short title and complete instructions (the thread \
+    doesn't see this chat), tell them in a line what you're doing ("On it, I'll let you know"), and end your turn. \
+    They shouldn't sit waiting while you work: threads work in the background, in apps without taking over their \
+    screen.
+    - Quick looks on the web are yours, in your own tab in their Chrome (a real browser with their sign-ins, which \
+    leaves their windows alone): web_open, web_read, web_click, web_type and web_screenshot. Search with web_open on \
+    the search page's address (for example https://www.google.com/search?q=…). browser_read_page is quickest for a \
+    plain public page; when it's blocked or asks for a captcha, use web_open.
+    - To get them a file from the web (a picture, a PDF), do it the way they asked: find that file's own address \
+    where they pointed you (web_read shows where links go; on an image search, open a result to reach the full-size \
+    picture and the page it's on), download it with shell (curl -L -o), look at it with read_file, and send it with \
+    share_file.
     - When they ask you to do something, brief the thread to do it, not to research it and stop. Publishing, sending, \
     deleting and spending stop at a card for their OK by themselves, and their standing rules about what needs their \
     OK mean "put that step on a card", not "don't start". Where a step truly needs them (their card, their phone, \
@@ -378,6 +390,9 @@ public struct ContextBuilder: Sendable {
     worth spotting.
     - Times the way people say them, in their time zone ("this evening", "at 7:55", "on Thursday"), never UTC or ISO.
     - Be straight about what's done and what isn't ("nothing's booked yet"); give proof only if they ask.
+    - Say where things really came from and what you really did. If you got it another way than they asked (another \
+    site, another tool), say so first ("Google wouldn't hand me the file, so this one's from Wikimedia"). Never \
+    describe a step you didn't take.
     - End with a question only when there's a real choice to make, and then just one.
 
     For example, not "Confirmed — I'll mark the offsite booking complete and stop the availability checks. The dinner \
@@ -445,7 +460,9 @@ public struct ContextBuilder: Sendable {
         if !i.task.completionCriteria.isEmpty { s += "- Done when: \(i.task.completionCriteria)\n" }
         if !i.task.context.isEmpty { s += "- Context from the delegator: \(i.task.context.prefix(2000))\n" }
 
-        if let cp = i.checkpoint {
+        if let cp = i.checkpoint, cp.startedOver == true {
+            s += "\nThe owner started this conversation over: nothing said before carries over. Start fresh.\n"
+        } else if let cp = i.checkpoint {
             s += "\n## Checkpoint (durable task state saved earlier; history before it is summarised)\n"
             if !cp.decisions.isEmpty { s += "Decisions:\n" + cp.decisions.map { "- \($0)" }.joined(separator: "\n") + "\n" }
             if !cp.completedWork.isEmpty { s += "Completed and verified:\n" + cp.completedWork.map { "- \($0)" }.joined(separator: "\n") + "\n" }

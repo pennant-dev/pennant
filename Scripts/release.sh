@@ -113,9 +113,12 @@ fi
 echo "→ Checking the result"
 HELPER="$APP/Contents/Helpers/Pennant Host.app"
 [[ -x "$HELPER/Contents/MacOS/pennant-host" ]] || { echo "✗ The app has no Pennant Host inside"; exit 1; }
+VOICE="$APP/Contents/Helpers/Pennant Voice.app"
+[[ -x "$VOICE/Contents/MacOS/Pennant Voice" ]] || { echo "✗ The app has no Pennant Voice inside"; exit 1; }
+[[ -f "$VOICE/Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" ]] || { echo "✗ Pennant Voice has no Metal library"; exit 1; }
 codesign --verify --deep --strict "$APP"
 # Captured first: with pipefail, `codesign | grep -q` fails falsely when grep exits early and codesign gets SIGPIPE.
-for BUNDLE in "$APP" "$HELPER"; do
+for BUNDLE in "$APP" "$HELPER" "$VOICE"; do
   SIGNATURE=$(codesign -dvv "$BUNDLE" 2>&1)
   [[ "$SIGNATURE" == *"Authority=Developer ID Application"* ]] || { echo "✗ $(basename "$BUNDLE") is not signed with Developer ID"; exit 1; }
   [[ "$SIGNATURE" == *"(runtime)"* ]] || { echo "✗ $(basename "$BUNDLE") does not have the hardened runtime"; exit 1; }

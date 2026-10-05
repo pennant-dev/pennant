@@ -80,8 +80,10 @@ final class PromptInspectionTests: XCTestCase {
         )
         let prompt = output.messages.first?.text ?? ""
         XCTAssertTrue(prompt.contains("## Using the Mac and the web without taking them over"))
-        let web = try XCTUnwrap(prompt.range(of: "1. On the web")), apps = try XCTUnwrap(prompt.range(of: "2. In a Mac app")), last = try XCTUnwrap(prompt.range(of: "3. Only when neither"))
+        let web = try XCTUnwrap(prompt.range(of: "1. On the web")), apps = try XCTUnwrap(prompt.range(of: "2. In a Mac app")), last = try XCTUnwrap(prompt.range(of: "3. Only when the app_ tools can't do it"))
         XCTAssertTrue(web.lowerBound < apps.lowerBound && apps.lowerBound < last.lowerBound)
+        // ui_action and ui_set_value use the owner's screen, so they're with the last resort, not the background tools.
+        XCTAssertTrue(prompt.contains("screenshot, click, type_text, ui_action and ui_set_value"), prompt)
         await s.stop()
     }
 }

@@ -11,6 +11,10 @@ public enum ShellRunner {
         public var timedOut: Bool
     }
 
+    /// Pennant Voice, the speech engine inside Pennant.app (`speak` and `transcribe`; see Apps/PennantVoice), next to
+    /// the host's own helper app: skills that make narration find it in $PENNANT_VOICE.
+    static let voiceHelper: String? = VoiceService.bundledExecutable?.path
+
     public static func run(_ command: String, workingDirectory: String, environment: [String: String] = [:], timeout: TimeInterval = 120, maxOutputBytes: Int = 200_000) async throws -> Result {
         let process = Process()
         // The command runs in a process group of its own (perl's setpgrp, then exec zsh), so a timeout or a
@@ -21,6 +25,7 @@ public enum ShellRunner {
         var env = ProcessInfo.processInfo.environment
         for (k, v) in environment { env[k] = v }
         env["TERM"] = "dumb"
+        if let voice = voiceHelper { env["PENNANT_VOICE"] = voice }
         process.environment = env
         let out = Pipe(), err = Pipe()
         process.standardOutput = out
@@ -391,7 +396,7 @@ public struct BrowserReadTool: Tool {
     let headless: BrowserRunner?
     public init(headless: BrowserRunner? = nil) { self.headless = headless }
     public var spec: ToolSpec {
-        ToolSpec(name: "browser_read_page", description: "Return a web page's visible text without a screenshot, optionally with links and a list of form fields (label, type, current value, and a selector for browser_fill). With `url`, reads that page in Pennant's own headless browser (no tab opens; best for reading articles and sources). Without it, reads the front tab in Safari, Google Chrome, or Microsoft Edge (falling back to reading the tab's address headlessly if the browser refuses scripting). Cheaper and more reliable than reading a screenshot.", inputSchema: JSONSchema.object([
+        ToolSpec(name: "browser_read_page", description: "Return a web page's visible text without a screenshot, optionally with links and a list of form fields (label, type, current value, and a selector for browser_fill). With `url`, reads that page in Pennant's own headless browser (no tab opens; best for reading articles and sources). Search engines and some sites block it or ask for a captcha: read those with web_open and web_read in Pennant's own Chrome tab instead. Without it, reads the front tab in Safari, Google Chrome, or Microsoft Edge (falling back to reading the tab's address headlessly if the browser refuses scripting). Cheaper and more reliable than reading a screenshot.", inputSchema: JSONSchema.object([
             "url": JSONSchema.string("A page to read in Pennant's headless browser instead of the front tab."),
             "browser": JSONSchema.string("Safari, Google Chrome, or Microsoft Edge. Defaults to Safari.", enumValues: ["Safari", "Google Chrome", "Microsoft Edge"]),
             "include_links": JSONSchema.boolean("Include hyperlinks as 'text -> href' lines."),

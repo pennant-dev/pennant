@@ -143,6 +143,32 @@ It connects by itself whenever Chrome and Pennant are both running; the card sho
   - `pennant chrome forget <site>` makes Pennant ask about that site again.
   - `pennant tool web_open '{"url":"https://example.com"}'` tries a tool by hand.
 
+## Starting over
+
+Start over (above the composer, next to Compact) starts a conversation afresh. A reply in progress stops, and nothing said before reaches Pennant again: a "Started over" line marks the place, and the messages stay on screen. Pennant's memory and the work in threads are untouched. Compact, by contrast, keeps a summary of what came before.
+
+## Talk mode
+
+The waveform button in the Pennant chat's composer (⇧⌘T on the Mac) turns Talk mode on.
+- **Talking to it:** speak, and a pause sends what you said: a second and a half of quiet, or 1, 2 or 3 seconds (the speaker menu › Wait before sending, kept per device). Only the pause ends your turn, so a breath mid-sentence doesn't. With a longer wait the Talk bar counts down, and Send sends at once.
+- **Long messages:** a short reply is read out as it comes. A long one (a report, links, details) is said in a sentence or two, worded by the host for saying aloud, carrying on from what was already said; the full message is in the chat. Pennant answers out loud as its reply comes in. Talk over it to stop it, and press Stop or the button again to end.
+- **Muting:** the microphone button in the Talk bar (⇧⌘M) mutes you. Nothing is heard or sent while muted, and Pennant still speaks; without echo cancellation the microphone turns off altogether.
+- **Permissions:** the first time, the app asks for the microphone and speech recognition. If you said no, turn them on in System Settings › Privacy & Security › Microphone and Speech Recognition (on the iPhone, Settings › Pennant).
+- **Privacy:** recognition happens on the device where Apple supports it for your language. Only the words go to Pennant.
+- **Pennant's voice:** the speaker button in the Talk bar lists the voices, and your choice is kept on that device.
+  - **Natural voices (Mac with Apple silicon):** speech models that sound like a person, run on the Mac's GPU. They're on by default. The first time Talk mode starts, Kokoro (340 MB) downloads, and the Talk bar shows how far it's got. Until it's ready, Pennant speaks with the system's voices.
+    - **Where:** Settings › Pennant › Talk mode has the switch, the voice, Hear it, and Download or Remove for each model.
+    - **Penny:** Qwen3-TTS 0.6B (2 GB) cloning a short recording that ships with the app. Each piece of speech is a fresh copy of her voice, and copies differ a little, so a reply goes to her whole rather than a sentence at a time.
+    - **Expressive:** Qwen3-TTS 1.7B (4.5 GB) is the most lifelike and uses more of the GPU. It has nine speakers: Ryan and Aiden (English), Vivian, Serena, Uncle Fu, Dylan and Eric (Chinese), Ono Anna (Japanese) and Sohee (Korean). They speak the reply's English in their own accents.
+    - **Files:** the models live in ~/Library/Application Support/Pennant/Voices. The helper's own log is Pennant/logs/voice.log.
+  - **On the iPhone:** the speaker menu lists "Your Mac's voices", the natural voices downloaded on the host's Mac. The Mac makes the speech and streams it to the phone, about 50 KB/s. Penny is the default when the Mac has her. Download more voices on the Mac.
+  - **The system's voices** (Intel Macs, a host without natural voices, or with them off): Siri's sound the most human, and Talk mode uses one by default when one is installed. Premium and Enhanced voices come next.
+  - **More system voices:** add them in System Settings › Accessibility › Spoken Content › System Voice › Manage Voices.
+- **For skills:** the same engine makes narration from the command line, and Pennant puts its path in `$PENNANT_VOICE` for shell commands. Each command prints one line of JSON, and models download on first use into the Voices folder.
+  - `"$PENNANT_VOICE" speak --text "…" --out clip.wav --voice Ryan --instruct "calm, warm"` uses a stock voice.
+  - `--ref-audio sample.wav --ref-text "what the sample says"` clones the voice in a sample instead.
+  - `"$PENNANT_VOICE" transcribe --audio clip.wav` gives the words back (Whisper), to check a clip says what it should.
+
 ## Deployment modes
 
 - **everyday**: same desktop as the user. Pause-on-human-input is on by default: the moment you move the mouse while an agent holds the desktop, its lease is paused and its task is paused with an explicit reason. Resume from the computer panel, or set `autoResumeAfterSeconds`.

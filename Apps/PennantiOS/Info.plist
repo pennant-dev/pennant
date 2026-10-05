@@ -41,6 +41,10 @@
 	<string>Pennant scans the connect code your Mac shows, to find it away from your network.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Pennant connects to your Mac over the local network to pair with it and stream its screen.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>In Talk mode, Pennant listens to what you say to it.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>In Talk mode, what you say is turned into text on this iPhone and sent to Pennant.</string>
 	<key>PennantTeamID</key>
 	<string>$(DEVELOPMENT_TEAM)</string>
 	<key>UILaunchScreen</key>

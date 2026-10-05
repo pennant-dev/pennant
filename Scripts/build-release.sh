@@ -32,15 +32,18 @@ echo "== Building Pennant.app (Release)"
 BUILD_NUMBER="$(date +%Y%m%d%H%M)"
 xcodebuild -project Pennant.xcodeproj -scheme PennantMac -configuration Release -derivedDataPath "$DERIVED" build CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
   CODE_SIGN_IDENTITY="$IDENTITY" CODE_SIGN_STYLE=Manual CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES \
-  2>&1 | grep -E "error:|\*\* BUILD|Embedded pennant-host" | head -10
+  -skipPackagePluginValidation -skipMacroValidation 2>&1 | grep -E "error:|\*\* BUILD|Embedded pennant-host|Embedded Pennant Voice" | head -10
 
 APP="$DERIVED/Build/Products/Release/Pennant.app"
 [[ -d "$APP" ]] || { echo "build failed: $APP missing"; exit 1; }
 
-echo "== Signing nested host and re-sealing the bundle"
+echo "== Signing nested helpers and re-sealing the bundle"
 HELPER="$APP/Contents/Helpers/Pennant Host.app"
 [[ -d "$HELPER" ]] || { echo "helper bundle missing: $HELPER"; exit 1; }
 codesign --force --sign "$IDENTITY" --options runtime --timestamp=none --entitlements Sources/PennantHost/PennantHost.entitlements "$HELPER" 2>&1 | grep -v "replacing existing signature" || true
+VOICE="$APP/Contents/Helpers/Pennant Voice.app"
+[[ -d "$VOICE" ]] || { echo "voice helper missing: $VOICE"; exit 1; }
+codesign --force --sign "$IDENTITY" --options runtime --timestamp=none "$VOICE" 2>&1 | grep -v "replacing existing signature" || true
 codesign --force --sign "$IDENTITY" --timestamp=none --entitlements Apps/PennantMac/PennantMac.entitlements "$APP" 2>&1 | grep -v "replacing existing signature" || true
 codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 | tail -2
 

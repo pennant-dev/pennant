@@ -70,9 +70,11 @@ final class ChromeGuardTests: XCTestCase {
         let looked = try XCTUnwrap(records.first { $0.call.id == look.id })
         XCTAssertEqual(looked.status, .succeeded, "looking at which page is open stays allowed")
         let told = provider.requests.flatMap(\.messages).map(\.text).first { $0.contains("Refused: this drives the owner's Chrome") } ?? ""
-        XCTAssertTrue(told.contains("Start a thread for it"), told)
+        XCTAssertTrue(told.contains("Use your own tab in their Chrome instead") && told.contains("web_click"), told)
         let chatPrompt = provider.requests.first?.messages.first?.text ?? ""
-        XCTAssertTrue(chatPrompt.contains("or in another app goes to a thread however quick it looks"), chatPrompt)
+        XCTAssertTrue(chatPrompt.contains("more than two or three tool calls goes to a thread before you start on it"), chatPrompt)
+        XCTAssertTrue(chatPrompt.contains("when it's blocked or asks for a captcha, use web_open"), chatPrompt)
+        XCTAssertTrue(chatPrompt.contains("Never describe a step you didn't take"), chatPrompt)
         await s.stop()
     }
 

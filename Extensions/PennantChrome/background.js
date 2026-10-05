@@ -197,14 +197,28 @@ async function pressKeys(id, keys) {
 
 // MARK: The cursor, in the page and on screen
 
+// One cursor at a time: in the page while the owner is looking at Pennant's window (it's the focused one), and
+// otherwise Pennant's own cursor on the Mac, above whatever covers the window.
 async function cursorAt(id, x, y, click) {
-  const at = await inPage(id, drawCursor, [x, y, click]).catch(() => null);
-  if (at) send({ event: 'cursor', x: at.sx, y: at.sy, click });
+  const win = state.windowId != null ? await chrome.windows.get(state.windowId).catch(() => null) : null;
+  const watching = !!(win && win.focused);
+  const at = await inPage(id, drawCursor, [x, y, click, watching]).catch(() => null);
+  if (at && !watching) send({ event: 'cursor', x: at.sx, y: at.sy, click });
 }
 
-// Runs in the page: a violet pointer that glides to (x, y), and where that is on the screen.
-function drawCursor(x, y, click) {
+// Runs in the page: where (x, y) is on the screen, and, when `show`, a violet pointer that glides there.
+function drawCursor(x, y, click, show) {
+  // outerWidth is in screen points and innerWidth in the page's own pixels, so their ratio is the page's zoom.
+  const zoom = window.innerWidth > 0 ? window.outerWidth / window.innerWidth : 1;
+  const at = {
+    sx: window.screenX + x * zoom,
+    sy: window.screenY + (window.outerHeight - window.innerHeight * zoom) + y * zoom,
+  };
   let c = document.getElementById('__pennant_cursor');
+  if (!show) {
+    if (c) c.style.opacity = '0';
+    return at;
+  }
   if (!c) {
     c = document.createElement('div');
     c.id = '__pennant_cursor';
@@ -223,10 +237,7 @@ function drawCursor(x, y, click) {
   }
   clearTimeout(window.__pennantCursorTimer);
   window.__pennantCursorTimer = setTimeout(() => { c.style.opacity = '0'; }, 5000);
-  return {
-    sx: window.screenX + (window.outerWidth - window.innerWidth) / 2 + x,
-    sy: window.screenY + (window.outerHeight - window.innerHeight) + y,
-  };
+  return at;
 }
 
 // Runs in the page: the text, and the things to click or fill, numbered (passwords never read out).
@@ -251,6 +262,7 @@ function readPage() {
     const item = { ref: n, kind, label, inView: r.bottom > 0 && r.top < innerHeight };
     if ((tag === 'input' || tag === 'textarea' || tag === 'select') && el.type !== 'password') item.value = String(el.value ?? '').slice(0, 90);
     if (el.type === 'checkbox' || el.type === 'radio') item.value = el.checked ? 'checked' : 'not checked';
+    if (tag === 'a' && el.href && !el.href.startsWith('javascript:')) item.href = el.href.slice(0, 300);
     elements.push(item);
   }
   const text = document.body ? document.body.innerText.replace(/\n{3,}/g, '\n\n').trim().slice(0, 12000) : '';

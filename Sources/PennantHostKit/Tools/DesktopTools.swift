@@ -353,7 +353,7 @@ struct UITreeTool: Tool {
 struct UIActionTool: Tool {
     let spec = ToolSpec(
         name: "ui_action",
-        description: "Perform an accessibility action on a node from the last ui_tree call (default AXPress, which activates buttons, menu items, checkboxes, links). Other common actions: AXShowMenu, AXIncrement, AXDecrement, AXConfirm, AXCancel.",
+        description: "Perform an accessibility action on a node from the last ui_tree call (default AXPress, which activates buttons, menu items, checkboxes, links). Other common actions: AXShowMenu, AXIncrement, AXDecrement, AXConfirm, AXCancel. This uses the owner's screen: it waits while they're using the Mac. To work in an app while they keep using it, use app_screenshot with app_click, app_type and app_press_key instead.",
         inputSchema: JSONSchema.object([
             "index": JSONSchema.integer("Node index from ui_tree"),
             "action": JSONSchema.string("Action name (default AXPress)"),
@@ -374,7 +374,7 @@ struct UIActionTool: Tool {
 struct UISetValueTool: Tool {
     let spec = ToolSpec(
         name: "ui_set_value",
-        description: "Set the value of a text field, text area, slider, or similar node from the last ui_tree call directly through accessibility (faster and more reliable than typing).",
+        description: "Set the value of a text field, text area, slider, or similar node from the last ui_tree call directly through accessibility (faster and more reliable than typing). This uses the owner's screen: it waits while they're using the Mac. To work in an app while they keep using it, use app_type instead.",
         inputSchema: JSONSchema.object([
             "index": JSONSchema.integer("Node index from ui_tree"),
             "value": JSONSchema.string("New value"),

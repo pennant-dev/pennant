@@ -67,6 +67,15 @@ extension TaskRuntime {
         return effortLevels[max(a, b)]
     }
 
+    /// How hard the model thinks on a Pennant chat reply: low unless the owner chose otherwise, so the chat answers in
+    /// seconds; its threads think as hard as the agent's own setting. A model that's sent no effort elsewhere gets
+    /// none here either, except a ChatGPT account, which otherwise thinks at medium.
+    static func chatEffort(agent: AgentProfile, model: ModelChoice) -> String? {
+        let elsewhere = agent.reasoningEffort ?? model.reasoningEffort
+        guard elsewhere != nil || model.providerID == HostConfig.Inference.chatGPTProvider else { return nil }
+        return agent.chatReasoningEffort ?? "low"
+    }
+
     /// The choice the task is on now (it stays on a fallback for the rest of the task once it moved).
     func currentModel(task: TaskRecord, agent: AgentProfile) async -> ModelChoice {
         let choices = await modelChoices(for: agent)
@@ -131,12 +140,13 @@ extension TaskRuntime {
         }
         // A helper answers to the task that asked for it, not the owner: it reports what it needs instead of asking.
         if agent.kind == .worker { all.removeAll { $0.name == "ask_user" } }
-        // The Pennant chat stays free to talk: the screen and long waits belong in threads, which only it starts.
+        // The Pennant chat talks: it carries what a quick answer, a look on the web and steering its threads take, and
+        // loads a connected service only when it asks for one (find_tools). The rest of the work is a thread's.
         if await inMainChat(task) {
-            all.removeAll { $0.needsDesktop || Self.notInChat.contains($0.name) }
-        } else {
-            all.removeAll { ThreadTools.names.contains($0.name) }
+            let services = Set(activeServers[task.id, default: []].map { "mcp:\($0)" })
+            return all.filter { Self.chatTools.contains($0.name) || services.contains($0.source) } + [Self.findToolsSpec]
         }
+        all.removeAll { ThreadTools.names.contains($0.name) }
         let limit = Self.maxToolsPerRequest
         let mcp = all.filter { $0.source.hasPrefix("mcp:") }
         if !agent.toolAllowlist.isEmpty || mcp.count <= Self.loadAllMCPToolsUpTo, all.count <= limit { return all }
@@ -158,9 +168,14 @@ extension TaskRuntime {
         return visible + [Self.findToolsSpec]
     }
 
-    /// Tools the Pennant chat doesn't offer: waiting on helpers or the clock, or working a web page, holds up the
-    /// conversation. (Reading a page by its address is a quick lookup and stays.)
-    static let notInChat: Set<String> = Set(["delegate_task", "await_task", "wait", "browser_fill", "browser_script"]).union(AppTools.names).union(WebTools.names)
+    /// The tools the Pennant chat carries. Every one goes with every reply, so the list stays short: anything more is a
+    /// thread's job, and threads have every tool.
+    static let chatTools: Set<String> = ThreadTools.names.union(WebTools.names).union([
+        "memory_search", "memory_remember", "remember_instruction",
+        "browser_read_page", "read_file", "list_directory", "share_file", "shell", "screenshot",
+        "list_schedules", "schedule_job", "cancel_schedule", "list_goals", "goal_board", "update_goal",
+        "code",
+    ])
 
     /// Up to this many connected-service tools, everything loads; above it, services load on demand.
     static let loadAllMCPToolsUpTo = 16

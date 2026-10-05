@@ -23,6 +23,24 @@ packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle.git
     from: 2.6.4
+  # Pennant Voice: neural speech on the Mac's GPU (MLX). Pinned to a commit: the package uses unsafe build flags,
+  # which Xcode only accepts from a branch or revision.
+  MLXAudio:
+    url: https://github.com/Blaizzy/mlx-audio-swift
+    revision: 8d86630ade569728aaea3dc1a29fc44e2efa719b
+  # Held at the versions that commit was built and tested with (its Package.resolved): newer ones change APIs it uses.
+  MLXSwift:
+    url: https://github.com/ml-explore/mlx-swift.git
+    exactVersion: 0.31.4
+  MLXSwiftLM:
+    url: https://github.com/ml-explore/mlx-swift-lm.git
+    exactVersion: 3.31.4
+  SwiftHuggingFace:
+    url: https://github.com/huggingface/swift-huggingface.git
+    exactVersion: 0.8.1
+  SwiftTransformers:
+    url: https://github.com/huggingface/swift-transformers.git
+    exactVersion: 1.1.9
 targets:
   PennantMac:
     type: application
@@ -51,6 +69,10 @@ targets:
         product: PennantUI
       - package: Sparkle
       - sdk: ServiceManagement.framework
+      # Built first, then copied into Contents/Helpers by the script below.
+      - target: PennantVoice
+        embed: false
+        link: false
     info:
       path: Apps/PennantMac/Info.plist
       # xcodegen rewrites Info.plist from these properties on every generate; edit them here, not in the file.
@@ -68,6 +90,8 @@ targets:
         NSAccessibilityUsageDescription: Pennant reads on-screen controls and clicks and types for you.
         NSSystemAdministrationUsageDescription: Pennant runs commands you ask for on this Mac.
         NSLocalNetworkUsageDescription: Pennant finds and talks to Pennant hosts on your local network.
+        NSMicrophoneUsageDescription: In Talk mode, Pennant listens to what you say to it.
+        NSSpeechRecognitionUsageDescription: In Talk mode, what you say is turned into text on this Mac and sent to Pennant.
         NSBonjourServices: [_pennant._tcp]
         # Updates (Sparkle): the feed on pennant.dev, and the EdDSA key every update must be signed with.
         SUFeedURL: https://pennant.dev/appcast.xml
@@ -76,12 +100,15 @@ targets:
         SUEnableSystemProfiling: false
     entitlements:
       path: Apps/PennantMac/PennantMac.entitlements
+      properties:
+        # Talk mode: the microphone, under the hardened runtime.
+        com.apple.security.device.audio-input: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.pennant.mac
         PRODUCT_NAME: Pennant
-        MARKETING_VERSION: 0.2.0
-        CURRENT_PROJECT_VERSION: 2
+        MARKETING_VERSION: 0.3.0
+        CURRENT_PROJECT_VERSION: 3
         ENABLE_HARDENED_RUNTIME: NO
         ENABLE_APP_SANDBOX: NO
         GENERATE_INFOPLIST_FILE: NO
@@ -127,6 +154,62 @@ targets:
               --entitlements "${SRCROOT}/Sources/PennantHost/PennantHost.entitlements" "$HELPER"
           fi
           echo "Embedded Pennant Host.app from $SRC"
+      - name: Embed Pennant Voice helper app
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          # Talk mode's natural voice (Apple silicon only). Signed by its own target; copied in before Xcode signs the
+          # app around it.
+          SRC="${BUILT_PRODUCTS_DIR}/Pennant Voice.app"
+          DEST="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Helpers"
+          rm -rf "$DEST/Pennant Voice.app"
+          if [ ! -d "$SRC" ]; then
+            echo "warning: Pennant Voice.app wasn't built; Talk mode will use the Mac's own voices"
+            exit 0
+          fi
+          mkdir -p "$DEST"
+          ditto "$SRC" "$DEST/Pennant Voice.app"
+          echo "Embedded Pennant Voice.app"
+  # Pennant Voice: the helper that runs Talk mode's natural voice (Kokoro, through MLX) in its own process. It reads
+  # requests on stdin and writes audio on stdout; the app downloads the model (Settings › Pennant › Talk mode).
+  PennantVoice:
+    type: application
+    platform: macOS
+    sources:
+      - path: Apps/PennantVoice
+        excludes:
+          - "Info.plist"
+    dependencies:
+      - package: MLXAudio
+        product: MLXAudioTTS
+      - package: MLXAudio
+        product: MLXAudioCore
+      - package: MLXAudio
+        product: MLXAudioSTT
+    info:
+      path: Apps/PennantVoice/Info.plist
+      properties:
+        CFBundleName: Pennant Voice
+        CFBundleDisplayName: Pennant Voice
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Started by the app with pipes, never from Finder: no Dock icon or menu bar.
+        LSBackgroundOnly: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.pennant.voice
+        PRODUCT_NAME: Pennant Voice
+        MARKETING_VERSION: 0.3.0
+        CURRENT_PROJECT_VERSION: 3
+        # MLX runs on Apple silicon only; on an Intel Mac Talk mode keeps the system voices.
+        ARCHS: arm64
+        ENABLE_HARDENED_RUNTIME: NO
+        ENABLE_APP_SANDBOX: NO
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Apps/PennantVoice/Info.plist
+        # Shipped inside Pennant.app, not on its own.
+        SKIP_INSTALL: YES
+        SWIFT_EMIT_LOC_STRINGS: NO
   PennantiOS:
     type: application
     platform: iOS
@@ -153,6 +236,8 @@ targets:
         NSBonjourServices: [_pennant._tcp]
         # The Mac's connect code (Settings › iPhone) is a QR code: scanned in the app, or opened from the Camera app.
         NSCameraUsageDescription: Pennant scans the connect code your Mac shows, to find it away from your network.
+        NSMicrophoneUsageDescription: In Talk mode, Pennant listens to what you say to it.
+        NSSpeechRecognitionUsageDescription: In Talk mode, what you say is turned into text on this iPhone and sent to Pennant.
         CFBundleURLTypes:
           - CFBundleURLName: dev.pennant.connect
             CFBundleURLSchemes: [pennant]
@@ -176,8 +261,8 @@ targets:
         PENNANT_IOS_BUNDLE_ID: dev.pennant.ios
         PRODUCT_BUNDLE_IDENTIFIER: $(PENNANT_IOS_BUNDLE_ID)
         PRODUCT_NAME: Pennant
-        MARKETING_VERSION: 0.2.0
-        CURRENT_PROJECT_VERSION: 2
+        MARKETING_VERSION: 0.3.0
+        CURRENT_PROJECT_VERSION: 3
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Apps/PennantiOS/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -199,6 +284,10 @@ targets:
         TEST_TARGET_NAME: PennantiOS
         TARGETED_DEVICE_FAMILY: "1,2"
 schemes:
+  PennantVoice:
+    build:
+      targets:
+        PennantVoice: all
   PennantMac:
     build:
       targets:

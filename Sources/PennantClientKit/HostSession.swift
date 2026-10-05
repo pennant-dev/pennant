@@ -73,6 +73,8 @@ public final class HostSession {
     private let transport: any HostTransport
     private var receiveTask: Task<Void, Never>?
     private var pending: [CommandID: CheckedContinuation<ReplyBody, Error>] = [:]
+    /// Where each piece of speech asked for with `speak` goes, by its request.
+    private var speechSinks: [String: @MainActor (SpeechChunkHeader, [Float]) -> Void] = [:]
     private var reconnectAttempt = 0
     private var wantsConnection = false
     private var screenOptions = ScreenStreamOptions()
@@ -239,6 +241,9 @@ public final class HostSession {
                 let ack = ClientCommand(body: .screenFrameReceived(h.sequence))
                 Task { try? await transport.send(.command(ack)) }
             }
+        case .speech(let header, let samples):
+            let sink = header.final ? speechSinks.removeValue(forKey: header.speechID) : speechSinks[header.speechID]
+            sink?(header, samples)
         case .closed(let reason): connection = .failed(reason)
         }
     }
@@ -284,6 +289,39 @@ public final class HostSession {
         return status
     }
 
+    // MARK: Speech for Talk mode
+
+    /// The voices the host can speak with for this device: downloaded on a Mac that can run them.
+    public func hostVoices() async throws -> [VoiceCatalog.Voice] {
+        guard case .voices(let voices) = try await send(.listVoices, timeout: 15) else { throw HostSessionError.unexpectedReply }
+        return voices
+    }
+
+    /// Ask the host to say `request.text`; `chunk` gets each piece of audio as it's made, the last one `final`.
+    public func speak(_ request: SpeechRequest, chunk: @escaping @MainActor (SpeechChunkHeader, [Float]) -> Void) async throws {
+        // Registered first: the audio can arrive before the reply.
+        speechSinks[request.id] = chunk
+        do {
+            _ = try await send(.speak(request), timeout: 15)
+        } catch {
+            speechSinks[request.id] = nil
+            throw error
+        }
+    }
+
+    /// A long message as Pennant would say it aloud, carrying on from `alreadySaid`; nil when the host can't (no model
+    /// answered, or a host from before Talk mode summarised).
+    public func spokenVersion(of text: String, alreadySaid: String) async -> String? {
+        guard case .spokenVersion(let words)? = try? await send(.spokenVersion(text: text, alreadySaid: alreadySaid), timeout: 20), !words.isEmpty else { return nil }
+        return words
+    }
+
+    /// Drop everything this device asked the host to say that it hasn't yet.
+    public func stopSpeaking() async {
+        speechSinks.removeAll()
+        _ = try? await send(.stopSpeaking, timeout: 10)
+    }
+
     public func send(_ body: CommandBody, timeout: TimeInterval = 60) async throws -> ReplyBody {
         let command = ClientCommand(body: body)
         let result: ReplyBody = try await withCheckedThrowingContinuation { continuation in
@@ -305,8 +343,9 @@ public final class HostSession {
 
     // MARK: Convenience
 
-    public func sendMessage(to agentID: AgentID, conversationID: ConversationID? = nil, text: String, attachments: [Attachment] = []) async throws -> (MessageID, ConversationID, TaskID) {
-        let r = try await send(.sendMessage(agentID: agentID, conversationID: conversationID, text: text, attachments: attachments))
+    /// `spoken`: said out loud in Talk mode, so Pennant answers in a way that reads well aloud.
+    public func sendMessage(to agentID: AgentID, conversationID: ConversationID? = nil, text: String, attachments: [Attachment] = [], spoken: Bool = false) async throws -> (MessageID, ConversationID, TaskID) {
+        let r = try await send(.sendMessage(agentID: agentID, conversationID: conversationID, text: text, attachments: attachments, spoken: spoken ? true : nil))
         guard case .messageAccepted(let m, let c, let t) = r else { throw HostSessionError.unexpectedReply }
         return (m, c, t)
     }
@@ -655,6 +694,11 @@ public final class HostSession {
     }
 
     /// Compact the conversation now. Returns the updated latest task; a checkpoint event follows.
+    /// Start the conversation over: nothing said so far carries over to Pennant.
+    public func startOver(_ id: ConversationID) async throws {
+        _ = try await send(.startOver(id), timeout: 60)
+    }
+
     public func compactConversation(_ id: ConversationID) async throws -> TaskRecord {
         let r = try await send(.compactConversation(id), timeout: 300)
         guard case .task(let task) = r else { throw HostSessionError.unexpectedReply }

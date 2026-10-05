@@ -18,6 +18,7 @@ struct MicrosoftGraphConnector: NativeConnector {
                 "query": Prop.str("Search words (KQL, e.g. from:dana subject:invoice). Optional."),
                 "folder": Prop.oneOf("Folder to list when there is no query", ["inbox", "sentitems", "drafts", "archive", "deleteditems"]),
                 "unread_only": Prop.bool("Only unread messages"),
+                "received_after": Prop.str("Only messages received after this time (ISO 8601, e.g. 2026-10-04T14:00:00Z), when listing a folder"),
                 "limit": Prop.int("How many (default 15, max 50)"),
             ], readOnly: true),
             .make("mail_read", "Read one Outlook message in full (plain text body), with its thread id (for mail_thread) and Outlook link.", properties: ["id": Prop.str("Message id from mail_search")], required: ["id"], readOnly: true),
@@ -118,7 +119,11 @@ struct MicrosoftGraphConnector: NativeConnector {
             } else {
                 let folder = a.string("folder") ?? "inbox"
                 path = "/me/mailFolders/\(folder)/messages?$top=\(limit)&$orderby=receivedDateTime desc&\(select)"
-                if a.bool("unread_only") == true { path += "&$filter=isRead eq false" }
+                // Graph wants the sort's property first in the filter.
+                var filters: [String] = []
+                if let after = a.string("received_after") { filters.append("receivedDateTime gt \(after)") }
+                if a.bool("unread_only") == true { filters.append("isRead eq false") }
+                if !filters.isEmpty { path += "&$filter=" + filters.joined(separator: " and ") }
             }
             let reply = try await get(api, path, headers: headers)
             let items = reply["value"] as? [[String: Any]] ?? []

@@ -165,7 +165,8 @@ public enum CommandBody: Hashable, Codable, Sendable {
     case inspectPrompt(AgentID)
 
     // Conversations
-    case sendMessage(agentID: AgentID, conversationID: ConversationID?, text: String, attachments: [Attachment])
+    /// `spoken`: the owner said it out loud (Talk mode), so the reply is read aloud to them.
+    case sendMessage(agentID: AgentID, conversationID: ConversationID?, text: String, attachments: [Attachment], spoken: Bool? = nil)
     case listMessages(conversationID: ConversationID, beforeMessageID: MessageID?, limit: Int)
     case answerQuestion(taskID: TaskID, text: String)
     /// Answers a choice card (question text → answer).
@@ -175,6 +176,9 @@ public enum CommandBody: Hashable, Codable, Sendable {
     /// Fold the conversation's history into a checkpoint now. Replies with the updated latest task
     /// (its usage carries the new context size); a `checkpointSaved` event follows.
     case compactConversation(ConversationID)
+    /// Start the conversation over: a reply in progress stops, and nothing said so far carries over (it stays on
+    /// screen; memory and threads are untouched). A `checkpointSaved` event marks the place. Replies `ok`.
+    case startOver(ConversationID)
     /// Checkpoints that apply to a conversation, oldest first.
     case getConversationCheckpoints(ConversationID)
     /// Closes a conversation as done (stopping its running task), or reopens it.
@@ -242,6 +246,17 @@ public enum CommandBody: Hashable, Codable, Sendable {
     case screenFrameReceived(Int64)
     case remoteInput(RemoteInput)
     case captureScreenshot(maxWidth: Int)
+
+    // Talk mode's natural voices, made on the host for a device that can't run them (the iPhone).
+    /// The voices the host can speak with: downloaded on it, on a Mac that can run them. Replies `voices`.
+    case listVoices
+    /// Replies `ok` once queued; the audio follows as `SpeechChunkCodec` binary frames, the last one `final`.
+    case speak(SpeechRequest)
+    /// Drop whatever this device asked to be said that hasn't been yet.
+    case stopSpeaking
+    /// A long message as Pennant would say it aloud, carrying on from what's been said of it already. Replies
+    /// `spokenVersion`, empty when no model answered.
+    case spokenVersion(text: String, alreadySaid: String)
     /// Trigger the macOS permission prompts (Accessibility, Screen Recording, Input Monitoring, Automation).
     /// `targets` limits which ones to request; empty means all. Returns the desktop status afterwards.
     case requestPermissions(targets: [String])
@@ -528,6 +543,8 @@ public enum ReplyBody: Hashable, Codable, Sendable {
     case events([HostEvent])
     case config(HostConfig, restartRequired: Bool)
     case models([ModelInfo])
+    case voices([VoiceCatalog.Voice])
+    case spokenVersion(String)
 }
 
 /// A model advertised by an inference endpoint.
@@ -552,24 +569,15 @@ public enum WireMessage: Hashable, Codable, Sendable {
     public static func decode(_ data: Data) throws -> WireMessage { try JSONCodec.decode(WireMessage.self, from: data) }
 }
 
-/// Binary screen-stream frame: 4-byte big-endian header length, JSON `ScreenFrameHeader`, then JPEG bytes.
+/// Binary screen-stream frame: 4-byte big-endian header length, JSON `ScreenFrameHeader`, then JPEG bytes. Speech
+/// (`SpeechChunkCodec`) shares the layout; a frame is told apart by which header it decodes as.
 public enum ScreenFrameCodec {
     public static func encode(header: ScreenFrameHeader, jpeg: Data) throws -> Data {
-        let head = try JSONCodec.encode(header)
-        var out = Data(capacity: 4 + head.count + jpeg.count)
-        var len = UInt32(head.count).bigEndian
-        withUnsafeBytes(of: &len) { out.append(contentsOf: $0) }
-        out.append(head)
-        out.append(jpeg)
-        return out
+        try BinaryFrame.encode(header: header, payload: jpeg)
     }
 
     public static func decode(_ data: Data) throws -> (ScreenFrameHeader, Data) {
-        guard data.count >= 4 else { throw ProtocolError.malformedFrame }
-        let len = data.prefix(4).withUnsafeBytes { Int(UInt32(bigEndian: $0.loadUnaligned(as: UInt32.self))) }
-        guard data.count >= 4 + len else { throw ProtocolError.malformedFrame }
-        let header = try JSONCodec.decode(ScreenFrameHeader.self, from: data.subdata(in: 4 ..< 4 + len))
-        return (header, data.subdata(in: (4 + len) ..< data.count))
+        try BinaryFrame.decode(ScreenFrameHeader.self, from: data)
     }
 }
 

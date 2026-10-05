@@ -16,7 +16,7 @@ final class AppToolsTests: XCTestCase {
     func testTheAppToolsNeedNoLeaseAndAreKeptOutOfTheChat() throws {
         for name in AppTools.names {
             XCTAssertFalse(try tool(name).spec.needsDesktop, "\(name) works without the owner's screen")
-            XCTAssertTrue(TaskRuntime.notInChat.contains(name), "\(name) is a thread's, not the chat's")
+            XCTAssertFalse(TaskRuntime.chatTools.contains(name), "\(name) is a thread's, not the chat's")
         }
     }
 

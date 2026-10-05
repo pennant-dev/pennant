@@ -134,7 +134,7 @@ struct WebOpenTool: Tool {
 struct WebReadTool: Tool {
     let link: any BrowserLinking
     var spec: ToolSpec {
-        ToolSpec(name: "web_read", description: "Read the page in one of Pennant's Chrome tabs: its text, and the links, buttons and fields on it, numbered, for web_click and web_type. Cheaper and more exact than a screenshot. Read again after anything changes the page.",
+        ToolSpec(name: "web_read", description: "Read the page in one of Pennant's Chrome tabs: its text, and the links (with where they go, for web_open), buttons and fields on it, numbered, for web_click and web_type. Cheaper and more exact than a screenshot. Read again after anything changes the page.",
                  inputSchema: JSONSchema.object(["tab": WebTools.tabParameter]))
     }
     func invoke(_ arguments: JSONValue, context: ToolContext) async throws -> ToolResult {
@@ -147,6 +147,7 @@ struct WebReadTool: Tool {
             for e in elements {
                 var line = "[\(e["ref"]?.intValue ?? 0)] \(e["kind"]?.stringValue ?? "") “\(e["label"]?.stringValue ?? "")”"
                 if let v = e["value"]?.stringValue { line += " = \"\(v)\"" }
+                if let href = e["href"]?.stringValue { line += " → \(href)" }
                 if e["inView"]?.boolValue == false { line += " †" }
                 out += line + "\n"
             }

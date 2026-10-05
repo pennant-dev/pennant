@@ -35,6 +35,11 @@ public protocol HostAPIDelegate: Sendable {
     /// Screen frames for one subscriber. The stream ends when the consumer cancels.
     func screenFrames(options: ScreenStreamOptions) async -> AsyncStream<(ScreenFrameHeader, Data)>
     func clientsChanged(_ clients: [ConnectedClient], streaming: Int) async
+    /// Talk mode's natural voices for a device: say `request`, each piece of speech to `send`, in order, the last
+    /// one `final`. Throws when the voice can't speak here.
+    func speak(_ request: SpeechRequest, connection: UUID, send: @escaping VoiceService.Sink) async throws
+    /// Drop what `connection` asked to be said.
+    func stopSpeaking(connection: UUID) async
 
     // Sign-in. Requirements (not just extension methods) so the host's implementations are what the server calls;
     // the defaults below serve hosts and test doubles without people.
@@ -48,6 +53,14 @@ public protocol HostAPIDelegate: Sendable {
     /// Through Cloudflare Access: who a verified Access token belongs to (the account with its email). Throws with a
     /// reason the app can show when there's no valid token or no such account.
     func edgePerson(accessToken: String?) async throws -> Person
+}
+
+/// Hosts without natural voices (test doubles) can't speak.
+public extension HostAPIDelegate {
+    func speak(_ request: SpeechRequest, connection: UUID, send: @escaping VoiceService.Sink) async throws {
+        throw VoiceService.VoiceError.unavailable(request.voice)
+    }
+    func stopSpeaking(connection: UUID) async {}
 }
 
 /// Signing in with a provider, and knowing who a token belongs to. Hosts without people keep the defaults.

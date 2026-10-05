@@ -164,7 +164,7 @@ struct ModelsSettingsView: View {
             HStack {
                 Text("\(profiles.count) model\(profiles.count == 1 ? "" : "s")").font(.zoomed(.callout)).foregroundStyle(PennantTheme.inkSecondary)
                 Spacer()
-                Button { draft = InferenceProfile(name: "", inference: HostConfig.Inference(baseURL: "", model: "")) } label: { Label("Add model", systemImage: "plus") }.buttonStyle(.pennantPrimaryCompact)
+                Button { draft = InferenceProfile(inference: HostConfig.Inference(baseURL: "", model: "")) } label: { Label("Add model", systemImage: "plus") }.buttonStyle(.pennantPrimaryCompact)
             }
             ForEach(profiles) { p in row(p, c) }
         }
@@ -271,7 +271,6 @@ struct ModelsSettingsView: View {
     private func duplicate(_ p: InferenceProfile) {
         var copy = p
         copy.id = UUID().uuidString
-        copy.name = p.name + " copy"
         upsert(copy)
     }
 
@@ -322,7 +321,6 @@ struct ModelEditorSheet: View {
     @State private var profile: InferenceProfile
     var isNew: Bool
     var onSave: (InferenceProfile) -> Void
-    @State private var nameEdited: Bool
     // Endpoint
     @State private var endpointModels: [ModelInfo] = []
     @State private var endpointStatus: String?
@@ -355,7 +353,6 @@ struct ModelEditorSheet: View {
         _profile = State(initialValue: p)
         self.isNew = isNew
         self.onSave = onSave
-        _nameEdited = State(initialValue: !isNew)
         let fmt: (Double?) -> String = { $0.map { String($0) } ?? "" }
         _priceIn = State(initialValue: fmt(profile.pricing?.inputPerMillion))
         _priceCached = State(initialValue: fmt(profile.pricing?.cachedInputPerMillion))
@@ -405,8 +402,9 @@ struct ModelEditorSheet: View {
                     }
                     if provider == HostConfig.Inference.openAIProvider || provider == HostConfig.Inference.azureProvider { limits }
                     pricing
-                    PennantTextField("Name", placeholder: InferenceProfile.suggestedName(for: profile.inference),
-                                  text: Binding(get: { profile.name }, set: { profile.name = $0; nameEdited = true }))
+                    if !profile.inference.model.isEmpty {
+                        SettingsRow("Shows as", value: profile.name)
+                    }
                     if let test {
                         Label("\(test.detail) · \(test.milliseconds) ms", systemImage: test.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                             .font(.zoomed(.callout)).foregroundStyle(test.ok ? PennantTheme.success : SettingsTone.danger).fixedSize(horizontal: false, vertical: true)
@@ -515,12 +513,11 @@ struct ModelEditorSheet: View {
             otherChatGPTModel = false
             profile.inference.model = id
             if let m = chatGPTModels.first(where: { $0.id == id }) { profile.inference.contextWindowTokens = m.contextWindowTokens; profile.inference.supportsVision = m.supportsVision }
-            suggestName()
         }), options: chatGPTModels.map { ChoiceOption($0.id, title: $0.title, subtitle: "\(formatTokens($0.contextWindowTokens)) context") }
             + (chatGPTModels.isEmpty ? [] : [ChoiceOption(Self.otherModelChoice, title: "Other model…", subtitle: "Type any model id your account can use")]),
             placeholder: account?.signedIn == true ? "Choose a model…" : "Sign in to list models")
         if typing {
-            PennantTextField("Model id", placeholder: "gpt-6-sol", text: Binding(get: { profile.inference.model }, set: { profile.inference.model = $0.trimmingCharacters(in: .whitespaces); suggestName() }))
+            PennantTextField("Model id", placeholder: "gpt-6-sol", text: Binding(get: { profile.inference.model }, set: { profile.inference.model = $0.trimmingCharacters(in: .whitespaces) }))
         }
         if let chatGPTNote {
             Text(chatGPTNote).font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkSecondary)
@@ -543,7 +540,7 @@ struct ModelEditorSheet: View {
         }), options: InferencePresets.all.map { ChoiceOption($0.baseURL, title: $0.name, subtitle: $0.baseURL, symbol: $0.symbol) }, placeholder: "Choose or type an endpoint…") { typed in
             let t = typed.trimmingCharacters(in: .whitespaces); return t.isEmpty ? nil : t
         }
-        SearchablePicker("Model", selection: Binding(get: { profile.inference.model.isEmpty ? nil : profile.inference.model }, set: { profile.inference.model = $0 ?? ""; suggestName() }),
+        SearchablePicker("Model", selection: Binding(get: { profile.inference.model.isEmpty ? nil : profile.inference.model }, set: { profile.inference.model = $0 ?? "" }),
                          options: endpointModels.map { ChoiceOption($0.id, title: $0.id) } + (InferencePresets.preset(for: profile.inference.baseURL)?.exampleModels ?? []).filter { id in !endpointModels.contains { $0.id == id } }.map { ChoiceOption($0, title: $0, subtitle: "example") },
                          placeholder: "Choose or type a model…") { typed in
             let t = typed.trimmingCharacters(in: .whitespaces); return t.isEmpty ? nil : t
@@ -604,12 +601,7 @@ struct ModelEditorSheet: View {
         if new == HostConfig.Inference.appleProvider { profile.inference.contextWindowTokens = 8192; profile.inference.supportsVision = false }
         if [HostConfig.Inference.chatGPTProvider, HostConfig.Inference.appleProvider].contains(new), priceIn.isEmpty, priceOut.isEmpty { included = true }
         test = nil
-        suggestName()
         Task { await prepare() }
-    }
-
-    private func suggestName() {
-        if !nameEdited { profile.name = InferenceProfile.suggestedName(for: profile.inference) }
     }
 
     private func prepare() async {
@@ -627,7 +619,7 @@ struct ModelEditorSheet: View {
         let list = try? await session.chatGPTModels()
         chatGPTModels = list?.models ?? []
         chatGPTNote = list?.note
-        if profile.inference.model.isEmpty, let first = chatGPTModels.first { profile.inference.model = first.id; profile.inference.contextWindowTokens = first.contextWindowTokens; suggestName() }
+        if profile.inference.model.isEmpty, let first = chatGPTModels.first { profile.inference.model = first.id; profile.inference.contextWindowTokens = first.contextWindowTokens }
     }
 
     private func loadEndpointModels() async {
@@ -691,7 +683,6 @@ struct ModelEditorSheet: View {
 
     private func pickDeployment(_ name: String) {
         profile.inference.model = name
-        suggestName()
         // Whether it reads images isn't in the deployment's metadata: the test shows it a picture and sets the toggle.
         runTest()
     }
@@ -725,7 +716,6 @@ struct ModelEditorSheet: View {
 
     private func finish() {
         var p = profile
-        if p.name.trimmingCharacters(in: .whitespaces).isEmpty { p.name = InferenceProfile.suggestedName(for: p.inference) }
         p.pricing = currentPricing()
         onSave(p)
         dismiss()

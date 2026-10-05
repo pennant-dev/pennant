@@ -5,7 +5,7 @@ import Network
 import Security
 
 /// WebSocket transport over Network.framework. Text frames carry `WireMessage` JSON;
-/// binary frames carry `ScreenFrameCodec` payloads. Works on macOS and iOS.
+/// binary frames carry `ScreenFrameCodec` or `SpeechChunkCodec` payloads. Works on macOS and iOS.
 public final class WebSocketTransport: HostTransport, @unchecked Sendable {
     public static let maximumMessageSize = 32 * 1024 * 1024
 
@@ -190,6 +190,8 @@ public final class WebSocketTransport: HostTransport, @unchecked Sendable {
             case .binary:
                 if let content, let (header, jpeg) = try? ScreenFrameCodec.decode(content) {
                     self.yield(.screenFrame(header, jpeg))
+                } else if let content, let (header, samples) = try? SpeechChunkCodec.decode(content) {
+                    self.yield(.speech(header, samples))
                 }
             case .text:
                 if let content, let message = try? WireMessage.decode(content) {

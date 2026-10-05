@@ -4,7 +4,7 @@ import Network
 
 /// WebSocket API for Mac and iPhone clients, built on Network.framework.
 /// Text frames carry `WireMessage` JSON in both directions; binary frames carry screen frames
-/// encoded with `ScreenFrameCodec`. The first command on a connection must be `hello` or `pair`.
+/// encoded with `ScreenFrameCodec`, and speech for Talk mode encoded with `SpeechChunkCodec`. The first command on a connection must be `hello` or `pair`.
 public actor HostAPIServer {
     public static let maximumMessageSize = 32 * 1024 * 1024
     public static let helloTimeout: TimeInterval = 10
@@ -246,6 +246,9 @@ actor ClientConnection {
     private var screenAcked: Int64 = 0
     private var framesSent: Int64 = 0
     private var ackWaiter: (sequence: Int64, continuation: CheckedContinuation<Void, Never>)?
+    /// Speech for this client, sent in the order it was made.
+    private var speech: AsyncStream<Data>.Continuation?
+    private var speechTask: Task<Void, Never>?
 
     init(id: UUID, connection: NWConnection, server: HostAPIServer, delegate: any HostAPIDelegate, eventBus: EventBus, store: any StoreProtocol, hostName: String, queue: DispatchQueue, encrypted: Bool = false, edge: Bool = false) {
         self.id = id
@@ -304,6 +307,13 @@ actor ClientConnection {
         helloTimeoutTask?.cancel()
         eventTask?.cancel()
         screenTask?.cancel()
+        speech?.finish()
+        speechTask?.cancel()
+        if authenticated {
+            let id = self.id
+            let delegate = self.delegate
+            Task { await delegate.stopSpeaking(connection: id) }
+        }
         for task in commandTasks.values { task.cancel() }
         commandTasks.removeAll()
         inputTail?.cancel()
@@ -481,6 +491,22 @@ actor ClientConnection {
             case .screenFrameReceived(let sequence):
                 acknowledged(upTo: sequence)
 
+            case .speak(let request):
+                let outlet = speechOutlet()
+                do {
+                    try await delegate.speak(request, connection: id) { header, samples in
+                        guard let frame = try? SpeechChunkCodec.encode(header: header, samples: samples) else { return }
+                        outlet.yield(frame)
+                    }
+                    await reply(command.id, .ok)
+                } catch {
+                    await reply(command.id, .error(code: "voice_unavailable", message: error.localizedDescription))
+                }
+
+            case .stopSpeaking:
+                await delegate.stopSpeaking(connection: id)
+                await reply(command.id, .ok)
+
             case .remoteInput:
                 // In order, one after another; the reply goes out on its own, so the next input never waits behind
                 // screen frames on a busy link.
@@ -530,6 +556,22 @@ actor ClientConnection {
         guard !closed else { return }
         guard let data = try? WireMessage.event(event).encoded() else { return }
         await send(data, opcode: .text)
+    }
+
+    // MARK: Speech
+
+    /// Where this client's speech goes: one stream, sent in order on the binary channel.
+    private func speechOutlet() -> AsyncStream<Data>.Continuation {
+        if let speech { return speech }
+        let (frames, outlet) = AsyncStream<Data>.makeStream()
+        speech = outlet
+        speechTask = Task { [weak self] in
+            for await frame in frames {
+                guard let self else { return }
+                await self.send(frame, opcode: .binary)
+            }
+        }
+        return outlet
     }
 
     // MARK: Screen streaming

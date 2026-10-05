@@ -16,6 +16,29 @@ Pennant is licensed under the Apache License 2.0 (see [LICENSE](LICENSE)). It bu
 | [apple/swift-system](https://github.com/apple/swift-system) | Apache 2.0 |
 | [sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle) (the Mac app's updater) | MIT, with the bundled parts listed in its LICENSE |
 
+Pennant Voice, the helper that runs Talk mode's natural voice on a Mac, adds these:
+
+| Package | License |
+| --- | --- |
+| [Blaizzy/mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift) | MIT |
+| [ml-explore/mlx-swift](https://github.com/ml-explore/mlx-swift) and [mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm) | MIT |
+| [huggingface/swift-transformers](https://github.com/huggingface/swift-transformers), [swift-huggingface](https://github.com/huggingface/swift-huggingface) and [swift-jinja](https://github.com/huggingface/swift-jinja) | Apache 2.0 |
+| [mattt/swift-xet](https://github.com/mattt/swift-xet) | Apache 2.0 |
+| [ibireme/yyjson](https://github.com/ibireme/yyjson) | MIT |
+| [swift-server/async-http-client](https://github.com/swift-server/async-http-client) and [swift-service-lifecycle](https://github.com/swift-server/swift-service-lifecycle) | Apache 2.0 |
+| apple/swift-crypto, swift-certificates, swift-asn1, swift-numerics, swift-algorithms, swift-async-algorithms, swift-configuration, swift-distributed-tracing, swift-service-context, swift-http-types, swift-http-structured-headers, swift-nio-ssl, swift-nio-http2, swift-nio-extras and swift-nio-transport-services; swiftlang/swift-syntax | Apache 2.0 |
+
+## Voice models
+
+The natural voices aren't shipped with the app. The Mac downloads them from Hugging Face, at a fixed revision, when they're first used:
+
+| Model | License |
+| --- | --- |
+| [hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M), as [mlx-community/Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16) | Apache 2.0 |
+| [beshkenadze/kitten-tts-g2p](https://huggingface.co/beshkenadze/kitten-tts-g2p) (English pronunciation data for Kokoro) | MIT |
+| [Qwen/Qwen3-TTS](https://huggingface.co/Qwen), as [mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit) (Penny, cloned from `Apps/PennantVoice/penny.wav`, which Kokoro made), [mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16) and, for `Pennant Voice speak --ref-audio`, [mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16) | Apache 2.0 |
+| [openai/whisper-large-v3-turbo](https://huggingface.co/openai/whisper-large-v3-turbo), as [mlx-community/whisper-large-v3-turbo](https://huggingface.co/mlx-community/whisper-large-v3-turbo), for `Pennant Voice transcribe` | MIT |
+
 ## Brand marks
 
 The service logos in `Sources/PennantUI/Resources/BrandIcons.xcassets` come from [Simple Icons](https://simpleicons.org) (CC0 1.0), fetched by `Scripts/fetch-brand-icons.swift`. The marks themselves remain the trademarks of their owners. Pennant uses them only to show which service a connection talks to; it does not imply any endorsement or affiliation.

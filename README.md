@@ -41,13 +41,26 @@ choose. Before it publishes, sends, deletes or spends, it hands you a card and w
 - **Nothing goes out without you.** Publishing, sending email, deleting and spending always stop at an approval card, whatever
   the skill or the model says, and approving runs exactly what the card shows. Edit the text, send it back with a note, or
   reject it, on the Mac or the iPhone. Cards written in Markdown show formatted, with the plain text a click away.
+  Tidying a temporary folder isn't deleting, and "Allow deletes here for this thread" lets the rest of a job's clean-up
+  in that folder go ahead.
 - **Goals.** Outcomes Pennant works toward on its own, with a measure, a weekly budget and a board of what's next, waiting on
   you, in progress and done, and a weekly review. Start, pause, edit or delete any goal yourself, or approve the ones it proposes.
-- **A heartbeat.** Every 30 minutes (you choose) Pennant looks over its work: it starts the goal sessions that are due, and if
-  something is stuck or has waited on you too long, it deals with it or tells you. A look with nothing in it costs nothing.
+- **A heartbeat.** Every 30 minutes (you choose) Pennant looks over its work and your inbox: it starts the goal sessions that
+  are due, and if something is stuck, has waited on you too long, or new mail needs you, it deals with it or tells you. A look
+  with nothing in it costs nothing.
 - **Coding.** Code changes go to a coding run in one of your project folders, in a thread of its own: Claude Code,
   or Pennant's own engine on any of your models. Runs push and open pull requests as their own GitHub App, never as you, and
   can plan first or ask before every edit.
+- **Start over.** One button in the chat starts the conversation afresh: nothing said before carries over, while memory and
+  the work in threads stay.
+- **Talk to it.** Talk mode in the Pennant chat, on the Mac and the iPhone, is a spoken conversation:
+  - **Listening:** what you say is recognised on the device, and a pause (a second and a half, or what you choose) sends it.
+  - **Answering:** Pennant's reply is read aloud as it comes in (in a natural voice, once it's whole, so it's said in one go), and so is its later news from the work.
+    A long message is said in a sentence or two instead; the details stay on screen.
+  - **Interrupting:** talk over it to stop it.
+  - **Its voice:** on a Mac with Apple silicon, a natural voice that sounds like a person. It's a speech model run on the
+    Mac, downloaded the first time (340 MB). The iPhone hears the same voices, made on the Mac and streamed to it.
+  - **Privacy:** nothing leaves your devices but the words you said.
 - **It works beside you on your Mac.** On the web, Pennant works in tabs of its own in your Chrome, with your sign-ins,
   through an extension it adds to Chrome for you. It works in your Mac apps in the background, even behind
   your windows, without your pointer or keyboard. A cursor of its own shows where it is working. Only when nothing else
@@ -117,6 +130,8 @@ Pennant has no account with us, no telemetry and no cloud of its own.
 | **⇧⌘K** | Every conversation, in a window of its own |
 | **⇧⌘W** | Close the thread you're reading |
 | **⌘Return** | Send |
+| **⇧⌘T** | Talk mode in the Pennant chat, on or off |
+| **⇧⌘M** | In Talk mode, mute or unmute the microphone |
 | **⇧⌘.** | Stop computer use (also in the menu bar) |
 | **⌘+** / **⌘−** / **⌘0** | Zoom in, zoom out, actual size |
 

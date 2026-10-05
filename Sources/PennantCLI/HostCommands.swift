@@ -246,21 +246,22 @@ private func projectLines(_ projects: [CodingProject]) -> [String] {
 func agentCommand(_ options: CLIOptions) async throws {
     let session = try await connect(options)
     guard var agent = session.state.leadAgent else { await session.disconnect(); fail("There's no agent yet.") }
-    // pennant agent edit [--name <name>] [--role <text>] [--instructions-stdin]
+    // pennant agent edit [--name <name>] [--role <text>] [--style <text>] [--instructions-stdin]
     if options.args.first == "edit" {
         var rest = Array(options.args.dropFirst())
         func take(_ flag: String) -> String? {
             guard let i = rest.firstIndex(of: flag), i + 1 < rest.count else { return nil }
             let v = rest[i + 1]; rest.removeSubrange(i...(i + 1)); return v
         }
-        let name = take("--name"), role = take("--role")
+        let name = take("--name"), role = take("--role"), style = take("--style")
         let fromStdin = rest.contains("--instructions-stdin")
-        guard name != nil || role != nil || fromStdin else {
+        guard name != nil || role != nil || style != nil || fromStdin else {
             await session.disconnect()
-            fail("Usage: pennant agent edit [--name <name>] [--role <text>] [--instructions-stdin]")
+            fail("Usage: pennant agent edit [--name <name>] [--role <text>] [--style <text>] [--instructions-stdin]")
         }
         if let name { agent.name = name }
         if let role { agent.role = role }
+        if let style { agent.style = style }
         if fromStdin { agent.instructions = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) }
         let r = try await session.send(.updateAgent(agent), timeout: 30)
         await session.disconnect()

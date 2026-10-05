@@ -100,7 +100,7 @@ final class PennantEngineTests: XCTestCase {
 
     /// The thread's own model, else the one in the Coding settings, else the host's default.
     func testTheRunsModelIsTheThreadsThenTheCodingSettingThenTheDefault() async throws {
-        let fast = InferenceProfile(name: "Fast", inference: HostConfig.Inference()), strong = InferenceProfile(name: "Strong", inference: HostConfig.Inference())
+        let fast = InferenceProfile(inference: HostConfig.Inference(model: "fast")), strong = InferenceProfile(inference: HostConfig.Inference(model: "strong"))
         let s = try await service(ScriptedProvider([])) { config in
             config.inferenceProfiles += [fast, strong]
             config.coding?.modelProfileID = fast.id
@@ -113,7 +113,7 @@ final class PennantEngineTests: XCTestCase {
         var profile = await runtime.codingProfile(pennant, conversation: thread)
         XCTAssertEqual(profile.modelProfileID, fast.id, "the Coding setting")
         let first = await runtime.modelChoices(for: profile).first
-        XCTAssertEqual(first?.label, "Fast")
+        XCTAssertEqual(first?.label, fast.name)
         thread.engineModel = "strong"
         profile = await runtime.codingProfile(pennant, conversation: thread)
         XCTAssertEqual(profile.modelProfileID, strong.id, "the thread's own, by name or id")

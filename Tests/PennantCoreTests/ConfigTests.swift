@@ -80,19 +80,32 @@ final class ModelProfileRulesTests: XCTestCase {
         // Choosing another profile as the default drives the host model.
         var azure = HostConfig.Inference(baseURL: "https://r.cognitiveservices.azure.com/openai/v1", model: "gpt-5.6-sol", provider: HostConfig.Inference.azureProvider)
         azure.azure = .init(subscriptionID: "sub", resourceGroup: "rg", resource: "r")
-        let sol = InferenceProfile(name: "GPT-5.6 Sol · Azure", inference: azure)
+        let sol = InferenceProfile(inference: azure)
         var next = c
         next.inferenceProfiles.append(sol)
         next.defaultProfileID = sol.id
-        next.reconcileModels(previous: c)
+        next.reconcileModels()
         XCTAssertEqual(next.inference.model, "gpt-5.6-sol")
         XCTAssertEqual(next.inference.provider, HostConfig.Inference.azureProvider)
 
-        // An older client editing `inference` directly updates the default profile instead of diverging.
+        // `inference` edited on its own, or a stale copy of it, never rewrites the default profile: the profile wins.
         var edited = next
-        edited.inference.reasoningEffort = "high"
-        edited.reconcileModels(previous: next)
-        XCTAssertEqual(edited.defaultProfile?.inference.reasoningEffort, "high")
+        edited.inference = HostConfig.Inference(baseURL: "http://192.0.2.7:8888/v1", model: "small-local")
+        edited.reconcileModels()
+        XCTAssertEqual(edited.defaultProfile?.inference.model, "gpt-5.6-sol")
+        XCTAssertEqual(edited.inference.model, "gpt-5.6-sol")
+
+        // A profile is called by what it runs, never by a name typed in; one stored by an older version is ignored.
+        XCTAssertEqual(sol.name, "gpt-5.6-sol · Azure r")
+        var effort = sol
+        effort.inference.reasoningEffort = "low"
+        XCTAssertEqual(effort.name, "gpt-5.6-sol · Azure r · low")
+        let old = Data(#"{"id":"p1","name":"DeepSeek","inference":{"baseURL":"http://192.0.2.7:8888/v1","model":"small-local","provider":"openai"}}"#.utf8)
+        let oldProfile = try JSONDecoder().decode(InferenceProfile.self, from: old)
+        XCTAssertEqual(oldProfile.name, "small-local · 192.0.2.7")
+        let sent = try JSONSerialization.jsonObject(with: JSONEncoder().encode(oldProfile)) as? [String: Any]
+        XCTAssertEqual(sent?["name"] as? String, "small-local · 192.0.2.7", "apps from before still get a name")
+        XCTAssertEqual(edited.profile(matching: "GPT-5.6-SOL")?.id, sol.id, "by the provider's model name")
 
         // Fallbacks drop the default, duplicates and deleted profiles; the old single field still decodes.
         edited.fallbackProfileIDs = [sol.id, "gone", c.defaultProfileID!, c.defaultProfileID!]

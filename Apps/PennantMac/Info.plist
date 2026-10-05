@@ -32,6 +32,10 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Pennant finds and talks to Pennant hosts on your local network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>In Talk mode, Pennant listens to what you say to it.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>In Talk mode, what you say is turned into text on this Mac and sent to Pennant.</string>
 	<key>NSSystemAdministrationUsageDescription</key>
 	<string>Pennant runs commands you ask for on this Mac.</string>
 	<key>SUEnableSystemProfiling</key>

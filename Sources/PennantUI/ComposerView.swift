@@ -22,6 +22,9 @@ public struct ComposerView: View {
     var onSend: () -> Void
     var conversationID: ConversationID?
     var onNewConversation: (() -> Void)?
+    /// Talk mode on or off, in the Pennant chat; nil elsewhere.
+    var onTalk: (() -> Void)?
+    var talking = false
 
     @FocusState private var focused: Bool
     @State private var highlighted = 0
@@ -45,7 +48,9 @@ public struct ComposerView: View {
         isEnabled: Bool = true,
         onSend: @escaping () -> Void,
         conversationID: ConversationID? = nil,
-        onNewConversation: (() -> Void)? = nil
+        onNewConversation: (() -> Void)? = nil,
+        onTalk: (() -> Void)? = nil,
+        talking: Bool = false
     ) {
         _text = text
         _attachments = attachments
@@ -54,6 +59,8 @@ public struct ComposerView: View {
         self.onSend = onSend
         self.conversationID = conversationID
         self.onNewConversation = onNewConversation
+        self.onTalk = onTalk
+        self.talking = talking
     }
 
     public var body: some View {
@@ -173,6 +180,7 @@ public struct ComposerView: View {
                     }
                 }
                 #endif
+            if onTalk != nil { talkButton }
             sendButton
         }
         .padding(6)
@@ -205,6 +213,22 @@ public struct ComposerView: View {
         .disabled(!isEnabled)
         .help("More")
         .accessibilityLabel("More")
+    }
+
+    private var talkButton: some View {
+        Button { onTalk?() } label: {
+            Image(systemName: talking ? "waveform.circle.fill" : "waveform")
+                .font(.zoomed(size: 15, weight: .semibold))
+                .foregroundStyle(talking ? PennantTheme.primaryButtonText : PennantTheme.ink)
+                .frame(width: 32, height: 32)
+                .background(talking ? PennantTheme.primaryButton : Color.clear, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled && !talking)
+        .keyboardShortcut("t", modifiers: [.command, .shift])
+        .help(talking ? "Stop talking (⇧⌘T)" : "Talk to Pennant (⇧⌘T)")
+        .accessibilityLabel(talking ? "Stop Talk mode" : "Talk to Pennant")
     }
 
     private var sendButton: some View {

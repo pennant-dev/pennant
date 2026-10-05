@@ -44,7 +44,7 @@ Usage: pennant [--host H] [--port P] [--token T] <command> [args]
 
   status                     Host info, the agent, active tasks
   agent                      The agent: name, status, role
-  agent edit [--name N] [--role R] [--instructions-stdin]  Rename it, or change its role or instructions
+  agent edit [--name N] [--role R] [--style S] [--instructions-stdin]  Rename it, or change its role, manner or instructions
   coding                     How Pennant writes code: the engine and model, the project folders, how it asks, its GitHub identity
   coding folder <dir> [--name N]  Add a project folder and make it the default
   coding folders | folder remove <name>  List the project folders, or remove one

@@ -1,6 +1,6 @@
 # Host protocol
 
-One WebSocket per client. Text frames carry `WireMessage` JSON; binary frames carry screen frames. Types are in `Sources/PennantCore/Protocol.swift`; the codec is `JSONCodec` (ISO-8601 dates, sorted keys).
+One WebSocket per client. Text frames carry `WireMessage` JSON; binary frames carry screen frames and Talk mode's speech. Types are in `Sources/PennantCore/Protocol.swift`; the codec is `JSONCodec` (ISO-8601 dates, sorted keys).
 
 ```json
 {"command": {"id": "…", "body": {"hello": {"clientID": "…", "displayName": "…", "platform": "macOS", "appVersion": "0.1.0", "protocolVersion": 1, "lastEventSeq": 0, "token": "…"}}}}
@@ -32,6 +32,7 @@ One WebSocket per client. Text frames carry `WireMessage` JSON; binary frames ca
 | Approvals and reports | `decideApproval`, `listPendingApprovals`, `listReports` |
 | Coding runs | `setConversationFolder`, `setConversationCoding`, `listProjects`, `coderPermission`, `coderTool`, `checkGitHubApp`, `setReviewsGitHubApp` |
 | Desktop | `getDesktopStatus`, `takeoverDesktop`, `releaseDesktop`, `pauseDesktop`, `resumeDesktop`, `setPauseOnHumanInput`, `subscribeScreen`, `unsubscribeScreen`, `remoteInput`, `captureScreenshot`, `requestPermissions`, `recheckPermissions`, `resetPermission` |
+| Voices | `listVoices`, `speak`, `stopSpeaking` |
 | Memory | `memoryOverview`, `searchMemory`, `listEntities`, `listPreferences`, `listRelations`, `upsertEntity`, `upsertPreference`, `forgetEntity`, `forgetPreference`, `memoryEvidence`, `renameEntity`, `mergeEntities`, `memoryUpkeepLog`, `undoMemoryUpkeep`, `listRemovedMemory`, `restoreRemovedMemory` |
 | Skills | `listSkills`, `updateSkill`, `setSkillStatus`, `deleteSkill`, `importSkills`, `previewSkillImport`, `deleteSkills`, `addSkillFolder`, `removeSkillFolder`, `scanSkillLocations` |
 | Teach mode | `startTeaching`, `stopTeaching`, `cancelTeaching`, `addTeachingNote`, `removeTeachingEvents`, `getTeaching`, `draftSkillFromTeaching` |
@@ -49,9 +50,17 @@ One WebSocket per client. Text frames carry `WireMessage` JSON; binary frames ca
 
 The Pennant chat is the conversation with `isMain: true` (one per host, made at start; older hosts have none). Messages in it can carry `update` parts (`WorkUpdate`: a thread finished or failed, asks something, or put up a card, with the card's `approvalID` and, once decided, its `outcome`); clients from before them show a placeholder line. A card in an update is decided with `decideApproval` like any other.
 
-`sendMessage` returns `messageAccepted(messageID, conversationID, taskID)`; the reply itself arrives as events (`messageAppended` for the streaming assistant message, `messageDelta` while it streams, `messageFinalized` when done, `taskTransition` as the task moves).
+`sendMessage` returns `messageAccepted(messageID, conversationID, taskID)`. With `spoken: true` (Talk mode), the reply is written to be read aloud; the reply itself arrives as events (`messageAppended` for the streaming assistant message, `messageDelta` while it streams, `messageFinalized` when done, `taskTransition` as the task moves).
 
 ## Screen stream
+
+Talk mode's natural voices, for a device that can't run them:
+- `listVoices` replies `voices`, the `VoiceCatalog` voices downloaded on the host's Mac.
+- `speak(SpeechRequest)` (an id the client picks, the text and a voice) replies `ok` once it's queued. The speech follows on the binary channel, to that client only, in order: a 4-byte big-endian header length, a JSON `SpeechChunkHeader` (the request's id, the sample rate, `final`, and an `error` on a last piece that failed), then 16-bit little-endian mono PCM. The last piece is `final` and may be empty.
+- Empty text loads the voice without saying anything.
+- `stopSpeaking`, or closing the connection, drops what the client asked for that hasn't been said.
+- `spokenVersion(text, alreadySaid)` replies `spokenVersion` with a long message worded for saying aloud (empty when no model answered).
+- A frame is told apart from a screen frame by which header it decodes as.
 
 `subscribeScreen(options)` starts frames for that client only. Each binary frame is a 4-byte big-endian header length, a JSON `ScreenFrameHeader` (sequence, size, timestamp, normalised cursor, current owner), then JPEG bytes. Slow clients receive the latest frame only. `unsubscribeScreen` stops it. Task messages and frames have separate lifecycles: closing the stream does not affect the control channel.
 

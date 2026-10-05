@@ -138,7 +138,7 @@ final class ModelRoutingTests: XCTestCase {
         var broken = HostConfig.Inference()
         broken.baseURL = tiny.baseURL.absoluteString + "/v1"
         broken.model = "missing-deployment"
-        let profile = InferenceProfile(name: "Azure DeepSeek", inference: broken)
+        let profile = InferenceProfile(inference: broken)
         let fallback = FlakyProvider(failures: [], answer: "Finished on the host model.")
         let s = try await service(fallback) { $0.inferenceProfiles = [profile] }
         var a = try await agent(s)
@@ -150,7 +150,7 @@ final class ModelRoutingTests: XCTestCase {
         XCTAssertEqual(task.resultSummary, "Finished on the host model.")
         XCTAssertEqual(fallback.requests.first?.reasoningEffort, "high")
         let events = try await s.store.events(afterSeq: 0, limit: 2000)
-        XCTAssertTrue(events.contains { if case .notice(_, _, let text) = $0.payload { return text.contains("switched from Azure DeepSeek") }; return false })
+        XCTAssertTrue(events.contains { if case .notice(_, _, let text) = $0.payload { return text.contains("switched from \(profile.name)") }; return false })
         await s.stop()
     }
 
@@ -171,7 +171,7 @@ final class ModelRoutingTests: XCTestCase {
         var healthy = HostConfig.Inference()
         healthy.baseURL = tiny.baseURL.absoluteString + "/v1"
         healthy.model = "spark"
-        let spark = InferenceProfile(name: "Spark", inference: healthy)
+        let spark = InferenceProfile(inference: healthy)
         let down = FlakyProvider(failures: Array(repeating: .httpStatus(503, "no healthy upstream"), count: 3), answer: "Back on the default.")
         TaskRuntime.outageCooldown = 1
         let s = try await service(down) { $0.inferenceProfiles = [spark]; $0.fallbackProfileIDs = [spark.id] }
@@ -379,9 +379,9 @@ final class UsageLedgerTests: XCTestCase {
         XCTAssertEqual(p.cost(input: 1_000_000, cachedInput: 400_000, output: 100_000)!, 2.2, accuracy: 1e-9)
         XCTAssertNil(ModelPricing(inputPerMillion: 1).cost(input: 10, cachedInput: 0, output: 10), "unknown output price → unknown cost")
         XCTAssertEqual(ModelPricing(included: true).cost(input: 5, cachedInput: 0, output: 5), 0)
-        let chatgpt = InferenceProfile(name: "Sol", inference: HostConfig.Inference(model: "gpt-5.6-sol", provider: HostConfig.Inference.chatGPTProvider))
+        let chatgpt = InferenceProfile(inference: HostConfig.Inference(model: "gpt-5.6-sol", provider: HostConfig.Inference.chatGPTProvider))
         XCTAssertEqual(chatgpt.effectivePricing?.included, true)
-        let azure = InferenceProfile(name: "Sol · Azure", inference: HostConfig.Inference(model: "gpt-5.6-sol", provider: HostConfig.Inference.azureProvider))
+        let azure = InferenceProfile(inference: HostConfig.Inference(model: "gpt-5.6-sol", provider: HostConfig.Inference.azureProvider))
         XCTAssertNil(azure.effectivePricing, "paid models have no made-up prices")
     }
 

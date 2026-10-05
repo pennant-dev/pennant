@@ -26,8 +26,10 @@ public struct Checkpoint: Hashable, Codable, Sendable, Identifiable {
     /// Tool records that were still unresolved at checkpoint time. They must be reconciled, not assumed.
     public var outstandingToolRecordIDs: [ToolRecordID]
     public var createdAt: Date
+    /// The owner started the conversation over here: nothing before it carries over.
+    public var startedOver: Bool?
 
-    public init(id: CheckpointID = CheckpointID(), taskID: TaskID, conversationID: ConversationID? = nil, agentID: AgentID, objective: String, governingInstructions: [String] = [], decisions: [String] = [], completedWork: [String] = [], pendingActions: [String] = [], activeDelegations: [TaskID] = [], artifactIDs: [ArtifactID] = [], unresolvedQuestions: [String] = [], nextStep: String = "", historySummary: String = "", throughMessageID: MessageID? = nil, firstEventSeq: EventSeq? = nil, lastEventSeq: EventSeq? = nil, outstandingToolRecordIDs: [ToolRecordID] = [], createdAt: Date = Date()) {
+    public init(id: CheckpointID = CheckpointID(), taskID: TaskID, conversationID: ConversationID? = nil, agentID: AgentID, objective: String, governingInstructions: [String] = [], decisions: [String] = [], completedWork: [String] = [], pendingActions: [String] = [], activeDelegations: [TaskID] = [], artifactIDs: [ArtifactID] = [], unresolvedQuestions: [String] = [], nextStep: String = "", historySummary: String = "", throughMessageID: MessageID? = nil, firstEventSeq: EventSeq? = nil, lastEventSeq: EventSeq? = nil, outstandingToolRecordIDs: [ToolRecordID] = [], createdAt: Date = Date(), startedOver: Bool? = nil) {
         self.id = id
         self.taskID = taskID
         self.conversationID = conversationID
@@ -47,5 +49,6 @@ public struct Checkpoint: Hashable, Codable, Sendable, Identifiable {
         self.lastEventSeq = lastEventSeq
         self.outstandingToolRecordIDs = outstandingToolRecordIDs
         self.createdAt = createdAt
+        self.startedOver = startedOver
     }
 }

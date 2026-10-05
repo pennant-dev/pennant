@@ -78,6 +78,8 @@ public struct HostEndpoint: Hashable, Codable, Sendable, Identifiable {
 public enum TransportInbound: Sendable {
     case message(WireMessage)
     case screenFrame(ScreenFrameHeader, Data)
+    /// A piece of speech the host made for Talk mode (`speak`).
+    case speech(SpeechChunkHeader, [Float])
     case closed(reason: String)
 }
 

@@ -4,6 +4,15 @@ import Foundation
 /// Running a tool call: the owner's sign-offs, read-back after an uncertain outcome, the desktop lease, recording
 /// intent and outcome, and the hooks tools use to reach the runtime.
 extension TaskRuntime {
+    /// A delete the owner already allowed in this thread (`SignOff.allowHereLabel`): every place it deletes is somewhere
+    /// they let go there before.
+    func signedOffEarlier(_ reason: SignOff.Reason, call: ToolCall, in conversation: ConversationID) -> Bool {
+        guard reason == .deletes, call.name == "shell", let approved = signedOffDeletions[conversation],
+              let command = call.arguments["command"]?.stringValue, let deletions = SignOff.deletions(command: command),
+              !deletions.isEmpty else { return false }
+        return deletions.allSatisfy { $0.isTemporary || $0.isCovered(by: approved) }
+    }
+
     // MARK: Tools
 
     func executeTool(_ requested: ToolCall, task: TaskRecord, agent: AgentProfile) async throws -> (ToolResult, needsDesktop: Bool) {
@@ -60,6 +69,13 @@ extension TaskRuntime {
                 return (ToolResult.text(call.id, name: call.name, fromChat ? Self.chromeFromChat : Self.chromeInThread, isError: true), false)
             }
         }
+        // A chat reply that has run long hands the rest to a thread instead of doing more itself.
+        if task.usage.steps > Self.chatStepLimit, !Self.chatAlwaysAllowed.contains(spec.name), await inMainChat(task) {
+            record.status = .denied; record.isError = true; record.resultSummary = "Chat reply ran long"; record.finishedAt = Date()
+            try? await deps.store.upsertToolRecord(record)
+            await publish(.toolRecordUpserted(record))
+            return (ToolResult.text(call.id, name: call.name, "Refused: " + Self.chatHandOffNote, isError: true), false)
+        }
         // A goal set to "only propose" changes nothing by itself.
         if spec.isConsequential, let freedom = await deps.goalFreedom?(task.id), freedom == .proposeOnly {
             record.status = .denied; record.isError = true; record.resultSummary = "Held back in goal work"; record.finishedAt = Date()
@@ -89,8 +105,11 @@ extension TaskRuntime {
                 call.arguments = arguments
                 record.call = call
             }
-        } else if let reason = SignOff.reason(tool: spec.name, arguments: call.arguments), !(await alreadySignedOff(task: task, call: call)) {
+        } else if let reason = SignOff.reason(tool: spec.name, arguments: call.arguments), !(await alreadySignedOff(task: task, call: call)),
+                  !signedOffEarlier(reason, call: call, in: task.conversationID) {
             let command = call.arguments["command"]?.stringValue
+            // A delete whose places are known can be allowed for the rest of the thread, there.
+            let deletions = reason == .deletes && spec.name == "shell" ? command.flatMap(SignOff.deletions(command:)) : nil
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
             let shown = command ?? (String(data: (try? encoder.encode(call.arguments)) ?? Data(), encoding: .utf8) ?? spec.name)
@@ -99,6 +118,7 @@ extension TaskRuntime {
                                           notes: "Pennant asks before anything \(reason.why). Approving runs exactly this.")
             request.details = [ApprovalDetail(label: "Tool", value: spec.name)]
             request.approveLabel = ApprovalRequest.signOffLabel
+            if deletions?.isEmpty == false { request.allowRestLabel = SignOff.allowHereLabel }
             let decided: ApprovalRequest
             do { decided = try await requestApproval(taskID: task.id, request) } catch {
                 if stopping { throw error }
@@ -119,6 +139,9 @@ extension TaskRuntime {
                 fields["command"] = .string(edited)
                 call.arguments = .object(fields)
                 record.call = call
+            }
+            if decided.approvedForRest == true, let approved = (call.arguments["command"]?.stringValue).flatMap(SignOff.deletions(command:)) {
+                signedOffDeletions[task.conversationID, default: []] += approved
             }
         }
         try? await deps.store.upsertToolRecord(record)

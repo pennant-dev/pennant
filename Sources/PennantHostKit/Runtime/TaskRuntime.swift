@@ -82,6 +82,9 @@ public actor TaskRuntime {
     private var cancelReasons: [TaskID: String] = [:]
     var pausedForDesktop: Set<TaskID> = []
     var pausedForInference: Set<TaskID> = []
+    /// Deletions the owner allowed for the rest of a thread ("Allow deletes here"): later ones in the same place there
+    /// don't ask again.
+    var signedOffDeletions: [ConversationID: [SignOff.Deletion]] = [:]
     var pendingQuestions: [TaskID: CheckedContinuation<String, Error>] = [:]
     /// Answers that came while a task's question or card was up but before it started waiting (it was still posting
     /// the update to the Pennant chat, say): handed over the moment it waits.
@@ -113,7 +116,7 @@ public actor TaskRuntime {
     static let pointerTools: Set<String> = ["click", "double_click", "right_click", "drag", "move_mouse", "scroll", "type_text", "press_key", "ui_action", "ui_set_value"]
     static let observationTools: Set<String> = ["screenshot", "ui_tree"]
     /// Why AppleScript that drives the owner's Chrome was refused, and what to do instead.
-    static let chromeFromChat = "Refused: this drives the owner's Chrome (bringing it forward, opening tabs, changing or clicking in pages), which takes over the window they're working in. Start a thread for it: threads work on the web in your own tabs in their Chrome, with their sign-ins, and leave their windows alone. Reading which page they have open, or its text, is fine from here."
+    static let chromeFromChat = "Refused: this drives the owner's Chrome (bringing it forward, opening tabs, changing or clicking in pages), which takes over the window they're working in. Use your own tab in their Chrome instead, with the same sign-ins: web_open, web_read, web_click and web_type. Reading which page they have open, or its text, is fine from here."
     static let chromeInThread = "Refused: this drives the owner's Chrome (bringing it forward, opening tabs, changing or clicking in pages), which takes over the window they're working in. Work in your own tabs in their Chrome instead, with the same sign-ins: web_open the page, then web_read, web_click and web_type. Reading which page they have open, or its text, is still fine."
     /// Tools that wait for the person, who may be away for hours. The 15-minute tool limit would end the wait while the
     /// question or card is still up, and the agent would carry on without an answer.
@@ -122,6 +125,8 @@ public actor TaskRuntime {
     var scheduler: Scheduler?
     /// The Pennant chat, once found or made.
     var mainChatID: ConversationID?
+    /// The chat's history is being folded into its summary (`tidyMainChat`).
+    var tidyingChat = false
     /// Card id → its update in the Pennant chat, so the update can say how it was decided.
     var updateMessages: [String: MessageID] = [:]
     /// The work board as last built, reused for a minute (a turn reads it on every step).
@@ -199,7 +204,8 @@ public actor TaskRuntime {
 
     /// A user message: either answers a waiting question or starts a task in the conversation.
     public func submitUserMessage(agentID: AgentID, conversationID: ConversationID?, text: String, attachments: [Attachment], author: MessageAuthor? = nil, folder: String? = nil,
-                                  mode: CodingMode? = nil, model: String? = nil, requestedBy: TaskID? = nil, engine: CodingEngine? = nil) async throws -> (MessageID, ConversationID, TaskID) {
+                                  mode: CodingMode? = nil, model: String? = nil, requestedBy: TaskID? = nil, engine: CodingEngine? = nil,
+                                  spoken: Bool = false) async throws -> (MessageID, ConversationID, TaskID) {
         guard let agent = try await deps.store.agent(agentID), agent.status != .retired else { throw ToolError.failed("Agent not found") }
         let conversation: Conversation
         if let conversationID, var existing = try await deps.store.conversation(conversationID) {
@@ -247,6 +253,7 @@ public actor TaskRuntime {
             try await deps.store.appendMessage(message)
             await publish(.messageAppended(message))
             await publishConversation(conversation.id, after: message)
+            if spoken { runtimeNotes[waiting.id, default: []].append(Self.spokenNote) }
             try await deliverAnswer(taskID: waiting.id, text: text, alreadyAppended: true)
             return (message.id, conversation.id, waiting.id)
         }
@@ -259,6 +266,7 @@ public actor TaskRuntime {
             await publish(.messageAppended(message))
             await publishConversation(conversation.id, after: message)
             runtimeNotes[active.id, default: []].append("The user sent a new message while you were working; it is included in the conversation. Take it into account.")
+            if spoken { runtimeNotes[active.id, default: []].append(Self.spokenNote) }
             if active.state == .paused { try await resumeTask(active.id) }
             return (message.id, conversation.id, active.id)
         }
@@ -271,6 +279,7 @@ public actor TaskRuntime {
         try await deps.store.upsertTask(task)
         await publish(.taskUpserted(task))
         await publishConversation(conversation.id, after: message)
+        if spoken { runtimeNotes[task.id, default: []].append(Self.spokenNote) }
         await schedule()
         return (message.id, conversation.id, task.id)
     }
@@ -400,13 +409,15 @@ public actor TaskRuntime {
     /// Tells the user which limit was hit, waits in `waitingForUser`, and extends the budget when they reply.
     /// Any reply continues the task; the reply itself is already in the conversation as a user message.
     private func pauseForBudget(taskID: TaskID, task: TaskRecord, agent: AgentProfile, reason: String) async throws -> TaskRecord {
-        let note = "I've \(reason) on this task, which is the limit set in Settings. Reply with anything to keep going (a nudge on what matters most helps), or cancel the task."
+        // A thread the chat started stops at a thread's limits (`chatThreadBudget`), not the host's in Settings.
+        let limit = await askedByChat(task) ? "the most a thread does before checking with you" : "the limit set in Settings"
+        let note = "I've \(reason) on this task, which is \(limit). Reply with anything to keep going (a nudge on what matters most helps), or cancel the task."
         let message = Message(conversationID: task.conversationID, agentID: task.agentID, taskID: taskID, role: .assistant, parts: [.text(note)])
         try await deps.store.appendMessage(message)
         await publish(.messageAppended(message))
         await publishConversation(task.conversationID, after: message)
         try await transition(taskID, to: .waitingForUser, reason: "Task limit: \(reason). Reply to continue.")
-        await reportQuestion(task, "It \(reason), the limit set in Settings. Should it keep going?")
+        await reportQuestion(task, "It \(reason), \(limit). Should it keep going?")
         await setAgentStatus(agent.id, .waitingForUser, line: "At the task limit, waiting for you")
         await publish(.notice(level: .warning, agentID: agent.id, text: "\(agent.name) \(reason) on \"\(task.title)\" and is waiting for you to say whether to continue."))
         await deps.lease.forget(taskID: taskID)
@@ -521,6 +532,9 @@ public actor TaskRuntime {
                 // Long work takes stock now and then, so more of the same doesn't go on unnoticed.
                 if !response.toolCalls.isEmpty, task.usage.steps % Self.checkInEvery == 0, !wrappedUp.contains(taskID) {
                     runtimeNotes[taskID, default: []].append(Self.checkInNote(steps: task.usage.steps))
+                }
+                if !response.toolCalls.isEmpty, task.usage.steps == Self.chatHandOffStep, await inMainChat(task) {
+                    runtimeNotes[taskID, default: []].append(Self.chatHandOffNote)
                 }
 
                 if response.toolCalls.isEmpty {

@@ -34,6 +34,21 @@ final class FakeAPIDelegate: HostAPIDelegate, @unchecked Sendable {
         }
     }
 
+    /// Speech: each request comes back as three pieces of audio and a last, empty one. Stops are counted by connection.
+    var speechStops: [UUID] = []
+
+    func speak(_ request: SpeechRequest, connection: UUID, send: @escaping VoiceService.Sink) async throws {
+        guard request.voice == "penny" else { throw VoiceService.VoiceError.unavailable(request.voice) }
+        for piece in 0 ..< 3 {
+            send(SpeechChunkHeader(speechID: request.id, sampleRate: 24_000, final: false), [Float](repeating: Float(piece) / 4, count: 480))
+        }
+        send(SpeechChunkHeader(speechID: request.id, sampleRate: 24_000, final: true), [])
+    }
+
+    func stopSpeaking(connection: UUID) async {
+        lock.withLock { speechStops.append(connection) }
+    }
+
     /// Endless streams (a real capture never ends by itself) and how many of them are still running.
     var endless = false
     var liveStreams = 0
@@ -185,6 +200,11 @@ actor InboundCollector {
         return nil
     }
 
+    /// The pieces of speech received so far.
+    var speech: [(SpeechChunkHeader, [Float])] {
+        items.compactMap { if case .speech(let h, let s) = $0 { return (h, s) }; return nil }
+    }
+
     /// The screen frames received so far, by number.
     var frameNumbers: [Int64] {
         items.compactMap { if case .screenFrame(let h, _) = $0 { return h.sequence }; return nil }
@@ -308,6 +328,41 @@ final class APITests: XCTestCase {
         let deadline = Date().addingTimeInterval(3)
         while Date() < deadline, !delegate.lock.withLock({ delegate.clientsChanges.contains { $0.1 == 1 } }) { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertTrue(delegate.lock.withLock { delegate.clientsChanges.contains { $0.1 == 1 } })
+    }
+
+    /// Talk mode on the iPhone: the host's speech comes back on the binary channel, every piece in order, ending with
+    /// the last one; a voice the host doesn't have is an error; stopping and leaving both stop what it was saying.
+    func testSpeechComesBackInOrderAndStops() async throws {
+        let (transport, collector) = try await openClient()
+        let hello = hello(token: "t")
+        try await transport.send(.command(hello))
+        _ = await collector.reply(for: hello.id)
+
+        let request = SpeechRequest(text: "Hi, I'm Penny.", voice: "penny")
+        let speak = ClientCommand(body: .speak(request))
+        try await transport.send(.command(speak))
+        guard case .ok? = await collector.reply(for: speak.id) else { return XCTFail("expected ok") }
+        _ = await collector.wait { if case .speech(let h, _) = $0 { return h.final }; return false }
+        let pieces = await collector.speech
+        XCTAssertEqual(pieces.map(\.0.speechID), Array(repeating: request.id, count: 4))
+        XCTAssertEqual(pieces.map(\.0.final), [false, false, false, true])
+        XCTAssertEqual(pieces.map { $0.1.first ?? -1 }.prefix(3).map { ($0 * 4).rounded() }, [0, 1, 2])
+        XCTAssertEqual(pieces[0].1.count, 480)
+
+        let unknown = ClientCommand(body: .speak(SpeechRequest(text: "Hi.", voice: "nobody")))
+        try await transport.send(.command(unknown))
+        guard case .error(let code, _)? = await collector.reply(for: unknown.id) else { return XCTFail("expected an error") }
+        XCTAssertEqual(code, "voice_unavailable")
+
+        let stop = ClientCommand(body: .stopSpeaking)
+        try await transport.send(.command(stop))
+        guard case .ok? = await collector.reply(for: stop.id) else { return XCTFail("expected ok") }
+        XCTAssertEqual(delegate.lock.withLock { delegate.speechStops.count }, 1)
+
+        await transport.close()
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline, delegate.lock.withLock({ delegate.speechStops.count }) < 2 { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(delegate.lock.withLock { delegate.speechStops.count }, 2, "leaving stops it too")
     }
 
     /// A client that confirms frames gets no more than two ahead of its confirmations, so frames never pile up on a

@@ -151,6 +151,7 @@ extension TaskRuntime {
         await deps.lease.forget(taskID: id)
         await CaptureGeometryRegistry.shared.forget(taskID: id)
         await AppCaptureRegistry.shared.forget(taskID: id)
+        if task.conversationID == mainChatID { Task { await self.tidyMainChat(contextTokens: task.usage.lastContextTokens) } }
         freshScreen.remove(id)
         emptyReplies[id] = nil
         earlyAnswers[id] = nil

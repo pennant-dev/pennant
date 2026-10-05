@@ -40,19 +40,32 @@ extension TaskRuntime {
     static let maxChatThreads = 8
 
     /// What a thread the chat starts may use before it stops and reports what it has: the host's limits, but no more
-    /// than 30 steps, 45 minutes and 500k new tokens. A research thread that kept searching once burned 73 steps and
-    /// 4.1M tokens on one question. The owner can always say "keep going".
+    /// than 50 steps, 2 hours and 2M new tokens. Threads do real work (a sign-up, a booking, a long search), so the cap
+    /// leaves room for it, but not for wandering: at 100 steps two threads went far off their ask (one into the
+    /// Keychain for tokens, one building by hand what it was asked to make in a service that wasn't connected). A
+    /// check-in every 15 steps asks whether it's still on its ask. The owner can always say "keep going".
     static func chatThreadBudget(_ base: TaskBudget) -> TaskBudget {
         func capped(_ value: Int, _ cap: Int) -> Int { value > 0 ? min(value, cap) : cap }
-        return TaskBudget(maxSteps: capped(base.maxSteps, 30), maxTokens: capped(base.maxTokens, 500_000),
-                          maxDuration: base.maxDuration > 0 ? min(base.maxDuration, 45 * 60) : 45 * 60, maxDelegations: base.maxDelegations)
+        return TaskBudget(maxSteps: capped(base.maxSteps, 50), maxTokens: capped(base.maxTokens, 2_000_000),
+                          maxDuration: base.maxDuration > 0 ? min(base.maxDuration, 2 * 3600) : 2 * 3600, maxDelegations: base.maxDelegations)
     }
+
+    /// For a message the owner said out loud: the reply is read aloud to them.
+    static let spokenNote = "They said this out loud, and your reply will be read aloud to them. If you're going to use a tool, first say a few words they'll hear straight away (\"Let me check.\"), in the same reply as the tool call. Answer the way you'd say it: one to three short sentences, no lists, links, headings or code, numbers and times as people say them. If it needs more than a quick answer, say you're on it and start a thread."
 
     /// Every so many steps, long work is told to take stock.
     static let checkInEvery = 15
 
+    /// A Pennant chat reply still at work after this many steps is told to hand the rest to a thread: the owner is
+    /// waiting on the chat.
+    static let chatHandOffStep = 3
+    /// Past this many steps a chat reply runs only what steers its threads, keeps memory or hands over a file.
+    static let chatStepLimit = 5
+    static let chatAlwaysAllowed: Set<String> = ThreadTools.names.union(["memory_search", "memory_remember", "remember_instruction", "share_file"])
+    static let chatHandOffNote = "This is turning into more than a quick answer, and they're waiting on you. Hand the rest to a thread now: start_thread with what you've found so far and what's left to do, tell them in a line that it's on its way, and end your turn."
+
     static func checkInNote(steps: Int) -> String {
-        "Check-in, \(steps) steps in: take stock before going on. If your last few steps were more of the same, another one won't change the answer: finish now with what you have, or say what's blocking you."
+        "Check-in, \(steps) steps in: take stock before going on. Are you still doing what you were asked, the way you were asked? If something it needs isn't there (a connection, an account, a credential, access you weren't given), don't look for a way around it or build a substitute: stop and say what's missing. If your last few steps were more of the same, another one won't change the answer: finish now with what you have, or say what's blocking you."
     }
 
     /// Helpers still working when their parent wraps up: collected first, so finishing doesn't stop them mid-change.
@@ -191,6 +204,9 @@ extension TaskRuntime {
         \(brief)
         Decide what, if anything, to do about it. Nudge or stop work that's stuck (message_thread, stop_thread), or \
         tell the owner something they'd want to know now, in a line or two, the way you'd mention it in passing. \
+        For new email, mention only what needs them soon (a person waiting on them, something with a deadline, \
+        anything urgent), a line each; leave newsletters, notifications and receipts. Replies are drafted by the \
+        inbox runs, not now. \
         Don't remind them of something you already told them today. If nothing needs doing or saying, reply with \
         exactly \(Self.nothingToSay): they won't see this check.
         """
@@ -248,6 +264,29 @@ extension TaskRuntime {
             }
         }
         return out
+    }
+
+    /// The owner's inbox, through Microsoft 365 when it's connected.
+    static let inboxTool = "microsoft_365__mail_search"
+    static let mailCheckedKey = "heartbeat.mailCheckedAt"
+
+    /// Unread mail that arrived since the last look, as something for a heartbeat to look at; nil when there's none,
+    /// or no mail is connected. Read straight from the mailbox, without the model. The first look covers the last half
+    /// hour.
+    func newMailSignal(now: Date = Date()) async -> (key: String, text: String)? {
+        guard let tool = await deps.broker.tool(named: Self.inboxTool), let chat = try? await ensureMainChat() else { return nil }
+        let iso = ISO8601DateFormatter()
+        let since = ((try? await deps.store.setting(Self.mailCheckedKey)) ?? nil).flatMap { iso.date(from: $0) } ?? now.addingTimeInterval(-30 * 60)
+        let context = ToolContext(agentID: chat.agentID, taskID: TaskID("heartbeat-mail"), conversationID: chat.id, store: deps.store,
+                                  desktop: deps.desktop, lease: deps.lease, config: deps.config)
+        let arguments: JSONValue = ["folder": "inbox", "unread_only": true, "received_after": .string(iso.string(from: since)), "limit": 20]
+        guard let result = try? await tool.invoke(arguments, context: context), !result.isError else { return nil }
+        try? await deps.store.setSetting(Self.mailCheckedKey, value: iso.string(from: now))
+        let list = result.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let count = list.components(separatedBy: "• ").count - 1
+        guard count > 0 else { return nil }
+        let when = since.formatted(date: .omitted, time: .shortened)
+        return ("mail:\(iso.string(from: now))", "\(count) new unread email\(count == 1 ? "" : "s") in the inbox since \(when):\n\(list)")
     }
 
     /// Work with no step for this long has stopped moving.

@@ -231,8 +231,10 @@ public final class ClientState {
             var list = messages[d.conversationID] ?? []
             if let i = list.firstIndex(where: { $0.id == d.messageID }) {
                 var m = list[i]
-                if let t = d.textDelta { appendText(&m, t, reasoning: false) }
+                // An older host can send the end of the thinking and the start of the answer together: the thinking
+                // came first.
                 if let r = d.reasoningDelta { appendText(&m, r, reasoning: true) }
+                if let t = d.textDelta { appendText(&m, t, reasoning: false) }
                 if let call = d.toolCall { m.parts.append(.toolCall(call)) }
                 list[i] = m
                 messages[d.conversationID] = list

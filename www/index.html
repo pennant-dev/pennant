@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Pennant · the open-source AI agent that does the work</title>
-<meta name="description" content="Pennant is one open-source AI agent that lives on your Mac. It runs your jobs on a schedule, remembers what you told it, uses your apps, writes code and connects to the services you use, with any model, and asks before it publishes, sends, deletes or spends.">
+<meta name="description" content="Pennant is one open-source AI agent that lives on your Mac. Type to it or just talk. It runs your jobs on a schedule, remembers what you told it, uses your apps, writes code and connects to the services you use, with any model, and asks before it publishes, sends, deletes or spends.">
 <meta property="og:title" content="Pennant · the open-source AI agent that does the work">
-<meta property="og:description" content="One open-source AI agent on your Mac and iPhone. It runs your jobs on a schedule, remembers what you told it, uses your apps, writes code and connects to the services you use, with any model. Nothing is published, sent, deleted or paid for until you say so.">
+<meta property="og:description" content="One open-source AI agent on your Mac and iPhone. Type to it or just talk. It runs your jobs on a schedule, remembers what you told it, uses your apps, writes code and connects to the services you use, with any model. Nothing is published, sent, deleted or paid for until you say so.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://pennant.dev/">
 <meta property="og:image" content="https://pennant.dev/og.png">
@@ -723,6 +723,25 @@ h2{margin:0;font:800 clamp(34px,4.8vw,58px)/1.02 var(--display);letter-spacing:-
 .foot nav a:hover{color:var(--ink)}
 .foot .fine{grid-column:1/-1;margin:0;font-size:12.5px;line-height:1.6;max-width:62em}
 
+/* Talk mode */
+.talk-demo{display:grid;justify-items:center;gap:18px}
+.talk-card{width:min(420px,100%);padding:18px;border-radius:24px;background:var(--elev);border:1px solid var(--line);box-shadow:var(--shadow);display:grid;gap:12px}
+.talk-card .said{margin:0;max-width:86%;padding:10px 14px;border-radius:18px;font-size:15px;line-height:1.45}
+.talk-card .said.you{justify-self:end;background:var(--brand-soft);color:var(--ink);border-bottom-right-radius:6px}
+.talk-card .said.pen{justify-self:start;background:var(--ai);color:var(--ink);border-bottom-left-radius:6px}
+.talk-bar{margin-top:4px;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:999px;background:var(--field);font:600 13.5px/1 var(--text);color:var(--ink2)}
+.talk-bar .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
+.talk-bar .who{color:var(--ink)}
+.talk-bar .keys{margin-left:auto;font-weight:500;color:var(--ink3);white-space:nowrap}
+.wave{display:flex;align-items:center;gap:3px;height:18px}
+.wave i{display:block;width:3px;height:30%;border-radius:2px;background:var(--brand)}
+.wave i:nth-child(2){height:60%}.wave i:nth-child(3){height:90%}.wave i:nth-child(4){height:55%}.wave i:nth-child(5){height:75%}.wave i:nth-child(6){height:40%}.wave i:nth-child(7){height:65%}
+.talk-card.speaking .wave i{animation:wave .9s ease-in-out infinite alternate}
+.talk-card.speaking .wave i:nth-child(2n){animation-duration:.7s}
+.talk-card.speaking .wave i:nth-child(3n){animation-duration:1.1s}
+@keyframes wave{from{transform:scaleY(.35)}to{transform:scaleY(1)}}
+.talk-note{margin:0;font-size:13px;color:var(--ink3);text-align:center}
+
 /* Responsive */
 @media (max-width:1060px){
   .hero-grid,.jobs,.models,.phones,.open-grid,.films{grid-template-columns:minmax(0,1fr)}
@@ -785,6 +804,7 @@ h2{margin:0;font:800 clamp(34px,4.8vw,58px)/1.02 var(--display);letter-spacing:-
     <a class="brand" href="#top"><svg class="ribbon" aria-hidden="true"><use href="#ribbon"/></svg>Pennant</a>
     <div class="nav-links">
       <a href="#watch">Watch</a>
+      <a href="#talk">Talk</a>
       <a href="#jobs">Jobs</a>
       <a href="#tour">See it work</a>
       <a href="#asks">Asks first</a>
@@ -805,12 +825,12 @@ h2{margin:0;font:800 clamp(34px,4.8vw,58px)/1.02 var(--display);letter-spacing:-
     <div class="hero-copy">
       <span class="eyebrow"><svg class="ribbon" aria-hidden="true"><use href="#ribbon"/></svg>Open source · for Mac and iPhone</span>
       <h1>The AI agent that <em>does the work</em>.</h1>
-      <p class="lede">Pennant is one open-source agent that lives on your Mac. It runs your jobs on a schedule, remembers what you told it, uses your apps the way you do, writes and ships code, splits big jobs across workers and connects to the services you use, with any model you choose. <b>Anything it would publish, send, delete or pay for waits for your OK.</b></p>
+      <p class="lede">Pennant is one open-source agent that lives on your Mac. Type to it or just talk. It runs your jobs on a schedule, remembers what you told it, uses your apps the way you do, writes and ships code, splits big jobs across workers and connects to the services you use, with any model you choose. <b>Anything it would publish, send, delete or pay for waits for your OK.</b></p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.2.0/Pennant-0.2.0.dmg"><i data-ic="download"></i>Download for Mac</a>
+        <a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.3.0/Pennant-0.3.0.dmg"><i data-ic="download"></i>Download for Mac</a>
         <a class="btn btn-ghost" href="https://github.com/pennant-dev/pennant"><i data-ic="code"></i>Get the source</a>
       </div>
-      <p class="fine-line">Version 0.2.0, a preview · free · macOS 15 or later, Apple silicon or Intel</p>
+      <p class="fine-line">Version 0.3.0, a preview · free · macOS 15 or later, Apple silicon or Intel</p>
     </div>
     <div class="duo">
       <p class="clock"><span class="clock-ic"><i data-ic="moon"></i></span><b data-clock="t">1:11 AM</b><span data-clock="s">Product demo: prep split across 3 workers</span></p>
@@ -891,6 +911,33 @@ h2{margin:0;font:800 clamp(34px,4.8vw,58px)/1.02 var(--display);letter-spacing:-
         <button class="fl" role="tab" type="button" data-film="computer" aria-selected="false" tabindex="-1"><img src="assets/film/computer-thumb.jpg" alt="" width="320" height="180"><span class="t"><b>It uses your Mac, and lets go</b><span>Grab the mouse and it stops.</span></span><i class="prog"><i></i></i></button>
         <button class="fl" role="tab" type="button" data-film="code" aria-selected="false" tabindex="-1"><img src="assets/film/code-thumb.jpg" alt="" width="320" height="180"><span class="t"><b>Fix it while you sleep</b><span>Deleting anything still waits for you.</span></span><i class="prog"><i></i></i></button>
       </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="talk" aria-labelledby="talk-h">
+  <div class="wrap phones">
+    <div class="talk-demo">
+      <div class="talk-card" role="img" aria-label="Talk mode in the Pennant chat: Maya asks what's left for today, and Pennant answers aloud in Penny's voice">
+        <p class="said you">What's left for today?</p>
+        <p class="said pen">Morning, Maya. Two things need you: the Harbor launch post is ready for your yes, and Jonas asked whether shared views are live.</p>
+        <div class="talk-bar"><span class="dot"></span><span class="who">Penny</span><span class="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="keys">⇧⌘M to mute</span></div>
+      </div>
+      <button class="btn btn-ghost" id="hear-penny" type="button"><i data-ic="play"></i><span>Hear Penny</span></button>
+      <audio id="penny-clip" src="assets/penny.m4a" preload="none"></audio>
+      <p class="talk-note">Made on a Mac by Pennant Voice, exactly as Talk mode says it.</p>
+    </div>
+    <div>
+      <p class="kick">Talk mode</p>
+      <h2 id="talk-h">Talk it through, out loud.</h2>
+      <p class="lede" style="margin-left:0;text-align:left">Press the waveform in the Pennant chat and just talk. Pennant answers in a few spoken sentences, in a natural voice that runs on your Mac's own GPU. Nothing you say goes to a cloud voice.</p>
+      <ul class="checks">
+        <li><i data-ic="checkc"></i><span><b>Waits for a real pause</b>, so a breath mid-sentence doesn't send half a thought.</span></li>
+        <li><i data-ic="checkc"></i><span><b>Long answers, said short:</b> a report becomes what happened and what you need to do.</span></li>
+        <li><i data-ic="checkc"></i><span><b>Talk over it</b> to stop it, and mute yourself while it keeps going.</span></li>
+        <li><i data-ic="checkc"></i><span><b>Pick a voice:</b> Penny, Kokoro's American and British voices, or Qwen's expressive speakers.</span></li>
+        <li><i data-ic="checkc"></i><span><b>On your iPhone too.</b> Your Mac makes the voice and streams it to the phone.</span></li>
+      </ul>
     </div>
   </div>
 </section>
@@ -1131,9 +1178,9 @@ Shared views are live for every Northwind workspace from today. Priya's team can
   <div class="wrap open-grid">
     <div>
       <h2 id="open-h">Free. Open source. Yours to change.</h2>
-      <p class="lede">Pennant is about 65,000 lines of Swift: a host that runs the agent, a native Mac app, an iPhone app and a command line. No sign-up, no telemetry, no server of ours in the middle. Build it, read it, fork it.</p>
-      <div class="cta-row"><a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.2.0/Pennant-0.2.0.dmg"><i data-ic="download"></i>Download Pennant</a><a class="btn btn-ghost" href="https://github.com/pennant-dev/pennant"><i data-ic="code"></i>View on GitHub</a></div>
-      <p class="fine-line">Version 0.2.0, a preview. Signed and notarized by Apple; it updates itself once you allow it. SHA-256 <code>19b69e6a99c3de93131cbb006ecb5d02e25a437ac5341c95a7911781d22bdd65</code></p>
+      <p class="lede">Pennant is about 69,000 lines of Swift: a host that runs the agent, a native Mac app, an iPhone app and a command line. No sign-up, no telemetry, no server of ours in the middle. Build it, read it, fork it.</p>
+      <div class="cta-row"><a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.3.0/Pennant-0.3.0.dmg"><i data-ic="download"></i>Download Pennant</a><a class="btn btn-ghost" href="https://github.com/pennant-dev/pennant"><i data-ic="code"></i>View on GitHub</a></div>
+      <p class="fine-line">Version 0.3.0, a preview. Signed and notarized by Apple; it updates itself once you allow it. SHA-256 <code>5fef0320110392e120f21aa43ecd765f15f58533c955498f86ccb2c3e4813872</code></p>
       <div class="reqs"><span>macOS 15 or later</span><span>Apple silicon or Intel</span><span>Build it: Xcode 27</span><span>iPhone app: iOS 18 or later</span><span>Any OpenAI-compatible endpoint, or Ollama</span></div>
     </div>
     <div class="term">
@@ -1239,6 +1286,21 @@ Shared views are live for every Northwind workspace from today. Priya's team can
   const pav = window.PENNANT_PAV = () => `<span class="pav">${rib()}</span>`;
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   $$('[data-ic]').forEach(el => { el.outerHTML = ic(el.dataset.ic); });
+
+  /* Talk mode: Penny's voice, as a Mac makes it, when asked for. The bars move only while she speaks. */
+  const hear = $('#hear-penny'), clip = $('#penny-clip'), talkCard = $('.talk-card');
+  if (hear && clip && talkCard) {
+    const sync = () => {
+      const on = !clip.paused && !clip.ended;
+      talkCard.classList.toggle('speaking', on);
+      hear.querySelector('svg').outerHTML = ic(on ? 'pause' : 'play');
+      hear.querySelector('span').textContent = on ? 'Pause' : 'Hear Penny';
+    };
+    hear.addEventListener('click', () => { if (clip.paused) clip.play().catch(() => {}); else clip.pause(); });
+    clip.addEventListener('play', sync);
+    clip.addEventListener('pause', sync);
+    clip.addEventListener('ended', () => { clip.currentTime = 0; sync(); });
+  }
 
   /* Sunrise: while the hero holds still, the scroll runs the night into morning. The sky's layers, the screens and
      the nav follow --night, --dawn, --sun, --day and --lit; the clock names what finished at each hour. */

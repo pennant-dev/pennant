@@ -64,6 +64,7 @@ public struct ContextMeterView: View {
     var agentID: AgentID
     var hasMessages: Bool
     @State private var compacting = false
+    @State private var startingOver = false
     @State private var error: String?
 
     public init(conversationID: ConversationID?, agentID: AgentID, hasMessages: Bool) {
@@ -123,6 +124,23 @@ public struct ContextMeterView: View {
             if let error { Text(error).font(.zoomed(.caption2)).foregroundStyle(ShellPalette.danger).lineLimit(1) }
             Spacer(minLength: 0)
             Button {
+                startOver()
+            } label: {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) {
+                        if startingOver { ProgressView().controlSize(.mini) } else { Image(systemName: "arrow.counterclockwise") }
+                        Text("Start over").fixedSize()
+                    }
+                    Group {
+                        if startingOver { ProgressView().controlSize(.mini) } else { Image(systemName: "arrow.counterclockwise") }
+                    }
+                }
+                .fixedSize()
+            }
+            .buttonStyle(.pennantCompact)
+            .disabled(startingOver || conversationID == nil || !hasMessages || !session.connection.isConnected)
+            .help("Start the conversation over: Pennant won't carry anything said so far (it stays on screen). Its memory and the work in threads stay.")
+            Button {
                 compact()
             } label: {
                 ViewThatFits(in: .horizontal) {
@@ -139,6 +157,16 @@ public struct ContextMeterView: View {
             .buttonStyle(.pennantCompact)
             .disabled(compacting || conversationID == nil || !hasMessages || !session.connection.isConnected)
             .help("Save a checkpoint and shrink the model's active context. Durable state stays in memory.")
+        }
+    }
+
+    private func startOver() {
+        guard let id = conversationID else { return }
+        startingOver = true
+        error = nil
+        Task {
+            defer { startingOver = false }
+            do { try await session.startOver(id) } catch { self.error = String(describing: error) }
         }
     }
 
@@ -183,9 +211,14 @@ struct CheckpointDivider: View {
                     withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
                 } label: {
                     HStack(spacing: 4) {
-                        Image(systemName: "arrow.down.right.and.arrow.up.left")
-                        Text("Compacted · \(checkpoint.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        if checkpoint.startedOver == true {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text("Started over · \(checkpoint.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                        } else {
+                            Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            Text("Compacted · \(checkpoint.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        }
                     }
                     .font(.zoomed(.caption2))
                     .foregroundStyle(PennantTheme.inkTertiary)
@@ -193,7 +226,8 @@ struct CheckpointDivider: View {
                     .fixedSize()
                 }
                 .buttonStyle(.plain)
-                .help(expanded ? "Hide the checkpoint" : "Show what the agent kept from before this point")
+                .disabled(checkpoint.startedOver == true)
+                .help(checkpoint.startedOver == true ? "Nothing before this carried over" : expanded ? "Hide the checkpoint" : "Show what the agent kept from before this point")
                 ShellHairline()
             }
             if expanded {

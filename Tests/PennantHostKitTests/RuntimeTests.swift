@@ -1,3 +1,4 @@
+import PennantClientKit
 import PennantCore
 @testable import PennantHostKit
 import Foundation
@@ -8,6 +9,8 @@ import XCTest
 final class ScriptedProvider: InferenceProvider, @unchecked Sendable {
     struct Turn {
         var text: String = ""
+        /// Thinking streamed before the text, a word at a time.
+        var reasoning: String = ""
         var toolCalls: [ToolCall] = []
         var before: (@Sendable () async -> Void)? = nil
         var blockUntilReleased = false
@@ -76,6 +79,9 @@ final class ScriptedProvider: InferenceProvider, @unchecked Sendable {
                         }
                     } onCancel: { self.release() }
                     if Task.isCancelled { continuation.yield(.finished(.cancelled)); continuation.finish(); return }
+                }
+                for word in turn.reasoning.split(separator: " ") {
+                    continuation.yield(.reasoningDelta(String(word) + " "))
                 }
                 for word in turn.text.split(separator: " ", omittingEmptySubsequences: false) {
                     continuation.yield(.textDelta(String(word) + " "))
@@ -160,6 +166,55 @@ final class RuntimeTests: XCTestCase {
         let system = provider.requests.first?.messages.first?.text ?? ""
         XCTAssertTrue(system.contains("You are Pennant"))
         await service.stop()
+    }
+
+    /// A model that thinks before it answers: the end of its thinking and the first word of its answer go out in
+    /// separate events. Sent together, the app put that word on a line of its own until the reply ended, and Talk mode
+    /// said it as a sentence by itself.
+    func testTheAnswersFirstWordStaysWithTheRestWhileItStreams() async throws {
+        let provider = ScriptedProvider([.init(text: "Sure, the build is green and the fix is up.", reasoning: "Checking the build.")])
+        let service = try await makeService(provider)
+        let agent = try await defaultAgent(service)
+        let events = await service.eventBus.subscribe()
+        let collected = Task { () -> [HostEvent] in
+            var seen: [HostEvent] = []
+            for await event in events {
+                seen.append(event)
+                if case .messageFinalized(let m) = event.payload, m.role == .assistant { return seen }
+            }
+            return seen
+        }
+        let (_, _, taskID) = try await service.runtime.submitUserMessage(agentID: agent.id, conversationID: nil, text: "Is it done?", attachments: [])
+        _ = try await waitForTask(service, taskID, state: .completed)
+        let seen = await collected.value
+        let deltas = seen.compactMap { if case .messageDelta(let d) = $0.payload { d } else { nil } }
+        XCTAssertTrue(deltas.contains { $0.reasoningDelta != nil })
+        XCTAssertFalse(deltas.contains { $0.textDelta != nil && $0.reasoningDelta != nil })
+        // What the app shows just before the reply is finished.
+        let streamed = await MainActor.run { () -> Message? in
+            let client = ClientState()
+            for event in seen.dropLast() { client.apply(event: event) }
+            return client.messages.values.joined().first { $0.role == .assistant }
+        }
+        let message = try XCTUnwrap(streamed)
+        XCTAssertEqual(message.parts.filter { if case .text = $0 { true } else { false } }.count, 1, "\(message.parts)")
+        XCTAssertTrue(message.text.hasPrefix("Sure, the build is green"), message.text)
+        await service.stop()
+    }
+
+    /// An older host sends both together; the thinking came first.
+    @MainActor
+    func testTheAppPutsThinkingBeforeTheAnswerInOneEvent() throws {
+        let client = ClientState()
+        let message = Message(conversationID: ConversationID(), agentID: AgentID(), role: .assistant, parts: [.reasoning("Checking")], isStreaming: true)
+        func delta(_ text: String?, _ reasoning: String?) -> HostEvent {
+            HostEvent(seq: 0, payload: .messageDelta(MessageDelta(messageID: message.id, conversationID: message.conversationID, agentID: message.agentID, textDelta: text, reasoningDelta: reasoning)))
+        }
+        client.apply(event: HostEvent(seq: 1, payload: .messageAppended(message)))
+        client.apply(event: delta("Sure, ", " the build."))
+        client.apply(event: delta("the build is green.", nil))
+        let shown = try XCTUnwrap(client.messages[message.conversationID]?.first)
+        XCTAssertEqual(shown.parts, [.reasoning("Checking the build."), .text("Sure, the build is green.")])
     }
 
     func testToolLoopRecordsIntentAndOutcome() async throws {
@@ -537,8 +592,8 @@ final class RuntimeTests: XCTestCase {
     func testWorkersRunOnTheWorkerModelOrTheOneAskedFor() async throws {
         let service = try await makeService(ScriptedProvider([]))
         var config = await service.config
-        let spark = InferenceProfile(name: "Spark", inference: HostConfig.Inference(baseURL: "http://127.0.0.1:9/v1", model: "qwen"))
-        let sol = InferenceProfile(name: "Sol · Azure", inference: HostConfig.Inference(baseURL: "http://127.0.0.1:9/v1", model: "gpt"))
+        let spark = InferenceProfile(inference: HostConfig.Inference(baseURL: "http://127.0.0.1:9/v1", model: "qwen"))
+        let sol = InferenceProfile(inference: HostConfig.Inference(baseURL: "http://127.0.0.1:9/v1", model: "gpt"))
         config.inferenceProfiles += [spark, sol]
         config.workerProfileID = spark.id
         await service.runtime.updateConfig(config)
@@ -550,12 +605,12 @@ final class RuntimeTests: XCTestCase {
         try await service.store.upsertTask(parent)
 
         let plain = try await service.runtime.delegate(parentTaskID: parent.id, title: "Find selectors", objective: "o", completionCriteria: "", context: "", workerName: nil, workerRole: nil)
-        let asked = try await service.runtime.delegate(parentTaskID: parent.id, title: "Hard part", objective: "o", completionCriteria: "", context: "", workerName: nil, workerRole: nil, model: "sol · azure")
+        let asked = try await service.runtime.delegate(parentTaskID: parent.id, title: "Hard part", objective: "o", completionCriteria: "", context: "", workerName: nil, workerRole: nil, model: "gpt")
         let plainTask = try await service.store.task(plain), askedTask = try await service.store.task(asked)
         let plainAgent = try await service.store.agent(try XCTUnwrap(plainTask).agentID)
         let askedAgent = try await service.store.agent(try XCTUnwrap(askedTask).agentID)
         XCTAssertEqual(plainAgent?.modelProfileID, spark.id, "workers default to the worker model")
-        XCTAssertEqual(askedAgent?.modelProfileID, sol.id, "a model asked for by name wins")
+        XCTAssertEqual(askedAgent?.modelProfileID, sol.id, "a model asked for by its name wins")
         do {
             _ = try await service.runtime.delegate(parentTaskID: parent.id, title: "x", objective: "o", completionCriteria: "", context: "", workerName: nil, workerRole: nil, model: "nope")
             XCTFail("an unknown model must be refused")

@@ -99,7 +99,7 @@ struct AppClickTool: Tool {
 struct AppTypeTool: Tool {
     let spec = ToolSpec(
         name: "app_type",
-        description: "Type text into an app's focused field in the background (put the caret there first with app_click). The owner's keyboard is untouched. Newlines don't submit a form: use app_press_key with return.",
+        description: "Type text into an app in the background: into its focused field (put the caret there first with app_click), or as keys for an app you drive by keyboard (Calculator takes \"100*47=\"). The owner's keyboard is untouched. Newlines don't submit a form: use app_press_key with return.",
         inputSchema: JSONSchema.object([
             "app": AppTools.appParameter,
             "text": JSONSchema.string("The text to type"),

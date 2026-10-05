@@ -3,8 +3,8 @@ import Foundation
 
 /// Pennant's heartbeat. Every so often (Settings › Pennant › Heartbeat) it looks over the work without the model:
 /// the goal sessions that are due start (a goal needs no schedule of its own), and when something needs a look (work
-/// that stopped moving, a question or draft left waiting for hours), Pennant takes one turn in its chat to nudge,
-/// stop or tell. A beat with nothing in it costs nothing, and Pennant's turns are capped per day.
+/// that stopped moving, a question or draft left waiting for hours, new unread mail), Pennant takes one turn in its
+/// chat to nudge, stop or tell. A beat with nothing in it costs nothing, and Pennant's turns are capped per day.
 public actor Heartbeat {
     /// What one beat did, for the log and the tests.
     public struct Beat: Sendable {
@@ -63,9 +63,10 @@ public actor Heartbeat {
         let started = await scheduler.runDueGoalJobs(now: now) { job in await runtime.goalWaitsOnOwner(job) }
         beat.goalSessions = started.map(\.name)
 
-        let fresh = await runtime.heartbeatSignals(now: now).filter { signal in
+        var fresh = await runtime.heartbeatSignals(now: now).filter { signal in
             raised[signal.key].map { now.timeIntervalSince($0) > Self.raiseAgainAfter } ?? true
         }
+        if settings.checksMail != false, let mail = await runtime.newMailSignal(now: now) { fresh.append(mail) }
         beat.signals = fresh.map(\.text)
         if !fresh.isEmpty {
             let day = Self.day(now)

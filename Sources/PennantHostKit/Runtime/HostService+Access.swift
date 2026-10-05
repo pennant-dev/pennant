@@ -145,6 +145,14 @@ extension HostService {
         return StateSnapshot(host: await hostInfo(), agents: agents, tasks: tasks, conversations: conversations, desktop: await desktopStatus(), mcpServers: await mcp.allStatuses(), latestEventSeq: (try? await store.latestEventSeq()) ?? 0, schedules: (try? await store.listSchedules()) ?? [], goals: (try? await store.listGoals()) ?? [])
     }
 
+    public func speak(_ request: SpeechRequest, connection: UUID, send: @escaping VoiceService.Sink) async throws {
+        try await voices.speak(request, connection: connection, send: send)
+    }
+
+    public func stopSpeaking(connection: UUID) async {
+        await voices.stop(connection: connection)
+    }
+
     public func screenFrames(options: ScreenStreamOptions) async -> AsyncStream<(ScreenFrameHeader, Data)> {
         let source = desktop.screenStream(options: options)
         let lease = self.lease

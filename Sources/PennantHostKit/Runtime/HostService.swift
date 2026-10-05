@@ -149,6 +149,8 @@ public actor HostService: HostAPIDelegate {
     /// Teammates who sign in with Microsoft, Google or GitHub, and who may join.
     public let people: PeopleService
     public let push: PushService
+    /// Talk mode's natural voices, made here for devices that can't run them.
+    public let voices = VoiceService(executable: VoiceService.bundledExecutable)
     var api: HostAPIServer?
     /// The host's certificate for the encrypted port.
     private var tls: HostTLSIdentity?

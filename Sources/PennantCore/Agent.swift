@@ -62,6 +62,9 @@ public struct AgentProfile: Hashable, Codable, Sendable, Identifiable {
     public var modelProfileID: String?
     /// Reasoning effort for this agent ("low", "medium", "high"); nil: the profile's or the host's.
     public var reasoningEffort: String?
+    /// Reasoning effort for its replies in the Pennant chat, which answers quickly and leaves long work to threads;
+    /// nil: low.
+    public var chatReasoningEffort: String?
     /// MCP servers whose tools this agent always sees. Others load when it calls `find_tools`.
     public var alwaysLoadedServers: [MCPServerID]?
 

@@ -68,21 +68,57 @@ extension TaskRuntime {
         }
         let contextTokens = output.estimatedTokens
         // The inspector shows Pennant's own turns, not a coding run's.
-        if coding == nil { lastInspections[agent.id] = inspection(agent: agent, context: output, specs: specs, services: services, model: model, isPreview: false) }
+        if coding == nil { lastInspections[agent.id] = inspection(agent: agent, context: output, specs: specs, services: services, model: model, isPreview: false, inChat: board != nil) }
         let updated = try await updateTask(task.id) { $0.usage.lastContextTokens = contextTokens; $0.usage.contextWindowTokens = window }
         await publish(.taskUpserted(updated))
         return (output, specs)
     }
 
-    /// Fold a conversation's history into a checkpoint now. Works whether or not a task is running:
-    /// a running loop reads the newest checkpoint on its next step.
-    public func compactConversation(_ conversationID: ConversationID) async throws -> TaskRecord {
+    /// The most the Pennant chat's prompt may take: it goes with every reply, so a long history slows every reply.
+    /// Past it, older turns fold into the chat's running summary; the threads keep the details. (Tests shorten both.)
+    nonisolated(unsafe) static var chatContextBudget = 20_000
+    /// Messages the chat keeps word for word when it folds the rest.
+    nonisolated(unsafe) static var chatKeepsRecent = 8
+
+    /// After a chat reply whose prompt took `contextTokens`: past the budget, all but the chat's last few messages
+    /// fold into its summary now, so the next reply starts small and nobody waits on the summary.
+    func tidyMainChat(contextTokens: Int) async {
+        guard let chatID = mainChatID, !tidyingChat, contextTokens > Self.chatContextBudget else { return }
+        tidyingChat = true
+        defer { tidyingChat = false }
+        do {
+            _ = try await compactConversation(chatID, keepingRecent: Self.chatKeepsRecent, quietly: true)
+        } catch {
+            log.warn("Couldn't fold the Pennant chat's history: \(error)", category: "compaction")
+        }
+    }
+
+    /// Fold a conversation's history into a checkpoint now, all of it or all but its last `keepingRecent` messages.
+    /// Works whether or not a task is running: a running loop reads the newest checkpoint on its next step.
+    /// Start the conversation over, at the owner's word: a reply in progress stops, and a checkpoint with nothing in it
+    /// marks the place, so nothing said before reaches the model again. The messages stay on screen; memory and
+    /// threads are untouched.
+    public func startOver(_ conversationID: ConversationID) async throws {
+        guard let conversation = try await deps.store.conversation(conversationID) else { throw ToolError.failed("Conversation not found") }
+        let tasks = try await deps.store.listTasks(agentID: conversation.agentID, includeFinished: true).filter { $0.conversationID == conversationID }
+        for task in tasks where !task.state.isTerminal { try? await cancelTask(task.id, reason: "Started over") }
+        let messages = try await deps.store.messagesAfter(conversationID: conversationID, after: nil, limit: 100_000)
+        guard let last = messages.last, let task = tasks.max(by: { $0.updatedAt < $1.updatedAt }) else { return }
+        let checkpoint = Checkpoint(taskID: task.id, conversationID: conversationID, agentID: conversation.agentID, objective: "",
+                                    throughMessageID: last.id, startedOver: true)
+        try await deps.store.saveCheckpoint(checkpoint)
+        await publish(.checkpointSaved(checkpoint))
+        log.info("Started conversation \(conversationID) over", category: "compaction")
+    }
+
+    public func compactConversation(_ conversationID: ConversationID, keepingRecent: Int = 0, quietly: Bool = false) async throws -> TaskRecord {
         guard let conversation = try await deps.store.conversation(conversationID), let agent = try await deps.store.agent(conversation.agentID) else { throw ToolError.failed("Conversation not found") }
         let tasks = try await deps.store.listTasks(agentID: conversation.agentID, includeFinished: true).filter { $0.conversationID == conversationID }
         guard let task = tasks.first(where: { !$0.state.isTerminal }) ?? tasks.max(by: { $0.updatedAt < $1.updatedAt }) else { throw ToolError.failed("Nothing to compact yet") }
         let previous = try await deps.store.latestCheckpoint(conversationID: conversationID)
         let messages = try await deps.store.messagesAfter(conversationID: conversationID, after: previous?.throughMessageID, limit: 4000)
-        guard let last = messages.last else { return task }
+        guard messages.count > keepingRecent else { return task }
+        let last = messages[messages.count - 1 - keepingRecent]
         if previous?.throughMessageID == last.id { return task }
         let preferences = (try? await deps.memory.governingPreferences(for: agent)) ?? []
         let specs = await deps.broker.specs(for: agent)
@@ -109,7 +145,11 @@ extension TaskRuntime {
             $0.usage.contextWindowTokens = window
         }
         await publish(.taskUpserted(updated))
-        await publish(.notice(level: .info, agentID: agent.id, text: "Compacted the conversation: about \(before.estimatedTokens) → \(after.estimatedTokens) tokens."))
+        if quietly {
+            log.info("Folded the Pennant chat's history: about \(before.estimatedTokens) → \(after.estimatedTokens) tokens", category: "compaction")
+        } else {
+            await publish(.notice(level: .info, agentID: agent.id, text: "Compacted the conversation: about \(before.estimatedTokens) → \(after.estimatedTokens) tokens."))
+        }
         return updated
     }
 

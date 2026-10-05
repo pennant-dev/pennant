@@ -114,6 +114,7 @@ public struct AgentEditorView: View {
     @State private var defaultName: String?
     /// "low", "medium", "high"; nil is the model's own setting.
     @State private var effort: String?
+    @State private var chatEffort: String?
     @State private var alwaysLoaded: Set<MCPServerID>
     @State private var profiles: [InferenceProfile] = []
 
@@ -135,6 +136,7 @@ public struct AgentEditorView: View {
         _tools = State(initialValue: Set(agent.toolAllowlist))
         _modelProfileID = State(initialValue: agent.modelProfileID)
         _effort = State(initialValue: agent.reasoningEffort)
+        _chatEffort = State(initialValue: agent.chatReasoningEffort)
         _alwaysLoaded = State(initialValue: Set(agent.alwaysLoadedServers ?? []))
     }
 
@@ -271,6 +273,12 @@ public struct AgentEditorView: View {
         ChoiceOption<String?>("high", title: "High"),
     ]
 
+    private static let chatEffortOptions: [ChoiceOption<String?>] = [
+        ChoiceOption<String?>(nil, title: "Low"),
+        ChoiceOption<String?>("medium", title: "Medium"),
+        ChoiceOption<String?>("high", title: "High"),
+    ]
+
     private var connectedServers: [MCPServerStatus] {
         session.state.mcpServers.filter { $0.config.enabled }.sorted { $0.config.name < $1.config.name }
     }
@@ -290,6 +298,15 @@ public struct AgentEditorView: View {
                 Text("Higher effort thinks longer before acting: slower, but better at multi-step work. Applies to reasoning models (GPT-5 family, o-series, DeepSeek R, Qwen thinking).")
                     .font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            if existing.kind == .persistent {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Reasoning effort in the chat").font(.zoomed(.subheadline)).foregroundStyle(PennantTheme.inkSecondary)
+                    ChipRow(selection: $chatEffort, options: Self.chatEffortOptions)
+                    Text("The chat answers quickly and hands longer work to threads, which use the effort above.")
+                        .font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if !connectedServers.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
@@ -402,6 +419,7 @@ public struct AgentEditorView: View {
     private func applyModel(to agent: inout AgentProfile) {
         agent.modelProfileID = modelProfileID
         agent.reasoningEffort = effort
+        agent.chatReasoningEffort = chatEffort
         let known = Set(connectedServers.map(\.id))
         // Keep choices for servers that are offline right now; drop none silently.
         let kept = (agent.alwaysLoadedServers ?? []).filter { !known.contains($0) }

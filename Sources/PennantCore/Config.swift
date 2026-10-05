@@ -267,6 +267,8 @@ public struct HostConfig: Hashable, Codable, Sendable {
         public var intervalMinutes: Int
         /// The most turns Pennant takes on heartbeats in a day.
         public var maxTurnsPerDay: Int
+        /// Each beat looks for unread mail that arrived since the last one (Microsoft 365, when it's connected); nil: on.
+        public var checksMail: Bool?
 
         public init(enabled: Bool = true, intervalMinutes: Int = 30, maxTurnsPerDay: Int = 48) {
             self.enabled = enabled
@@ -432,22 +434,21 @@ public struct HostConfig: Hashable, Codable, Sendable {
     }
 
     /// A profile by id, else by name (any case): what someone typed or a model was asked for by.
+    /// A profile by its id, its name, or the model as its provider names it ("gpt-6-sol").
     public func profile(matching idOrName: String?) -> InferenceProfile? {
         guard let key = idOrName?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else { return nil }
         return profile(key) ?? inferenceProfiles.first { $0.name.caseInsensitiveCompare(key) == .orderedSame }
+            ?? inferenceProfiles.first { $0.inference.model.caseInsensitiveCompare(key) == .orderedSame }
     }
 
     /// The default model's profile.
     public var defaultProfile: InferenceProfile? { profile(defaultProfileID) }
 
-    /// Brings `self` (a config a client sent) in line with the model rules against the config it replaces: a new
-    /// default profile, or an edited one, drives `inference`; an `inference` edited directly (older clients) is
-    /// written back into the default profile.
-    public mutating func reconcileModels(previous old: HostConfig) {
-        let defaultChanged = defaultProfileID != old.defaultProfileID || defaultProfile?.inference != old.defaultProfile?.inference
-        if !defaultChanged, inference != old.inference, let i = inferenceProfiles.firstIndex(where: { $0.id == defaultProfileID }) {
-            inferenceProfiles[i].inference = inference
-        }
+    /// Brings `self` (a config a client sent) in line with the model rules: the default profile drives `inference`.
+    /// An `inference` edited on its own is overwritten, never copied into a profile. A client's stale copy (an earlier
+    /// model, sent along with a new default) once rewrote the default profile that way: "DeepSeek" ran a small local
+    /// model under DeepSeek's name.
+    public mutating func reconcileModels() {
         normalizeModels()
     }
 
@@ -460,7 +461,7 @@ public struct HostConfig: Hashable, Codable, Sendable {
             if let match = inferenceProfiles.first(where: { $0.matches(inference) }) {
                 defaultProfileID = match.id
             } else {
-                let p = InferenceProfile(name: InferenceProfile.suggestedName(for: inference), inference: inference)
+                let p = InferenceProfile(inference: inference)
                 inferenceProfiles.insert(p, at: 0)
                 defaultProfileID = p.id
             }
@@ -495,20 +496,44 @@ public struct CodingProject: Hashable, Codable, Sendable, Identifiable {
 }
 
 /// A saved inference setup: everything the host needs to run one model (provider, endpoint, key, model,
-/// window, output cap, capability flags) under a name the user chose. Applying one replaces
-/// `HostConfig.inference` whole.
+/// window, output cap, capability flags). Applying one replaces `HostConfig.inference` whole.
 public struct InferenceProfile: Hashable, Codable, Sendable, Identifiable {
     public var id: String
-    public var name: String
     public var inference: HostConfig.Inference
     /// What its tokens cost, for the usage dashboard. Nil: unknown (tokens are still counted).
     public var pricing: ModelPricing?
 
-    public init(id: String = UUID().uuidString, name: String, inference: HostConfig.Inference, pricing: ModelPricing? = nil) {
+    public init(id: String = UUID().uuidString, inference: HostConfig.Inference, pricing: ModelPricing? = nil) {
         self.id = id
-        self.name = name
         self.inference = inference
         self.pricing = pricing
+    }
+
+    /// What it's called everywhere: the model as its provider names it, where it runs, and how hard it thinks when
+    /// that's set ("DeepSeek-V4.1-Flash · Azure my-ai-resource · medium"). Never typed in: a name kept apart from
+    /// the settings once said one model while the settings ran another.
+    public var name: String {
+        let base = Self.suggestedName(for: inference)
+        return inference.reasoningEffort.map { "\(base) · \($0)" } ?? base
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, inference, pricing }
+
+    /// A name stored by an older version is ignored: it's worked out from the settings.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        inference = try c.decode(HostConfig.Inference.self, forKey: .inference)
+        pricing = try c.decodeIfPresent(ModelPricing.self, forKey: .pricing)
+    }
+
+    /// The name goes out too, for apps from before it was worked out.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(inference, forKey: .inference)
+        try c.encodeIfPresent(pricing, forKey: .pricing)
     }
 
     /// The prices to bill with: the ones set, else "included" for subscription accounts and local models.

@@ -6,7 +6,7 @@ import Foundation
 
 extension TaskRuntime {
     /// Takes one turn's context apart.
-    func inspection(agent: AgentProfile, context: ContextBuilder.Output, specs: [ToolSpec], services: [ContextBuilder.Service], model: ModelChoice, isPreview: Bool) -> PromptInspection {
+    func inspection(agent: AgentProfile, context: ContextBuilder.Output, specs: [ToolSpec], services: [ContextBuilder.Service], model: ModelChoice, isPreview: Bool, inChat: Bool) -> PromptInspection {
         let system = context.messages.first { $0.role == .system }?.text ?? ""
         let history = context.messages.filter { $0.role != .system }
         let tools = specs.map { spec in
@@ -22,7 +22,7 @@ extension TaskRuntime {
             agentName: agent.name,
             isPreview: isPreview,
             model: model.label,
-            reasoningEffort: agent.reasoningEffort ?? model.reasoningEffort,
+            reasoningEffort: inChat ? Self.chatEffort(agent: agent, model: model) : agent.reasoningEffort ?? model.reasoningEffort,
             sections: Self.sections(of: system),
             // The per-turn context note goes at the end of every request; it isn't conversation history.
             historyMessages: history.filter { !$0.text.hasPrefix("[Context for this turn]") }.count,
@@ -72,6 +72,6 @@ extension TaskRuntime {
             ContextBuilder.Input(agent: agent, task: task, config: deps.config, preferences: preferences, memoryHits: [], skills: [], checkpoint: checkpoint, messages: messages, toolSpecs: specs, desktopStatus: DesktopStatus(), runtimeNotes: [], artifactLoader: loader, services: services),
             estimator: { provider.estimateTokens($0, tools: $1) }
         )
-        return inspection(agent: agent, context: output, specs: specs, services: services, model: model, isPreview: true)
+        return inspection(agent: agent, context: output, specs: specs, services: services, model: model, isPreview: true, inChat: await inMainChat(task))
     }
 }

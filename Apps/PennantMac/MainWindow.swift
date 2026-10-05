@@ -44,6 +44,7 @@ struct MainWindow: View {
     @State private var showComputer = AppSettings.showComputerPanel
     /// The model switcher opened from the sidebar's host row.
     @State private var showModels = false
+    @State private var showMore = false
     /// The teach-mode review sheet, shown when a demonstration stops.
     @State private var showTeachingReview = false
     /// The agent whose prompt the inspector shows.
@@ -227,29 +228,33 @@ struct MainWindow: View {
                 }
                 .buttonStyle(.plain)
             }
-            moreMenu
+            moreRow
+            // Used often enough to have its own row.
+            Button { openSettings() } label: {
+                UtilityRowLabel(title: "Settings", symbol: "gearshape", selected: false)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
     }
 
-    /// The rest of the sections and Settings, in one row. It shows the section it opened.
-    private var moreMenu: some View {
+    /// The rest of the sections, in a panel like the model's. The row shows the section it opened.
+    private var moreRow: some View {
         let current = section.flatMap { SidebarSection.more.contains($0) ? $0 : nil }
-        return Menu {
-            ForEach(SidebarSection.more) { s in
-                if s == .approvals { Divider() }
-                Button { section = s } label: { Label(s.title, systemImage: s.symbol) }
-            }
-            Divider()
-            Button { openWindow(id: "conversations") } label: { Label("Conversations…", systemImage: "bubble.left.and.bubble.right") }
-            Button("Settings…") { openSettings() }
-        } label: {
-            UtilityRowLabel(title: current?.title ?? "More", symbol: current?.symbol ?? "ellipsis.circle", selected: current != nil)
+        return Button { showMore.toggle() } label: {
+            UtilityRowLabel(title: current?.title ?? "More", symbol: current?.symbol ?? "ellipsis.circle", selected: current != nil || showMore)
         }
-        .menuStyle(.button)
         .buttonStyle(.plain)
-        .menuIndicator(.hidden)
+        .popover(isPresented: $showMore, arrowEdge: .trailing) {
+            MorePanel(current: current) { choice in
+                showMore = false
+                switch choice {
+                case .section(let s): section = s
+                case .conversations: openWindow(id: "conversations")
+                }
+            }
+        }
     }
 
     /// Who we are talking to: the host and the model behind it.
@@ -695,5 +700,54 @@ private struct UtilityRowLabel: View {
         .background(selected ? PennantTheme.selection : (hovering ? PennantTheme.hover : .clear), in: RoundedRectangle(cornerRadius: PennantTheme.radiusSmall, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: PennantTheme.radiusSmall, style: .continuous))
         .onHover { hovering = $0 }
+    }
+}
+
+/// Sidebar › More: the sections used now and then, each with a line on what's there, in a panel like the model's.
+private struct MorePanel: View {
+    enum Choice { case section(SidebarSection), conversations }
+    var current: SidebarSection?
+    var choose: (Choice) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("More").font(.zoomed(.headline)).foregroundStyle(PennantTheme.ink)
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(SidebarSection.more) { s in
+                    row(s.title, Self.detail(s), symbol: s.symbol, selected: current == s) { choose(.section(s)) }
+                }
+            }
+            Rectangle().fill(PennantTheme.divider).frame(height: 1)
+            row("Conversations", "Every conversation, in a window of its own", symbol: "bubble.left.and.bubble.right", selected: false) { choose(.conversations) }
+        }
+        .padding(14)
+        .frame(width: 320)
+        .background(PennantTheme.windowBackground)
+    }
+
+    private func row(_ title: String, _ detail: String, symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        SelectableRow(selected: selected, action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol).font(.zoomed(.callout)).foregroundStyle(PennantTheme.inkSecondary).frame(width: 20)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.zoomed(.callout).weight(.medium)).foregroundStyle(PennantTheme.ink)
+                    Text(detail).font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkTertiary).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "checkmark").font(.zoomed(.caption).weight(.semibold)).foregroundStyle(PennantTheme.brandInk).opacity(selected ? 1 : 0)
+            }
+        }
+    }
+
+    static func detail(_ section: SidebarSection) -> String {
+        switch section {
+        case .library: return "Images, videos and files kept for the work"
+        case .vault: return "Keys and passwords Pennant may use"
+        case .usage: return "What each model and job has cost"
+        case .connections: return "The services Pennant is connected to"
+        case .diagnostics: return "How the host is doing"
+        case .approvals: return "Every card you've decided"
+        default: return ""
+        }
     }
 }

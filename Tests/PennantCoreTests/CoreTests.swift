@@ -23,7 +23,7 @@ final class CoreTests: XCTestCase {
 
         let cmd = ClientCommand(body: .sendMessage(agentID: agent.id, conversationID: nil, text: "hi", attachments: []))
         let back2 = try WireMessage.decode(try WireMessage.command(cmd).encoded())
-        guard case .command(let c) = back2, case .sendMessage(let id, _, let text, _) = c.body else { return XCTFail() }
+        guard case .command(let c) = back2, case .sendMessage(let id, _, let text, _, _) = c.body else { return XCTFail() }
         XCTAssertEqual(id, agent.id)
         XCTAssertEqual(text, "hi")
 

@@ -2,8 +2,8 @@ import PennantClientKit
 import PennantCore
 import SwiftUI
 
-/// Settings › Pennant › Heartbeat: whether Pennant checks in on its own, how often, and how many times a day it may
-/// stop to think about what it found.
+/// Settings › Pennant › Heartbeat: whether Pennant checks in on its own, how often, whether it looks at new email,
+/// and how many times a day it may stop to think about what it found.
 public struct HeartbeatSettings: View {
     @Environment(\.hostSession) private var session
     @State private var heartbeat = HostConfig.Heartbeat()
@@ -30,8 +30,10 @@ public struct HeartbeatSettings: View {
                 }
             }
             .disabled(!heartbeat.enabled)
+            Toggle("Check email on each check-in", isOn: Binding(get: { heartbeat.checksMail != false }, set: { heartbeat.checksMail = $0 }))
+                .disabled(!heartbeat.enabled)
             Text(heartbeat.enabled
-                 ? "Each check looks over your threads and goals without the model, and starts a goal's next session when it's due, so goals don't need schedules. Pennant only stops to think, and only costs anything, when something needs a look: work that stopped moving, or something left waiting on you. Then it nudges the work or tells you in the chat."
+                 ? "Each check looks over your threads and goals without the model, and starts a goal's next session when it's due, so goals don't need schedules. Pennant only stops to think, and only costs anything, when something needs a look: work that stopped moving, something left waiting on you, or new unread email (Microsoft 365). Then it nudges the work, or tells you in the chat about what needs you; routine mail stays quiet."
                  : "Off: goals run on their own schedules, and Pennant only works when you ask or a schedule fires.")
                 .font(.zoomed(.caption))
                 .foregroundStyle(PennantTheme.inkSecondary)

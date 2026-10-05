@@ -11,9 +11,10 @@ extension TaskRuntime {
         await publish(.messageAppended(message))
         var model = await currentModel(task: task, agent: agent)
         let skillEffort = await skillEffort(task: task)
+        let inChat = await inMainChat(task)
         func request(for model: ModelChoice) -> InferenceRequest {
             InferenceRequest(messages: context.messages, tools: specs, maxOutputTokens: model.maxOutputTokens, temperature: deps.config.inference.temperature,
-                             reasoningEffort: Self.raise(agent.reasoningEffort ?? model.reasoningEffort, to: skillEffort))
+                             reasoningEffort: inChat ? Self.chatEffort(agent: agent, model: model) : Self.raise(agent.reasoningEffort ?? model.reasoningEffort, to: skillEffort))
         }
         var response = InferenceResponse()
         var attempt = 0
@@ -139,6 +140,11 @@ extension TaskRuntime {
     }
 
     private func bufferDelta(_ message: Message, text: String?, reasoning: String?, task: TaskRecord) async {
+        // Thinking and answer go out in separate events, in the order they came: one event carrying the end of the
+        // thinking and the first word of the answer would leave that word on a line of its own until the message ends.
+        if let pending = deltaBuffers[message.id], text != nil ? !pending.reasoning.isEmpty : !pending.text.isEmpty {
+            await flushDelta(message.id, task: task, toolCall: nil)
+        }
         var buf = deltaBuffers[message.id] ?? ("", "")
         if let text { buf.text += text }
         if let reasoning { buf.reasoning += reasoning }

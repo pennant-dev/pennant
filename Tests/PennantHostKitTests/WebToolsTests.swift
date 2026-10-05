@@ -13,7 +13,8 @@ final class FakeBrowser: BrowserLinking, @unchecked Sendable {
         if action == "open", let u = params["url"]?.stringValue { lock.withLock { url = u } }
         let tab = JSONValue.number(params["tab"]?.doubleValue ?? 7)
         return .object(["tab": tab, "title": .string("A page"), "url": .string(lock.withLock { url }), "did": .string("Clicked the button “Go”."),
-                        "text": .string("Hello"), "elements": .array([.object(["ref": .number(1), "kind": .string("button"), "label": .string("Go")])])])
+                        "text": .string("Hello"), "elements": .array([.object(["ref": .number(1), "kind": .string("button"), "label": .string("Go")]),
+                                               .object(["ref": .number(2), "kind": .string("link"), "label": .string("Pricing"), "href": .string("https://example.com/pricing")])])])
     }
 }
 
@@ -95,6 +96,7 @@ final class WebToolsTests: XCTestCase {
         _ = try await tool("web_open", browser, sites).invoke(["url": "https://example.com/"], context: ctx)
         let read = try await tool("web_read", browser, sites).invoke([:], context: ctx)
         XCTAssertTrue(read.textContent.contains("[1] button “Go”"), read.textContent)
+        XCTAssertTrue(read.textContent.contains("[2] link “Pricing” → https://example.com/pricing"), "links say where they go, for web_open")
         let clicked = try await tool("web_click", browser, sites).invoke(["element": 1], context: ctx)
         XCTAssertTrue(clicked.textContent.hasPrefix("Clicked the button “Go”."), clicked.textContent)
         let click = try XCTUnwrap(browser.asked.last)
@@ -107,10 +109,11 @@ final class WebToolsTests: XCTestCase {
         } catch ToolError.invalidArguments {}
     }
 
-    func testTheWebToolsAreAThreadsAndNeedNoScreen() async throws {
+    /// Pennant's Chrome tabs never touch the owner's screen, so the chat has all of them.
+    func testTheChatHasEveryWebToolAndNoneNeedTheScreen() async throws {
         for t in WebTools.all(link: FakeBrowser(), sites: ChromeSites(folder: folder)) {
             XCTAssertFalse(t.spec.needsDesktop, t.spec.name)
-            XCTAssertTrue(TaskRuntime.notInChat.contains(t.spec.name), t.spec.name)
+            XCTAssertTrue(TaskRuntime.chatTools.contains(t.spec.name), t.spec.name)
         }
         XCTAssertEqual(WebTools.names.count, WebTools.all(link: FakeBrowser(), sites: ChromeSites(folder: folder)).count)
     }
