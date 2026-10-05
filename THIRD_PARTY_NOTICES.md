@@ -39,6 +39,10 @@ The natural voices aren't shipped with the app. The Mac downloads them from Hugg
 | [Qwen/Qwen3-TTS](https://huggingface.co/Qwen), as [mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit) (Penny, cloned from `Apps/PennantVoice/penny.wav`, which Kokoro made), [mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16) and, for `Pennant Voice speak --ref-audio`, [mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16) | Apache 2.0 |
 | [openai/whisper-large-v3-turbo](https://huggingface.co/openai/whisper-large-v3-turbo), as [mlx-community/whisper-large-v3-turbo](https://huggingface.co/mlx-community/whisper-large-v3-turbo), for `Pennant Voice transcribe` | MIT |
 
+## The website
+
+pennant.dev serves its own copies of [IBM Plex Sans and IBM Plex Mono](https://github.com/IBM/plex) (`www/assets/fonts`), under the SIL Open Font License 1.1, whose text is in `www/assets/fonts/OFL.txt`. No font service sees the site's visitors.
+
 ## Brand marks
 
 The service logos in `Sources/PennantUI/Resources/BrandIcons.xcassets` come from [Simple Icons](https://simpleicons.org) (CC0 1.0), fetched by `Scripts/fetch-brand-icons.swift`. The marks themselves remain the trademarks of their owners. Pennant uses them only to show which service a connection talks to; it does not imply any endorsement or affiliation.

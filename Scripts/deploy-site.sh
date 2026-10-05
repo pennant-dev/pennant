@@ -39,13 +39,16 @@ aws s3 sync www/ "$S3/" --delete --exclude ".deploy.env" --exclude "README.md" -
   --cache-control "public, max-age=300" --only-show-errors
 echo "→ Pictures and films (long cache)"
 LONG="public, max-age=604800"
-aws s3 sync www/assets/ "$S3/assets/" --delete --exclude ".DS_Store" --exclude "*.avif" --exclude "*.m4a" --cache-control "$LONG" --only-show-errors
+aws s3 sync www/assets/ "$S3/assets/" --delete --exclude ".DS_Store" --exclude "*.avif" --exclude "*.m4a" --exclude "*.woff2" --cache-control "$LONG" --only-show-errors
 # Not every CLI knows AVIF, and a picture served as octet-stream doesn't show.
 aws s3 sync www/assets/ "$S3/assets/" --delete --exclude "*" --include "*.avif" --content-type image/avif \
   --cache-control "$LONG" --only-show-errors
 # The CLI calls .m4a audio/mp4a-latm, which Safari won't play with nosniff. Copied every time (they're small), so a
 # clip already up gets its type corrected too.
 aws s3 cp www/assets/ "$S3/assets/" --recursive --exclude "*" --include "*.m4a" --content-type audio/mp4 \
+  --cache-control "$LONG" --only-show-errors
+# Fonts are the site's own (no font service sees visitors), served as what they are.
+aws s3 cp www/assets/ "$S3/assets/" --recursive --exclude "*" --include "*.woff2" --content-type font/woff2 \
   --cache-control "$LONG" --only-show-errors
 
 if [[ -z "$SITE_ONLY" ]]; then
