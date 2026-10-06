@@ -257,6 +257,9 @@ public struct HostConfig: Hashable, Codable, Sendable {
     /// Pennant asks on a card before it first uses a site in the owner's Chrome. Off: it uses any site; sending,
     /// publishing, deleting and paying still stop for the owner's OK.
     public var chromeAsksForNewSites = false
+    /// Claude Code's skills (the owner's own and their enabled plugins') linked into Pennant and kept in step with
+    /// the files. Off: Pennant has only its own skills.
+    public var claudeCodeSkills = false
 
     /// Every so often the host looks over Pennant's work without the model: it starts the goal sessions that are due
     /// (goals need no schedules of their own) and, when something needs a look (work that stopped moving, a question
@@ -380,7 +383,7 @@ public struct HostConfig: Hashable, Codable, Sendable {
         self.workingDirectory = workingDirectory
     }
 
-    private enum CodingKeys: String, CodingKey { case mode, inference, inferenceProfiles, defaultProfileID, fallbackProfileIDs, fallbackProfileID, workerProfileID, houseRules, embeddings, api, desktop, compaction, mcpServers, defaultBudget, workingDirectory, autoCloseIdleDays, coding, heartbeat, chromeAsksForNewSites }
+    private enum CodingKeys: String, CodingKey { case mode, inference, inferenceProfiles, defaultProfileID, fallbackProfileIDs, fallbackProfileID, workerProfileID, houseRules, embeddings, api, desktop, compaction, mcpServers, defaultBudget, workingDirectory, autoCloseIdleDays, coding, heartbeat, chromeAsksForNewSites, claudeCodeSkills }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -404,6 +407,7 @@ public struct HostConfig: Hashable, Codable, Sendable {
         coding = try c.decodeIfPresent(Coding.self, forKey: .coding)
         heartbeat = try c.decodeIfPresent(Heartbeat.self, forKey: .heartbeat) ?? Heartbeat()
         chromeAsksForNewSites = try c.decodeIfPresent(Bool.self, forKey: .chromeAsksForNewSites) ?? false
+        claudeCodeSkills = try c.decodeIfPresent(Bool.self, forKey: .claudeCodeSkills) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -426,6 +430,7 @@ public struct HostConfig: Hashable, Codable, Sendable {
         try c.encodeIfPresent(coding, forKey: .coding)
         try c.encode(heartbeat, forKey: .heartbeat)
         try c.encode(chromeAsksForNewSites, forKey: .chromeAsksForNewSites)
+        try c.encode(claudeCodeSkills, forKey: .claudeCodeSkills)
     }
 
     // MARK: Models

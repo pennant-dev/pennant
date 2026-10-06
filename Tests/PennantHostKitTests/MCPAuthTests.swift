@@ -167,6 +167,8 @@ final class FakeAuthServer: @unchecked Sendable {
     var scopesSupported = ["read", "write"]
     var expectedCodeChallenge: String?
     var rejectRefresh = false
+    /// The token endpoint is having a bad minute: refreshes get a 503.
+    var refreshUnavailable = false
     var expiresIn: Double = 3600
     /// When set, the MCP endpoint wants this header instead of a bearer token.
     var apiKeyHeader: (name: String, value: String)?
@@ -281,6 +283,7 @@ final class FakeAuthServer: @unchecked Sendable {
             guard form["resource"] == MCPOAuthClient.canonicalResource(mcpURL).absoluteString else { return .json(["error": "invalid_target", "error_description": "resource \(form["resource"] ?? "nil")"], status: 400) }
             return issue()
         case "refresh_token":
+            if refreshUnavailable { return .json(["error": "temporarily_unavailable"], status: 503) }
             if rejectRefresh { return .json(["error": "invalid_grant", "error_description": "refresh token revoked"], status: 400) }
             lock.lock()
             let known = form["refresh_token"].map { validRefreshTokens.remove($0) != nil } ?? false
@@ -700,6 +703,39 @@ final class MCPAuthTests: XCTestCase {
         XCTAssertEqual(s.authDetail, "Sign in again")
         XCTAssertEqual(s.state, .disconnected)
         XCTAssertTrue(server.mcpAuthorizationHeaders.isEmpty)   // never tried the dead token
+    }
+
+    func testRefreshThatCantReachTheProviderKeepsTheSignInAndTriesAgain() async throws {
+        manager = MCPManager(store: store, eventBus: bus, broker: ToolBroker(), credentials: credentials, retryBase: 0.2)
+        server.accept(accessToken: "stale-access", refreshToken: "good-refresh")
+        server.refreshUnavailable = true
+        let key = "k4"
+        let set = OAuthTokenSet(accessToken: "stale-access", refreshToken: "good-refresh", expiresAt: Date().addingTimeInterval(-10), tokenEndpoint: server.baseURL.absoluteString + "/auth/token")
+        try credentials.set(key, value: try set.encoded())
+        let config = oauthConfig(clientID: "pennant-app", credentialKey: key)
+        try await manager.add(config)
+        // Still signed in: the provider couldn't be reached, it didn't refuse.
+        let waiting = try await waitFor(config.id) { $0.state == .disconnected && $0.authDetail?.hasPrefix("Couldn't renew") == true }
+        XCTAssertEqual(waiting.authState, .signedIn)
+        XCTAssertEqual(credentials.get(key).flatMap(OAuthTokenSet.decode)?.refreshToken, "good-refresh", "the sign-in is kept")
+        // Once the provider is back, the connection's own retry signs in with the same refresh token.
+        server.refreshUnavailable = false
+        let back = try await waitFor(config.id) { $0.state == .connected }
+        XCTAssertEqual(back.authState, .signedIn)
+        XCTAssertEqual(server.tokenRequests.last?["refresh_token"], "good-refresh")
+    }
+
+    func testOnlyARefusalAsksToSignInAgain() {
+        XCTAssertTrue(MCPManager.refusedSignIn(OAuthServerError(code: "invalid_grant", detail: "revoked")))
+        XCTAssertTrue(MCPManager.refusedSignIn(OAuthServerError(code: "HTTP 401", detail: nil)))
+        XCTAssertTrue(MCPManager.refusedSignIn(MCPAuthError.registrationFailed("no OAuth client on file")))
+        XCTAssertFalse(MCPManager.refusedSignIn(OAuthServerError(code: "HTTP 503", detail: nil)))
+        XCTAssertFalse(MCPManager.refusedSignIn(OAuthServerError(code: "HTTP 429", detail: nil)))
+        XCTAssertFalse(MCPManager.refusedSignIn(OAuthServerError(code: "temporarily_unavailable", detail: nil, status: 503)))
+        XCTAssertFalse(MCPManager.refusedSignIn(OAuthServerError(code: "server_error", detail: nil, status: 500)))
+        XCTAssertTrue(MCPManager.refusedSignIn(OAuthServerError(code: "invalid_grant", detail: "AADSTS700082: expired due to inactivity", status: 400)))
+        XCTAssertFalse(MCPManager.refusedSignIn(MCPAuthError.tokenExchangeFailed("The Internet connection appears to be offline.")))
+        XCTAssertFalse(MCPManager.refusedSignIn(URLError(.notConnectedToInternet)))
     }
 
     // MARK: API keys and pasted tokens

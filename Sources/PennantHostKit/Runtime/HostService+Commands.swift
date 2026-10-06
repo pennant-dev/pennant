@@ -393,6 +393,7 @@ extension HostService {
 
         // Skills
         case .listSkills:
+            if config.claudeCodeSkills { await syncClaudeCodeSkills() }
             return .skills(try await store.listSkills(includeDisabled: true))
         case .updateSkill(var skill):
             skill.updatedAt = Date()
@@ -706,11 +707,13 @@ extension HostService {
             newConfig.reconcileModels()
             let inferenceChanged = newConfig.inference != config.inference
             let restart = newConfig.api != config.api || newConfig.embeddings != config.embeddings || newConfig.mode != config.mode
+            let relink = newConfig.claudeCodeSkills != config.claudeCodeSkills
             config = newConfig
             try ConfigLoader.save(newConfig, to: paths.configURL)
             await runtime.updateConfig(newConfig)
             await heartbeat.update(newConfig.heartbeat)
             await lease.setPauseOnHumanInput(newConfig.desktop.pauseOnHumanInput)
+            if relink { await syncClaudeCodeSkills() }
             if inferenceChanged {
                 switchableProvider.replace(Self.makeProvider(newConfig.inference, chatGPT: chatGPT, vault: vault))
                 let ok = await provider.healthCheck()

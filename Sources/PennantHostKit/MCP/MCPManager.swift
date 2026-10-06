@@ -26,8 +26,15 @@ public actor MCPManager {
     var pendingAuths: [MCPServerID: PendingAuth] = [:]
     /// In-flight token refreshes, so concurrent 401s share one refresh.
     var refreshTasks: [MCPServerID: Task<AccessToken?, Never>] = [:]
+    /// Connections that failed for a moment (offline, a provider's bad minute), waiting to try again by themselves.
+    var retries: [MCPServerID: Task<Void, Never>] = [:]
+    var retryCounts: [MCPServerID: Int] = [:]
+    /// The first retry's wait; each one after waits twice as long, up to five minutes.
+    let retryBase: TimeInterval
+    static let maxRetries = 8
 
-    public init(store: any StoreProtocol, eventBus: EventBus, broker: ToolBroker, credentials: any MCPCredentialStore = InMemoryCredentialStore()) {
+    public init(store: any StoreProtocol, eventBus: EventBus, broker: ToolBroker, credentials: any MCPCredentialStore = InMemoryCredentialStore(), retryBase: TimeInterval = 30) {
+        self.retryBase = retryBase
         self.store = store
         self.eventBus = eventBus
         self.broker = broker
@@ -47,6 +54,7 @@ public actor MCPManager {
     }
 
     public func stop() async {
+        for id in Array(retries.keys) { cancelRetry(id) }
         for id in Array(pendingAuths.keys) { clearPending(id) }
         for id in Array(connections.keys) { await disconnect(id) }
     }
@@ -62,6 +70,7 @@ public actor MCPManager {
     }
 
     public func remove(_ id: MCPServerID) async throws {
+        cancelRetry(id)
         clearPending(id)
         refreshTasks[id]?.cancel()
         refreshTasks[id] = nil
@@ -73,6 +82,7 @@ public actor MCPManager {
 
     public func reconnect(_ id: MCPServerID) async {
         guard let config = statuses[id]?.config else { return }
+        retryCounts[id] = nil
         await disconnect(id)
         await connect(config)
     }
@@ -87,6 +97,7 @@ public actor MCPManager {
     // MARK: Connection lifecycle
 
     func connect(_ config: MCPServerConfig) async {
+        cancelRetry(config.id)
         var status = statuses[config.id] ?? MCPServerStatus(config: config)
         status.state = .connecting
         status.lastError = nil
@@ -109,7 +120,7 @@ public actor MCPManager {
                 }
                 let id = config.id
                 let api = ConnectorAPI(
-                    token: { [weak self] in await self?.connectorToken(id) },
+                    token: { [weak self] in try await self?.connectorToken(id) },
                     refresh: { [weak self] rejected in await self?.refreshAccessToken(id, rejected: rejected)?.token },
                     settings: config.settings
                 )
@@ -174,7 +185,7 @@ public actor MCPManager {
             await builtinServer?.stop()
             process?.terminate()
             outcome = (.disconnected, 0, nil, nil)
-            log.info("MCP server \(config.name) needs sign-in before it can connect", category: "mcp")
+            if statuses[config.id]?.authState != .signedIn { log.info("MCP server \(config.name) needs sign-in before it can connect", category: "mcp") }
         } catch {
             await client.disconnect()
             await builtinServer?.stop()
@@ -191,6 +202,36 @@ public actor MCPManager {
         if outcome.state == .connected { connections[config.id] = Connection(client: client, process: process, status: final, server: builtinServer) }
         statuses[config.id] = final
         await publishStatus(config.id)
+        scheduleRetry(config, final)
+    }
+
+    /// After a connection attempt: one that failed, or couldn't renew a sign-in that's still good, tries again by
+    /// itself, after 30 s and then twice as long each time up to five minutes, eight times in all. A connection that
+    /// needs the user to sign in waits for them.
+    private func scheduleRetry(_ config: MCPServerConfig, _ status: MCPServerStatus) {
+        let id = config.id
+        let passing = status.state == .failed || (status.state == .disconnected && status.authState == .signedIn)
+        guard config.enabled, passing else { retryCounts[id] = nil; return }
+        let count = (retryCounts[id] ?? 0) + 1
+        guard count <= Self.maxRetries else { return }
+        retryCounts[id] = count
+        let delay = min(retryBase * pow(2, Double(count - 1)), 300)
+        log.info("MCP server \(config.name): trying again in \(Int(delay)) s (\(count) of \(Self.maxRetries))", category: "mcp")
+        retries[id] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await self?.retry(id)
+        }
+    }
+
+    private func retry(_ id: MCPServerID) async {
+        retries[id] = nil
+        guard let config = statuses[id]?.config, config.enabled, connections[id] == nil, pendingAuths[id] == nil else { return }
+        await connect(config)
+    }
+
+    func cancelRetry(_ id: MCPServerID) {
+        retries.removeValue(forKey: id)?.cancel()
     }
 
     func disconnect(_ id: MCPServerID) async {
@@ -251,7 +292,7 @@ struct MCPTool: Tool {
     let client: Client
 
     var spec: ToolSpec {
-        let safeServer = serverName.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "_", options: .regularExpression)
+        let safeServer = ToolBroker.connectionPrefix(serverName)
         let schema = (try? JSONValue.from(encodable: tool.inputSchema)) ?? JSONSchema.object([:])
         let destructive = tool.annotations.destructiveHint ?? true
         let readOnly = tool.annotations.readOnlyHint ?? false

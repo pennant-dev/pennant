@@ -84,7 +84,7 @@ func run(_ options: CLIOptions) async throws {
     case "teach":
         try await teachCommand(options)
     case "skills":
-        if let sub = options.args.first, ["import", "preview", "folders", "delete"].contains(sub) {
+        if let sub = options.args.first, ["import", "preview", "folders", "delete", "claude-code"].contains(sub) {
             try await runSkills(sub, args: Array(options.args.dropFirst()), options: options)
             break
         }

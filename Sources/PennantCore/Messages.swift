@@ -157,6 +157,8 @@ public struct Conversation: Hashable, Codable, Sendable, Identifiable {
     /// The coding run's model for this conversation: Claude Code's name for it ("claude-opus-5-5"), or for the
     /// Pennant engine a Settings › Models profile id; nil: the engine's default.
     public var engineModel: String?
+    /// Claude Code runs here with Claude in Chrome (`--chrome`): a skill that browses with it asked for it.
+    public var engineChrome: Bool?
     /// When the conversation was closed as done. Closed conversations leave the lists; writing in one reopens it.
     public var closedAt: Date?
     public var isClosed: Bool { closedAt != nil }
@@ -180,7 +182,7 @@ public struct Conversation: Hashable, Codable, Sendable, Identifiable {
         self.updatedAt = updatedAt
     }
 
-    private enum CodingKeys: String, CodingKey { case id, agentID, title, preview, createdAt, updatedAt, engineSessionID, workingDirectory, engineCursor, engineMode, engineModel, closedAt, parentID, engine, isMain }
+    private enum CodingKeys: String, CodingKey { case id, agentID, title, preview, createdAt, updatedAt, engineSessionID, workingDirectory, engineCursor, engineMode, engineModel, engineChrome, closedAt, parentID, engine, isMain }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -196,6 +198,7 @@ public struct Conversation: Hashable, Codable, Sendable, Identifiable {
         // A mode from a newer host reads as the default rather than failing the conversation.
         engineMode = (try? c.decodeIfPresent(CodingMode.self, forKey: .engineMode)) ?? nil
         engineModel = try c.decodeIfPresent(String.self, forKey: .engineModel)
+        engineChrome = try c.decodeIfPresent(Bool.self, forKey: .engineChrome)
         closedAt = try c.decodeIfPresent(Date.self, forKey: .closedAt)
         parentID = try c.decodeIfPresent(ConversationID.self, forKey: .parentID)
         engine = (try? c.decodeIfPresent(CodingEngine.self, forKey: .engine)) ?? nil

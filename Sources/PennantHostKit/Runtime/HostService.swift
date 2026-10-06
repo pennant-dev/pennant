@@ -7,6 +7,7 @@ public actor HostService: HostAPIDelegate {
     /// The name clients show for this host: the Mac's, or PENNANT_HOST_NAME (the demo host uses a fictional one).
     private var tidyTask: Task<Void, Never>?
     private var pushWatch: Task<Void, Never>?
+    private var claudeCodeSkillsWatch: Task<Void, Never>?
 
     /// Turns "needs you" events into iPhone notifications: a pending approval card, a choice question, a task that
     /// stopped to ask something, and the result of a thread the Pennant chat started. Each goes once, to the person
@@ -97,6 +98,14 @@ public actor HostService: HostAPIDelegate {
     }
 
     /// Closes conversations idle for longer than `config.autoCloseIdleDays`, when set.
+    /// Brings the skills linked from Claude Code in line with its files (or removes them, with the link off).
+    func syncClaudeCodeSkills() async {
+        let result = await ClaudeCodeSkills.sync(enabled: config.claudeCodeSkills, store: store, eventBus: eventBus)
+        guard result.changed || !result.skipped.isEmpty else { return }
+        let counts = "\(result.added.count) added, \(result.updated.count) updated, \(result.removed.count) removed"
+        log.info("Claude Code skills: \(counts)\(result.skipped.isEmpty ? "" : "; skipped " + result.skipped.joined(separator: "; "))", category: "skills")
+    }
+
     func autoCloseIdleConversations() async {
         guard let days = config.autoCloseIdleDays, days > 0 else { return }
         do {
@@ -321,6 +330,13 @@ public actor HostService: HostAPIDelegate {
                 try? await Task.sleep(for: .seconds(6 * 3600))
             }
         }
+        // Claude Code's skills, kept in step: now, then every few minutes (and whenever Skills is listed).
+        claudeCodeSkillsWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.syncClaudeCodeSkills()
+                try? await Task.sleep(for: .seconds(300))
+            }
+        }
         if startAPI {
             let name = Self.displayName
             // Encrypted connections on the network; without a certificate the plain port still serves.
@@ -384,6 +400,7 @@ public actor HostService: HostAPIDelegate {
     public func stop() async {
         tidyTask?.cancel()
         pushWatch?.cancel()
+        claudeCodeSkillsWatch?.cancel()
         for m in monitors { m.cancel() }
         monitors = []
         await heartbeat.stop()

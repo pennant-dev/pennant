@@ -11,8 +11,9 @@ import AppKit
 /// The message pill at the bottom of a conversation: a "+" menu on the left, the text on the middle,
 /// and a round send button on the right. Return sends; Shift+Return inserts a newline on the Mac.
 ///
-/// Typing "/" at the start lists enabled skills. Picking one writes the start of a sentence into the draft
-/// ("Use the skill “Inbox triage”: ") for the user to finish.
+/// Typing "/" at the start lists the conversation's commands and enabled skills. /clear starts the conversation fresh
+/// and /compact folds it into a summary; they run here and never reach Pennant. Picking a skill writes the start of a
+/// sentence into the draft ("Use the skill “Inbox triage”: ") for the user to finish.
 public struct ComposerView: View {
     @Environment(\.hostSession) private var session
     @Binding var text: String
@@ -39,7 +40,7 @@ public struct ComposerView: View {
     #endif
 
     /// - Parameters:
-    ///   - conversationID: the open conversation, so the "+" menu can compact it. `nil` for a new one.
+    ///   - conversationID: the open conversation, for /clear and /compact. `nil` for a new one.
     ///   - onNewConversation: what "New conversation" in the "+" menu does. Hidden when `nil`.
     public init(
         text: Binding<String>,
@@ -130,7 +131,7 @@ public struct ComposerView: View {
             highlighted = 0
             if new.hasPrefix("/") { ensureSkillsLoaded() }
             // Progress notes go away as soon as the user types again; an error stays until dismissed.
-            if !noteIsError { note = nil }
+            if !noteIsError, !new.isEmpty { note = nil }
         }
     }
 
@@ -192,8 +193,6 @@ public struct ComposerView: View {
             if let onNewConversation {
                 Button("New conversation", systemImage: "square.and.pencil") { onNewConversation() }
             }
-            Button("Compact conversation", systemImage: "arrow.down.right.and.arrow.up.left") { compact() }
-                .disabled(conversationID == nil || !isEnabled)
             Divider()
             Button("Attach photo or file…", systemImage: "paperclip") { showImporter = true }
             #if os(iOS)
@@ -202,7 +201,7 @@ public struct ComposerView: View {
             Button("Paste image", systemImage: "doc.on.clipboard") { pasteImage() }
             #endif
             Button("Ask for a screenshot", systemImage: "camera.viewfinder") { askForScreenshot() }
-            Button("Use a skill…", systemImage: "wand.and.stars") { begin(with: "/") }
+            Button("Commands and skills…", systemImage: "wand.and.stars") { begin(with: "/") }
         } label: {
             Image(systemName: "plus")
         }
@@ -254,6 +253,7 @@ public struct ComposerView: View {
     }
 
     private func send() {
+        if let command = typedCommand { return run(command) }
         guard canSend else { return }
         onSend()
     }
@@ -330,17 +330,44 @@ public struct ComposerView: View {
         note = message
     }
 
-    private func compact() {
-        guard let id = conversationID else { return }
+    // MARK: Commands
+
+    /// What "/" can do to the conversation itself, rather than say to Pennant.
+    private enum Command: String, CaseIterable {
+        case clear, compact
+        var summary: String {
+            switch self {
+            case .clear: "Start fresh: nothing said so far reaches Pennant again. It stays on screen; memory and threads stay."
+            case .compact: "Fold the conversation so far into a summary, so the model carries less."
+            }
+        }
+        var symbol: String { self == .clear ? "eraser" : "arrow.down.right.and.arrow.up.left" }
+    }
+
+    /// "/clear" or "/compact", typed whole.
+    private var typedCommand: Command? {
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard typed.hasPrefix("/"), attachments.isEmpty else { return nil }
+        return Command(rawValue: String(typed.dropFirst()))
+    }
+
+    private func run(_ command: Command) {
+        text = ""
+        suggestionsDismissed = true
+        guard isEnabled, let id = conversationID else {
+            noteIsError = false
+            note = "There's nothing to \(command.rawValue) yet."
+            return
+        }
         noteIsError = false
-        note = "Compacting the conversation…"
+        note = command == .clear ? "Clearing…" : "Compacting the conversation…"
         Task {
             do {
-                _ = try await session.compactConversation(id)
+                if command == .clear { try await session.startOver(id) } else { _ = try await session.compactConversation(id) }
                 note = nil
             } catch {
                 noteIsError = true
-                note = "Couldn’t compact: \(error)"
+                note = "Couldn’t \(command.rawValue): \(error)"
             }
         }
     }
@@ -353,19 +380,29 @@ public struct ComposerView: View {
     // MARK: Autocomplete
 
     /// What follows a "/" typed at the start, while it's the only line.
-    private var skillQuery: String? {
+    private var slashQuery: String? {
         guard text.first == "/", !text.contains("\n") else { return nil }
         return String(text.dropFirst()).trimmingCharacters(in: .whitespaces).lowercased()
     }
 
+    /// Commands lead once what's typed starts one; after a bare "/" they come last, so Return there still picks a skill.
     private var suggestions: [ChoiceOption<String>] {
-        guard !suggestionsDismissed, let q = skillQuery else { return [] }
-        return session.state.skills
+        guard !suggestionsDismissed, let q = slashQuery else { return [] }
+        let commands = Command.allCases.filter { q.isEmpty || $0.rawValue.hasPrefix(q) }
+            .map { ChoiceOption(Self.commandPrefix + $0.rawValue, title: "/" + $0.rawValue, subtitle: $0.summary, symbol: $0.symbol) }
+        let skills = session.state.skills
             .filter { $0.status != .disabled }
             .filter { q.isEmpty || $0.name.lowercased().contains(q) || $0.purpose.lowercased().contains(q) }
-            .prefix(6)
-            .map { ChoiceOption($0.id.rawValue, title: $0.name, subtitle: $0.purpose.isEmpty ? nil : $0.purpose, symbol: "wand.and.stars") }
+            .prefix(6 - commands.count)
+            .map { skill in
+                let linked = skill.origin == "claude-code"
+                let about = [linked ? (skill.needsClaudeCode == nil ? "Claude Code skill" : "Runs in Claude Code") : nil, skill.purpose.isEmpty ? nil : skill.purpose].compactMap { $0 }.joined(separator: " · ")
+                return ChoiceOption(skill.id.rawValue, title: skill.name, subtitle: about.isEmpty ? nil : about, symbol: linked ? "terminal" : "wand.and.stars")
+            }
+        return q.isEmpty ? skills + commands : commands + skills
     }
+
+    private static let commandPrefix = "command:"
 
     private func move(_ delta: Int) -> KeyPress.Result {
         let items = suggestions
@@ -382,6 +419,15 @@ public struct ComposerView: View {
     }
 
     private func pick(_ item: ChoiceOption<String>) {
+        if item.id.hasPrefix(Self.commandPrefix), let command = Command(rawValue: String(item.id.dropFirst(Self.commandPrefix.count))) {
+            // From a bare "/", a command is only filled in, so a stray Return never clears anything.
+            if slashQuery?.isEmpty == true {
+                text = "/" + command.rawValue
+                focused = true
+                return
+            }
+            return run(command)
+        }
         text = "Use the skill \"\(item.title)\": "
         suggestionsDismissed = true
         focused = true

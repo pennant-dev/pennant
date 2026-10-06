@@ -35,7 +35,8 @@ extension TaskRuntime {
             let finish = try await engine.run(prompt: prompt, in: URL(fileURLWithPath: folder), sessionID: conversation.engineSessionID,
                                               mcpConfig: try permissionBridgeConfig(taskID: taskID),
                                               mode: conversation.engineMode ?? .acceptEdits, model: conversation.engineModel,
-                                              instructions: instructions.isEmpty ? nil : instructions, environment: environment) { [weak self] event in
+                                              instructions: instructions.isEmpty ? nil : instructions, chrome: conversation.engineChrome == true,
+                                              environment: environment) { [weak self] event in
                 await self?.applyCodingEvent(event, taskID: taskID, agentID: agentID, conversationID: conversationID)
             }
             try await recordCodingUsage(finish, taskID: taskID, agentID: agentID, conversationID: conversationID)
@@ -50,6 +51,53 @@ extension TaskRuntime {
             try await transition(taskID, to: .running, reason: "The coding run finished without that answer")
         }
         try await complete(task: taskID, summary: summary)
+    }
+
+    /// Starts a Claude Code run for a skill that only Claude Code can follow, whatever engine Coding uses: a thread of its
+    /// own under the caller, in the default project's folder (the home folder when Coding isn't set up). The skill is
+    /// invoked by name (`/name request`), and one that browses with Claude in Chrome gets a run with Chrome.
+    func runSkillInClaudeCode(_ skill: Skill, request: String, caller: AgentID, callerTask: TaskID?) async throws -> (TaskID, ConversationID) {
+        guard ClaudeCodeEngine.locate() != nil else { throw ToolError.failed("\(skill.name) runs in Claude Code, and Claude Code isn't installed on this Mac.") }
+        let coding = deps.config.coding
+        let ask = request.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prompt = "/\(skill.name)" + (ask.isEmpty ? "" : " " + ask)
+        let (_, conversationID, taskID) = try await submitUserMessage(agentID: caller, conversationID: nil, text: prompt, attachments: [],
+                                                                      folder: coding?.defaultProject?.path ?? NSHomeDirectory(), mode: coding?.mode(asked: nil),
+                                                                      requestedBy: callerTask, engine: .claudeCode, chrome: skill.body.contains("claude-in-chrome"))
+        log.info("Skill \(skill.name) handed to Claude Code (task \(taskID.rawValue))", category: "skills")
+        return (taskID, conversationID)
+    }
+
+    /// A skill picked from the composer's list (`Use the skill "name": …`), and what was asked with it.
+    static func pickedSkill(in text: String) -> (name: String, request: String)? {
+        let pattern = #"^\s*Use the skill ["“]([^"”]+)["”]:?\s*([\s\S]*)$"#
+        guard let match = try? NSRegularExpression(pattern: pattern).firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let name = Range(match.range(at: 1), in: text), let rest = Range(match.range(at: 2), in: text) else { return nil }
+        return (String(text[name]), String(text[rest]).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// In the Pennant chat, a skill the owner picked goes where it runs before the model does anything with it. One that
+    /// runs in Claude Code starts there, in a thread of its own, and the chat says so in a line (true: the turn is done).
+    /// One Pennant runs goes to a thread that starts with use_skill (a note says so), so it's followed, not improvised.
+    func takePickedSkill(_ task: TaskRecord, agent: AgentProfile) async throws -> Bool {
+        guard task.usage.steps == 0, let picked = Self.pickedSkill(in: task.objective), await inMainChat(task) else { return false }
+        let skills = (try? await deps.store.listSkills(includeDisabled: false)) ?? []
+        guard let skill = skills.filter({ $0.name.caseInsensitiveCompare(picked.name) == .orderedSame }).max(by: { $0.version < $1.version }) else { return false }
+        guard skill.needsClaudeCode != nil else {
+            runtimeNotes[task.id, default: []].append("They picked the skill \"\(skill.name)\" from the list. Don't do it with your own tools: start_thread now, with instructions that begin \"Call use_skill with '\(skill.name)' and follow it:\" and then what they asked, and tell them in a line that it's on its way.")
+            return false
+        }
+        let (_, thread) = try await runSkillInClaudeCode(skill, request: picked.request, caller: agent.id, callerTask: task.id)
+        if let renamed = try await deps.store.mutateConversation(thread, { $0.title = String("\(skill.name): \(picked.request.isEmpty ? "run" : picked.request)".prefix(80)) }) {
+            await publish(.conversationUpserted(renamed))
+        }
+        let words = "\(skill.name) runs in Claude Code, so I've started it there. I'll tell you what it comes back with."
+        let message = Message(conversationID: task.conversationID, agentID: task.agentID, taskID: task.id, role: .assistant, parts: [.text(words)])
+        try await deps.store.appendMessage(message)
+        await publish(.messageAppended(message))
+        await publishConversation(task.conversationID, after: message)
+        try await complete(task: task.id, summary: words)
+        return true
     }
 
     /// What a coding run works with: the host's Coding settings, for a coding thread. Nil: not a coding run.

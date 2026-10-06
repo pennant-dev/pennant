@@ -226,6 +226,8 @@ struct OAuthTokenSet: Codable, Sendable, Equatable {
 struct OAuthServerError: Error, Sendable, CustomStringConvertible {
     var code: String
     var detail: String?
+    /// The HTTP status the error came with, when it came from an endpoint.
+    var status: Int? = nil
     var description: String {
         if let detail, !detail.isEmpty { return "\(code): \(detail)" }
         return code
@@ -555,7 +557,7 @@ struct MCPOAuthClient: Sendable {
         guard let http = response as? HTTPURLResponse else { throw MCPAuthError.tokenExchangeFailed("no HTTP response") }
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         guard (200..<300).contains(http.statusCode) else {
-            throw OAuthServerError(code: json?["error"] as? String ?? "HTTP \(http.statusCode)", detail: json?["error_description"] as? String)
+            throw OAuthServerError(code: json?["error"] as? String ?? "HTTP \(http.statusCode)", detail: json?["error_description"] as? String, status: http.statusCode)
         }
         guard let access = json?["access_token"] as? String, !access.isEmpty else { throw MCPAuthError.tokenExchangeFailed("the reply had no access_token") }
         var expiresAt: Date?

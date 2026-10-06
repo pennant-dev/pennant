@@ -28,6 +28,14 @@ public struct ConnectionBanner: View {
         }
     }
 
+    /// Why it isn't connected, in words: a connection the system dropped (the app slept, the network changed) says so
+    /// rather than showing the socket's error code.
+    static func failure(_ why: String) -> String {
+        let dropped = ["receive error", "POSIXErrorCode", "Socket is not connected", "connection abort", "Connection reset", "host closed the connection", "end of stream"]
+        if dropped.contains(where: { why.localizedCaseInsensitiveContains($0) }) { return "The connection to your Mac dropped. It reconnects on its own, or tap Retry." }
+        return "Not connected: \(why)"
+    }
+
     private var descriptor: (String, Color, String)? {
         switch session.connection {
         case .connected:
@@ -35,7 +43,7 @@ public struct ConnectionBanner: View {
             return nil
         case .connecting: return ("Connecting to \(session.endpoint.name.isEmpty ? session.endpoint.host : session.endpoint.name)…", PennantTheme.inkSecondary, "antenna.radiowaves.left.and.right")
         case .reconnecting(let n): return ("Connection lost. Reconnecting (attempt \(n))… Work continues on the host.", ShellPalette.warning, "arrow.triangle.2.circlepath")
-        case .failed(let why): return ("Not connected: \(why)", ShellPalette.danger, "xmark.octagon")
+        case .failed(let why): return (Self.failure(why), ShellPalette.danger, "xmark.octagon")
         case .disconnected: return ("Disconnected from the host.", PennantTheme.inkSecondary, "bolt.slash")
         }
     }

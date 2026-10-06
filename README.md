@@ -1,6 +1,6 @@
 # Pennant
 
-**The AI agent that does the work.**
+**The last agentic harness you'll ever need.**
 
 Pennant is a free, open-source AI agent that lives on your Mac, with an iPhone companion. Give it jobs in plain words: it
 triages the inbox, writes the posts, watches production and fixes the code, on your schedule and with whatever model you
@@ -51,8 +51,8 @@ choose. Before it publishes, sends, deletes or spends, it hands you a card and w
 - **Coding.** Code changes go to a coding run in one of your project folders, in a thread of its own: Claude Code,
   or Pennant's own engine on any of your models. Runs push and open pull requests as their own GitHub App, never as you, and
   can plan first or ask before every edit.
-- **Start over.** One button in the chat starts the conversation afresh: nothing said before carries over, while memory and
-  the work in threads stay.
+- **/clear and /compact.** Type them in the chat: `/clear` starts the conversation afresh (nothing said before carries
+  over, while memory and the work in threads stay), and `/compact` folds it into a summary.
 - **Talk to it.** Talk mode in the Pennant chat, on the Mac and the iPhone, is a spoken conversation:
   - **Listening:** what you say is recognised on the device, and a pause (a second and a half, or what you choose) sends it.
   - **Answering:** Pennant's reply is read aloud as it comes in (in a natural voice, once it's whole, so it's said in one go), and so is its later news from the work.
@@ -73,7 +73,7 @@ choose. Before it publishes, sends, deletes or spends, it hands you a card and w
   Keychain, instead of a config file.
 - **Skills are folders.** The `SKILL.md` format used by Claude Code, Codex and Agent Skills, in a git repository you own, with
   every version kept. Pennant writes new versions when you give feedback, and you can teach one by doing the task once while
-  it watches.
+  it watches. Your Claude Code skills and plugins can be linked in and kept in step; the ones that need Claude Code run there.
 - **Connections.** A catalogue of MCP servers (GitHub, Notion, Linear, Sentry, Stripe, Figma, Supabase and more) with one
   Connect button each, and Microsoft 365, LinkedIn and Reddit built in.
 - **On your iPhone.** The Pennant chat, approvals, threads, reports, memory and the Mac's screen, live, from an app that signs

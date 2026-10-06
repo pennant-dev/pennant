@@ -4,7 +4,7 @@ import SwiftUI
 
 // MARK: - Origin and status styling
 
-/// Where a skill came from decides the tint of its icon: built-in Ocean, learned Moss, imported Violet.
+/// Where a skill came from decides the tint of its icon: built-in Ocean, learned Moss, imported Violet, Claude Code Teal.
 enum SkillOriginStyle {
     static func color(_ origin: String) -> Color {
         switch origin {
@@ -12,6 +12,7 @@ enum SkillOriginStyle {
         case "learned": return Color(hex: "#3DB553")
         case "imported": return Color(hex: "#8B5CF6")
         case "taught": return Color(hex: "#F0762B")
+        case "claude-code": return Color(hex: "#14A39A")
         default: return Color(hex: "#6B7280")
         }
     }
@@ -22,6 +23,7 @@ enum SkillOriginStyle {
         case "learned": return "sparkles"
         case "imported": return "square.and.arrow.down"
         case "taught": return "hand.point.up.left"
+        case "claude-code": return "terminal"
         default: return "book"
         }
     }
@@ -233,6 +235,7 @@ public struct SkillsView: View {
                             .padding(.bottom, 2)
                         ForEach(group.skills) { skill in row(skill) }
                     }
+                    if !selecting { ClaudeCodeSkillsSwitch().padding(.top, 14) }
                 }
                 .padding(.horizontal, 8)
                 .padding(.bottom, 12)
@@ -250,10 +253,12 @@ public struct SkillsView: View {
         }
     }
 
-    /// The list in three groups: yours (learned, taught, imported), the built-ins, and the ones turned off.
+    /// The list in groups: yours (learned, taught, imported), those linked from Claude Code, the built-ins, and the ones
+    /// turned off.
     private var groups: [(title: String, skills: [Skill])] {
         let on = skills.filter { $0.status != .disabled }
-        return [("Your skills", on.filter { $0.origin != "builtin" }),
+        return [("Your skills", on.filter { $0.origin != "builtin" && $0.origin != "claude-code" }),
+                ("From Claude Code", on.filter { $0.origin == "claude-code" }),
                 ("Built in", on.filter { $0.origin == "builtin" }),
                 ("Turned off", skills.filter { $0.status == .disabled })]
             .filter { !$0.1.isEmpty }
@@ -491,6 +496,9 @@ enum SkillPresentation {
         case "builtin": return "Built in"
         case "imported": return "Imported"
         case "taught": return "Taught by you"
+        case "claude-code":
+            let plugin = skill.name.split(separator: ":").dropLast().first
+            return plugin.map { "Claude Code · \($0) plugin" } ?? "Claude Code"
         case "learned": return agentName.map { "Learned by \($0)" } ?? "Learned"
         default: return skill.origin.capitalized
         }
@@ -631,7 +639,9 @@ struct SkillDetail: View {
                     .toggleStyle(.switch)
                     .labelsHidden()
                     .help(skill.status == .disabled ? "Turned off: agents don't see it" : "On: agents can find and use it")
-                Button("Edit", action: onEdit).buttonStyle(.pennantCompact).fixedSize()
+                if skill.origin != "claude-code" {
+                    Button("Edit", action: onEdit).buttonStyle(.pennantCompact).fixedSize()
+                }
                 Menu {
                     if skill.origin == "imported", skill.sourcePath != nil, let onReimport {
                         Button("Re-import from its folder", action: onReimport)
@@ -639,7 +649,8 @@ struct SkillDetail: View {
                     if onDeleteOlder != nil, versions.count > 1, versions.dropFirst().contains(where: { $0.origin != "builtin" }) {
                         Button("Delete older versions…") { confirmDeleteOlder = true }
                     }
-                    if skill.origin != "builtin" {
+                    // A linked skill comes back on the next sync: it's turned off here, or removed in Claude Code.
+                    if skill.origin != "builtin", skill.origin != "claude-code" {
                         Divider()
                         Button("Delete skill…", role: .destructive) { confirmDelete = true }
                     }
@@ -669,6 +680,10 @@ struct SkillDetail: View {
             fact("Runs") { Text(runs == 0 ? "None yet" : "\(runs) · \(Int((Double(wins) / Double(runs) * 100).rounded()))% succeeded") }
             if let last = skill.outcomes.map(\.at).max() { fact("Last run") { Text(relativeTime(last)) } }
             fact("Origin") { Text(SkillPresentation.origin(skill, agentName: agentName)) }
+            if skill.origin == "claude-code" {
+                fact("Runs in") { Text(skill.needsClaudeCode.map { "Claude Code: \($0)" } ?? "Pennant") }
+                    .help("Edit it in Claude Code; Pennant keeps in step with the file.")
+            }
         }
     }
 
@@ -1099,5 +1114,55 @@ enum SkillDiff {
             else { out.append(Line(kind: .added, text: b[j])); j += 1 }
         }
         return out
+    }
+}
+
+/// The switch for Claude Code's skills, at the foot of the list: the owner's ~/.claude skills and their enabled plugins'
+/// skills, linked and kept in step.
+struct ClaudeCodeSkillsSwitch: View {
+    @Environment(\.hostSession) private var session
+    @State private var on = false
+    @State private var loaded = false
+    @State private var error: String?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "terminal").foregroundStyle(SkillOriginStyle.color("claude-code")).frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Claude Code skills").font(.zoomed(.callout).weight(.medium)).foregroundStyle(PennantTheme.ink)
+                Text("Your ~/.claude skills and your enabled plugins' skills, kept in step. Edit them in Claude Code; the ones that need it run there.")
+                    .font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let error { Text(error).font(.zoomed(.caption)).foregroundStyle(PennantTheme.danger) }
+            }
+            Spacer(minLength: 8)
+            Toggle("Claude Code skills", isOn: Binding(get: { on }, set: { save($0) }))
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .disabled(!loaded || !session.connection.isConnected)
+        }
+        .padding(.horizontal, 10)
+        .task {
+            guard !loaded, let c = try? await session.getConfig().config else { return }
+            on = c.claudeCodeSkills
+            loaded = true
+        }
+    }
+
+    private func save(_ value: Bool) {
+        on = value
+        Task {
+            do {
+                var c = try await session.getConfig().config
+                guard c.claudeCodeSkills != value else { return }
+                c.claudeCodeSkills = value
+                _ = try await session.updateConfig(c)
+                try await session.loadSkills()
+                error = nil
+            } catch {
+                on = !value
+                self.error = HostSessionError.message(error)
+            }
+        }
     }
 }

@@ -38,7 +38,7 @@ extension TaskRuntime {
         guard let task = try await deps.store.task(taskID) else { throw TaskError.notFound(taskID) }
         guard let action = request.action else { throw ToolError.failed("A card that doesn't wait needs an action to run on approval.") }
         // Changes to agents and skills only come from the proposal tools, which show exactly what changes.
-        if !proposal, await deps.broker.tool(named: action.tool)?.spec.access == .approvalOnly {
+        if !proposal, await deps.broker.resolve(action.tool)?.spec.access == .approvalOnly {
             throw ToolError.failed("\(action.tool) can't be attached to a card; changes to agents and skills are proposed with the proposal tools.")
         }
         let message = Message(conversationID: task.conversationID, agentID: task.agentID, taskID: taskID, role: .assistant, parts: [.approval(request)])
@@ -56,7 +56,7 @@ extension TaskRuntime {
         var outcome = ""
         var failed = false
         do {
-            guard let tool = await deps.broker.tool(named: action.tool) else { throw ToolError.failed("The tool \(action.tool) isn't available (is its connector signed in?)") }
+            guard let tool = await deps.broker.resolve(action.tool) else { throw ToolError.failed(await deps.broker.whyMissing(action.tool)) }
             guard let task = try await deps.store.task(approval.taskID) else { throw TaskError.notFound(approval.taskID) }
             var args = action.arguments.objectValue ?? [:]
             args[action.textField] = .string(approval.finalText)

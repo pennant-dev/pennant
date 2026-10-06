@@ -205,7 +205,7 @@ public actor TaskRuntime {
     /// A user message: either answers a waiting question or starts a task in the conversation.
     public func submitUserMessage(agentID: AgentID, conversationID: ConversationID?, text: String, attachments: [Attachment], author: MessageAuthor? = nil, folder: String? = nil,
                                   mode: CodingMode? = nil, model: String? = nil, requestedBy: TaskID? = nil, engine: CodingEngine? = nil,
-                                  spoken: Bool = false) async throws -> (MessageID, ConversationID, TaskID) {
+                                  chrome: Bool = false, spoken: Bool = false) async throws -> (MessageID, ConversationID, TaskID) {
         guard let agent = try await deps.store.agent(agentID), agent.status != .retired else { throw ToolError.failed("Agent not found") }
         let conversation: Conversation
         if let conversationID, var existing = try await deps.store.conversation(conversationID) {
@@ -229,6 +229,7 @@ public actor TaskRuntime {
             if engine != nil {
                 created.engineMode = mode
                 created.engineModel = model?.nilIfEmpty
+                created.engineChrome = chrome ? true : nil
                 created.engine = engine
             }
             // Asked by another agent's task: it belongs under that task's thread, not in the list of its own.
@@ -484,6 +485,7 @@ public actor TaskRuntime {
                 }
             }
             defer { if coding != nil { endPennantCoding(taskID) } }
+            if coding == nil, try await takePickedSkill(task, agent: agent) { return }
             var usedDesktopThisStep = false
 
             while true {

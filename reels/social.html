@@ -3,29 +3,69 @@
 <head>
 <meta charset="utf-8">
 <title>Pennant: social card</title>
-<!-- A 1280×640 card for GitHub's social preview and link previews (www/og.png is its 1200×630 crop). One frame:
-     reelkit stills reels/social.html 0 -->
+<!-- A 1280×640 card for GitHub's social preview and link previews (www/og.png is its 1200×630 crop), in the site's
+     look: graphite, IBM Plex, the hero's Mac and phone. One frame, rendered from the repository root:
+     reelkit stills reels/social.html 0 --root . -->
 <link rel="stylesheet" href="/_reelkit/kit.css">
-<link rel="stylesheet" href="brand.css">
 <style>
-.copy { position: absolute; left: 76px; top: 0; bottom: 0; width: 560px; display: flex; flex-direction: column; justify-content: center; }
-.brand { display: flex; align-items: center; gap: 16px; font: 850 32px/1 var(--rk-display); letter-spacing: -0.01em; }
-.brand img { width: 64px; height: 64px; border-radius: 15px; box-shadow: 0 14px 30px -12px rgba(6, 3, 30, 0.8); }
-h1 { margin-top: 34px; font: 900 68px/0.98 var(--rk-display); letter-spacing: -0.035em; }
-h1 span { display: block; color: var(--rk-accent-soft); }
-.line { margin-top: 26px; font: 500 23px/1.4 var(--rk-body); color: rgba(240, 236, 255, 0.85); max-width: 500px; }
-.win { left: 690px; top: 90px; width: 700px; transform: rotate(-3deg); transform-origin: 0 0; }
+@font-face { font-family: "Plex Sans"; src: url("/www/assets/fonts/IBMPlexSans.woff2") format("woff2"); font-weight: 100 700; }
+@font-face { font-family: "Plex Mono"; src: url("/www/assets/fonts/IBMPlexMono-500.woff2") format("woff2"); font-weight: 500; }
+:root { --page: #0E0F13; --fg: #ECECF1; --fg-2: #A1A3AE; --fg-3: #6E717D; --accent: #9D8CFF; --line: rgba(255, 255, 255, 0.08);
+  --bg2: #19191C; --divider: #2A2A30; --ink: #F3F3F5; --ink2: #9B9BA4; --brand-soft: #2E2646; --ok-soft: rgba(61, 181, 83, 0.16); --ok-ink: #5FCE74;
+  --you-ink: #B9A5FF; --app: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif; }
+#frame { background: var(--page); font-family: "Plex Sans", sans-serif; color: var(--fg); }
+/* The glow behind the picture, as on the site */
+.glow { position: absolute; left: 640px; top: -60px; width: 820px; height: 760px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(124, 92, 240, 0.34), rgba(91, 116, 240, 0.12) 55%, transparent); filter: blur(20px); }
+.rule { position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--line); }
+
+.copy { position: absolute; left: 72px; top: 0; bottom: 0; width: 560px; display: flex; flex-direction: column; justify-content: center; }
+.brand { display: flex; align-items: center; gap: 12px; font-weight: 600; font-size: 27px; letter-spacing: -0.01em; }
+.brand img { width: 34px; height: 34px; }
+.eyebrow { margin-top: 44px; font: 500 15px/1 "Plex Mono", monospace; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-3); }
+h1 { margin: 18px 0 0; font-weight: 600; font-size: 60px; line-height: 1.05; letter-spacing: -0.03em; }
+h1 span { color: var(--accent); }
+.line { margin: 26px 0 0; font-size: 22px; line-height: 1.45; color: var(--fg-2); max-width: 500px; }
+.line b { color: var(--fg); font-weight: 500; }
+.site { position: absolute; left: 72px; bottom: 44px; font: 500 17px/1 "Plex Mono", monospace; color: var(--fg-3); letter-spacing: 0.02em; }
+
+/* The Mac and the phone, at the hero's angle, running off the right edge */
+.shot { position: absolute; left: 662px; top: 118px; width: 780px; perspective: 2000px; }
+.tilt { position: relative; transform: rotateY(-7deg) rotateX(2deg); }
+.mac { border-radius: 12px; overflow: hidden; background: #151517; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 40px 90px -30px rgba(0, 0, 0, 0.95); }
+.mac img { display: block; width: 100%; }
+.phone { position: absolute; left: 400px; top: 128px; width: 188px; padding: 5px; border-radius: 30px; background: #050507;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12), 0 36px 70px -16px rgba(0, 0, 0, 0.95); }
+.phone img { display: block; width: 100%; border-radius: 25px; }
+/* One of Pennant's notifications over the dashboard */
+.toast { position: absolute; left: 118px; top: 74px; width: 268px; display: grid; grid-template-columns: auto 1fr auto; gap: 2px 10px; align-items: center;
+  padding: 11px 13px; border-radius: 13px; background: rgba(38, 38, 43, 0.96); border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 16px 36px -14px rgba(0, 0, 0, 0.85); font: 400 13px/1.35 var(--app); color: var(--ink); }
+.toast .mark { grid-row: span 2; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--brand-soft); }
+.toast .mark img { width: 18px; height: 18px; }
+.toast b { font-weight: 650; }
+.toast small { grid-column: 2; color: var(--ink2); font-size: 12px; }
+.toast em { grid-column: 3; grid-row: 1 / span 2; font-style: normal; font-weight: 650; font-size: 11px; padding: 4px 9px; border-radius: 99px; background: var(--brand-soft); color: var(--you-ink); }
 </style>
 </head>
 <body>
 <div id="frame">
-  <div id="grain"></div>
-  <div class="win light"><img class="shot" src="assets/shot-approval-pane.avif" alt=""></div>
-  <div class="copy">
-    <div class="brand"><img src="assets/icon-512.png" alt="">Pennant</div>
-    <h1>The AI agent that <span>does the work.</span></h1>
-    <p class="line">One open-source agent on your Mac: your jobs, your apps, your code, any model. Nothing is published, sent, deleted or paid for without you.</p>
+  <div class="glow"></div>
+  <div class="shot">
+    <div class="tilt">
+      <div class="mac"><img src="/www/assets/shots/home-dark.avif" alt=""></div>
+      <div class="toast"><span class="mark"><img src="/www/favicon.svg" alt=""></span><b>Launch post</b><small>Waiting for your yes</small><em>Needs you</em></div>
+      <div class="phone"><img src="/www/assets/shots/phone-approval-dark.avif" alt=""></div>
+    </div>
   </div>
+  <div class="copy">
+    <div class="brand"><img src="/www/favicon.svg" alt="">Pennant</div>
+    <div class="eyebrow">Open source · Mac and iPhone</div>
+    <h1>The last agentic<br>harness <span>you'll<br>ever need.</span></h1>
+    <p class="line">Bring any model. Pennant does the rest, on your Mac, and <b>asks before anything is sent, deleted or paid for.</b></p>
+  </div>
+  <div class="site">pennant.dev</div>
+  <div class="rule"></div>
 </div>
 <script src="/_reelkit/kit.js"></script>
 <script>Kit.start({ duration: 1, render: () => {}, width: 1280, height: 640 });</script>

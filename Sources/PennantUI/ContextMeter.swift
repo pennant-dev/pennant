@@ -57,20 +57,16 @@ public func formatTokens(_ n: Int) -> String {
     return String(format: "%.1fM", Double(n) / 1_000_000)
 }
 
-/// One quiet line: a pill with a ring gauge and "23k of 128k 18%", a speed pill, a "compacted 2×" chip, and Compact.
+/// One quiet line: a pill with a ring gauge and "23k of 128k 18%", a speed pill and a "compacted 2×" chip. Clearing
+/// and compacting are typed in the composer (/clear, /compact).
 public struct ContextMeterView: View {
     @Environment(\.hostSession) private var session
     var conversationID: ConversationID?
     var agentID: AgentID
-    var hasMessages: Bool
-    @State private var compacting = false
-    @State private var startingOver = false
-    @State private var error: String?
 
-    public init(conversationID: ConversationID?, agentID: AgentID, hasMessages: Bool) {
+    public init(conversationID: ConversationID?, agentID: AgentID) {
         self.conversationID = conversationID
         self.agentID = agentID
-        self.hasMessages = hasMessages
     }
 
     private var usage: ContextUsage { ContextUsage.forConversation(conversationID, agentID: agentID, in: session.state) }
@@ -86,6 +82,17 @@ public struct ContextMeterView: View {
 
     public var body: some View {
         let u = usage
+        // Everything on a wide window; on a phone, what fits (the speed goes first, then the compaction count). Each
+        // piece keeps its one line, and the row never pushes the screen wider than it is.
+        ViewThatFits(in: .horizontal) {
+            line(u, speed: true, compactions: true)
+            line(u, speed: false, compactions: true)
+            line(u, speed: false, compactions: false)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func line(_ u: ContextUsage, speed: Bool, compactions: Bool) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 ContextRing(fraction: u.fraction ?? 0, color: u.fraction == nil ? PennantTheme.inkTertiary : u.ringColor)
@@ -104,8 +111,8 @@ public struct ContextMeterView: View {
             .lineLimit(1)
             .padding(.leading, 6).padding(.trailing, 9).padding(.vertical, 4)
             .background(PennantTheme.cardBackground, in: Capsule())
-            .help(u.windowTokens > 0 ? "The model sees \(u.usedTokens.formatted()) of its \(u.windowTokens.formatted()) token context window in this conversation. Compact to shrink it." : "")
-            if let speed = averageSpeed {
+            .help(u.windowTokens > 0 ? "The model sees \(u.usedTokens.formatted()) of its \(u.windowTokens.formatted()) token context window in this conversation. Type /compact to shrink it, or /clear to start fresh." : "")
+            if speed, let speed = averageSpeed {
                 HStack(spacing: 4) {
                     Image(systemName: "bolt.fill").font(.zoomed(size: 9))
                     Text("\(Int(speed.rounded())) tok/s")
@@ -114,71 +121,25 @@ public struct ContextMeterView: View {
                 .foregroundStyle(PennantTheme.inkSecondary)
                 .padding(.horizontal, 9).padding(.vertical, 4)
                 .background(PennantTheme.cardBackground, in: Capsule())
-                .fixedSize()
                 .help("Average generation speed of the loaded replies in this conversation (output tokens per second, first token to last).")
             }
-            if u.compactions > 0 {
+            if compactions, u.compactions > 0 {
                 Chip("compacted \(u.compactions)×", color: PennantTheme.inkSecondary)
+                    .lineLimit(1)
                     .help(u.lastCompactedAt.map { "Last compaction \(relativeTime($0))" } ?? "")
             }
-            if let error { Text(error).font(.zoomed(.caption2)).foregroundStyle(ShellPalette.danger).lineLimit(1) }
-            Spacer(minLength: 0)
-            Button {
-                startOver()
-            } label: {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 4) {
-                        if startingOver { ProgressView().controlSize(.mini) } else { Image(systemName: "arrow.counterclockwise") }
-                        Text("Start over").fixedSize()
-                    }
-                    Group {
-                        if startingOver { ProgressView().controlSize(.mini) } else { Image(systemName: "arrow.counterclockwise") }
-                    }
-                }
-                .fixedSize()
-            }
-            .buttonStyle(.pennantCompact)
-            .disabled(startingOver || conversationID == nil || !hasMessages || !session.connection.isConnected)
-            .help("Start the conversation over: Pennant won't carry anything said so far (it stays on screen). Its memory and the work in threads stay.")
-            Button {
-                compact()
-            } label: {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 4) {
-                        if compacting { ProgressView().controlSize(.mini) } else { Image(systemName: "arrow.down.right.and.arrow.up.left") }
-                        Text("Compact").fixedSize()
-                    }
-                    Group {
-                        if compacting { ProgressView().controlSize(.mini) } else { Image(systemName: "arrow.down.right.and.arrow.up.left") }
-                    }
-                }
-                .fixedSize()
-            }
-            .buttonStyle(.pennantCompact)
-            .disabled(compacting || conversationID == nil || !hasMessages || !session.connection.isConnected)
-            .help("Save a checkpoint and shrink the model's active context. Durable state stays in memory.")
         }
+        .fixedSize()
     }
+}
 
-    private func startOver() {
-        guard let id = conversationID else { return }
-        startingOver = true
-        error = nil
-        Task {
-            defer { startingOver = false }
-            do { try await session.startOver(id) } catch { self.error = String(describing: error) }
-        }
-    }
-
-    private func compact() {
-        guard let id = conversationID else { return }
-        compacting = true
-        error = nil
-        Task {
-            defer { compacting = false }
-            do { _ = try await session.compactConversation(id) } catch { self.error = String(describing: error) }
-        }
-    }
+/// A divider's date: the time today, the day and time this year, the full date before that. Short, so the line fits a
+/// phone with large text.
+func dividerDate(_ date: Date) -> String {
+    let calendar = Calendar.current
+    if calendar.isDateInToday(date) { return date.formatted(date: .omitted, time: .shortened) }
+    if calendar.isDate(date, equalTo: Date(), toGranularity: .year) { return date.formatted(.dateTime.month(.abbreviated).day().hour().minute()) }
+    return date.formatted(date: .abbreviated, time: .omitted)
 }
 
 /// A small ring that fills clockwise with the share of the context window in use.
@@ -199,6 +160,43 @@ public struct ContextRing: View {
 }
 
 /// A checkpoint boundary: a hairline with a small centred label, and the checkpoint contents behind it.
+/// The line the latest /clear leaves, with what came before out of view until "Show earlier messages".
+struct ClearedDivider: View {
+    var checkpoint: Checkpoint
+    var showsEarlier: Bool
+    var toggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ShellHairline()
+            // On one line when it fits; on a phone with large text the button goes under the label.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) { label; button }.fixedSize()
+                VStack(spacing: 4) { label.fixedSize(); button.fixedSize() }
+            }
+            .font(.zoomed(.caption2))
+            .foregroundStyle(PennantTheme.inkTertiary)
+            .lineLimit(1)
+            .layoutPriority(1)
+            ShellHairline()
+        }
+    }
+
+    private var label: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "eraser")
+            Text("Cleared · \(dividerDate(checkpoint.createdAt))")
+        }
+    }
+
+    private var button: some View {
+        Button(showsEarlier ? "Hide earlier messages" : "Show earlier messages", action: toggle)
+            .buttonStyle(.plain)
+            .foregroundStyle(PennantTheme.brand)
+            .help(showsEarlier ? "Put what came before the clear out of view" : "See what was said before the clear. None of it reaches Pennant again.")
+    }
+}
+
 struct CheckpointDivider: View {
     var checkpoint: Checkpoint
     @State private var expanded = false
@@ -212,18 +210,19 @@ struct CheckpointDivider: View {
                 } label: {
                     HStack(spacing: 4) {
                         if checkpoint.startedOver == true {
-                            Image(systemName: "arrow.counterclockwise")
-                            Text("Started over · \(checkpoint.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                            Image(systemName: "eraser")
+                            Text("Cleared · \(dividerDate(checkpoint.createdAt))")
                         } else {
                             Image(systemName: "arrow.down.right.and.arrow.up.left")
-                            Text("Compacted · \(checkpoint.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                            Text("Compacted · \(dividerDate(checkpoint.createdAt))")
                             Image(systemName: expanded ? "chevron.up" : "chevron.down")
                         }
                     }
                     .font(.zoomed(.caption2))
                     .foregroundStyle(PennantTheme.inkTertiary)
                     .lineLimit(1)
-                    .fixedSize()
+                    .minimumScaleFactor(0.8)
+                    .layoutPriority(1)
                 }
                 .buttonStyle(.plain)
                 .disabled(checkpoint.startedOver == true)

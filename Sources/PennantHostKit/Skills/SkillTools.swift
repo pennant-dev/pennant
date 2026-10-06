@@ -62,6 +62,7 @@ public struct FindSkillTool: Tool {
             }
             if !sk.expectedResult.isEmpty { out += "Expected: \(sk.expectedResult)\n" }
             if !sk.failureConditions.isEmpty { out += "Fails when: \(sk.failureConditions.joined(separator: "; "))\n" }
+            if let reason = sk.needsClaudeCode { out += "Runs in Claude Code (\(reason)): use_skill starts it there.\n" }
             if !sk.body.isEmpty { out += "Instructions:\n\(sk.body.prefix(6000))\n" }
             for (name, body) in sk.scripts.sorted(by: { $0.key < $1.key }).prefix(6) { out += "File \(name):\n\(body.prefix(1500))\n" }
             out += "\n"
@@ -83,8 +84,9 @@ public struct UseSkillTool: Tool {
     let tracker: SkillUsageTracker
     public init(tracker: SkillUsageTracker) { self.tracker = tracker }
     public var spec: ToolSpec {
-        ToolSpec(name: "use_skill", description: "Declare that you are following a skill for this task so its outcome can be recorded. Returns the skill steps.", inputSchema: JSONSchema.object([
+        ToolSpec(name: "use_skill", description: "Declare that you are following a skill for this task so its outcome can be recorded. Returns the skill steps. A skill that runs in Claude Code is started there instead, in a thread of its own.", inputSchema: JSONSchema.object([
             "skill_id": JSONSchema.string("The skill's id or its name (e.g. \"sre-ops\")."),
+            "request": JSONSchema.string("For a skill that runs in Claude Code: what it should do, in full (Claude Code gets it as written). Default: this task's objective."),
         ], required: ["skill_id"]))
     }
     public func invoke(_ arguments: JSONValue, context: ToolContext) async throws -> ToolResult {
@@ -102,6 +104,14 @@ public struct UseSkillTool: Tool {
         // An id from memory or an old schedule may name an older version: follow the newest enabled one.
         let skill = (try? await context.store.listSkills(includeDisabled: false).filter { $0.name == asked.name }.max { $0.version < $1.version }) ?? asked
         await tracker.markUsed(skill.id, in: context.taskID)
+        // A skill that leans on what only Claude Code has runs there; this task gets its result like any coding run's.
+        if let reason = skill.needsClaudeCode {
+            guard let hooks = context.runtimeHooks else { throw ToolError.failed("\(skill.name) runs in Claude Code, which isn't available here.") }
+            var request = arguments.string("request")?.nilIfEmpty
+            if request == nil { request = try? await context.store.task(context.taskID)?.objective }
+            let (taskID, thread) = try await hooks.runInClaudeCode(skill, request ?? "")
+            return .text(ToolCallID("pending"), name: spec.name, "\(skill.name) runs in Claude Code (\(reason)), so it's started there: task \(taskID.rawValue), thread \(thread.rawValue). Call await_task with the task id for its result, then pass that on.")
+        }
         let steps = skill.steps.enumerated().map { "\($0.offset + 1). \($0.element.instruction)\($0.element.check.isEmpty ? "" : " — check: \($0.element.check)")" }.joined(separator: "\n")
         var text = "Following '\(skill.name)' v\(skill.version) (\(skill.status.rawValue))\(skill.id != asked.id ? " — the newest version; the id you used is v\(asked.version)" : "").\n\(steps)"
         // Where the skill's own files are, so instructions can refer to its scripts wherever it was installed.

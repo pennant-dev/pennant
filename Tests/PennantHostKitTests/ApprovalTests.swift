@@ -116,6 +116,76 @@ final class ApprovalTests: XCTestCase {
         await s.stop()
     }
 
+    final class RecordingConnectionTool: Tool, @unchecked Sendable {
+        let lock = NSLock()
+        var calls: [JSONValue] = []
+        var spec: ToolSpec { ToolSpec(name: "microsoft_365__mail_reply", description: "[Microsoft 365] Replies to a message.", inputSchema: JSONSchema.object([:]), isConsequential: true, needsDesktop: false, source: "mcp:microsoft-365") }
+        func invoke(_ arguments: JSONValue, context: ToolContext) async throws -> ToolResult {
+            lock.withLock { calls.append(arguments) }
+            return .text(ToolCallID("pending"), name: spec.name, "Replied.")
+        }
+    }
+
+    func testTheBrokerFindsAConnectionsToolTheWaysModelsWriteIt() async {
+        let broker = ToolBroker()
+        await broker.registerMCPTools([FakeServiceTool(server: "microsoft-365", serverName: "Microsoft 365", name: "mail_reply")], server: MCPServerID("microsoft-365"))
+        // The forms cards were written with before this was checked, and the real one.
+        for name in ["microsoft_365__mail_reply", "mcp:Microsoft 365:mail_reply", "mcp:microsoft-365:mail_reply", "mcp:microsoft_365:mail_reply", "Microsoft 365/mail_reply", " mcp:microsoft_365__mail_reply "] {
+            let found = await broker.resolve(name)?.spec.name
+            XCTAssertEqual(found, "microsoft_365__mail_reply", name)
+        }
+        let missing = await broker.resolve("mcp:Microsoft 365:mail_forward")
+        XCTAssertNil(missing)
+        let close = await broker.whyMissing("mail_reply")
+        XCTAssertTrue(close.contains("Did you mean microsoft_365__mail_reply?"), close)
+        let offline = await broker.whyMissing("mcp:Nowhere:send")
+        XCTAssertTrue(offline.contains("no connection called Nowhere is connected"), offline)
+    }
+
+    func testACardNamingAConnectionsToolLooselyRunsTheRealOne() async throws {
+        let ask = ToolCall(id: ToolCallID("a1"), name: "request_approval", arguments: [
+            "title": "Reply: Q3 pricing", "destination": "Outlook · reply to dana@example.com", "text": "Draft reply.",
+            "on_approve": .object(["tool": "mcp:Microsoft 365:mail_reply", "arguments": .object(["id": "msg-7"]), "text_field": "body"]),
+        ])
+        let provider = ScriptedProvider([.init(toolCalls: [ask]), .init(text: "Drafted.")])
+        let s = try await service(provider)
+        let reply = RecordingConnectionTool()
+        await s.broker.registerMCPTools([reply], server: MCPServerID("microsoft-365"))
+        let agents = try await s.store.listAgents(includeRetired: false)
+        let agent = try XCTUnwrap(agents.first { $0.kind == .persistent })
+        let (_, conversationID, taskID) = try await s.runtime.submitUserMessage(agentID: agent.id, conversationID: nil, text: "Reply to Dana", attachments: [])
+        try await waitFor(s, taskID, .completed)
+        let messages = try await s.store.messagesAfter(conversationID: conversationID, after: nil, limit: 50)
+        let card: ApprovalRequest = try XCTUnwrap(messages.lazy.flatMap(\.parts).compactMap { if case .approval(let a) = $0 { return a }; return nil }.first)
+        XCTAssertEqual(card.action?.tool, "microsoft_365__mail_reply", "the card carries the tool's real name")
+        XCTAssertTrue(provider.requests.last?.messages.last { $0.role == .tool }?.text.contains("Pennant runs microsoft_365__mail_reply") == true)
+
+        let client = ConnectedClient(id: ClientID("t"), displayName: "t", platform: "t")
+        guard case .ok = await s.handle(.decideApproval(ApprovalDecision(approvalID: card.id, verdict: .approve)), from: client) else { return XCTFail("decision refused") }
+        XCTAssertEqual(reply.calls.first?["body"]?.stringValue, "Draft reply.")
+        let after = try await s.runtime.findApproval(card.id)?.request
+        XCTAssertEqual(after?.actionFailed, false)
+        await s.stop()
+    }
+
+    func testACardWhoseActionNamesNoToolNeverGoesUp() async throws {
+        let ask = ToolCall(id: ToolCallID("a1"), name: "request_approval", arguments: [
+            "title": "Reply", "destination": "Mail", "text": "Draft reply.",
+            "on_approve": .object(["tool": "mcp:Nowhere:send", "text_field": "body"]),
+        ])
+        let provider = ScriptedProvider([.init(toolCalls: [ask]), .init(text: "Couldn't put it up.")])
+        let s = try await service(provider)
+        let agents = try await s.store.listAgents(includeRetired: false)
+        let agent = try XCTUnwrap(agents.first { $0.kind == .persistent })
+        let (_, conversationID, taskID) = try await s.runtime.submitUserMessage(agentID: agent.id, conversationID: nil, text: "Reply", attachments: [])
+        try await waitFor(s, taskID, .completed)
+        let messages = try await s.store.messagesAfter(conversationID: conversationID, after: nil, limit: 50)
+        XCTAssertFalse(messages.contains { $0.parts.contains { if case .approval = $0 { return true }; return false } }, "no card that would fail once approved")
+        let result = provider.requests.last?.messages.last { $0.role == .tool }?.text ?? ""
+        XCTAssertTrue(result.contains("no connection called Nowhere is connected"), result)
+        await s.stop()
+    }
+
     func testTagsAndSettingsTravelWithTheCardAndOldCardsStillDecode() async throws {
         let ask = ToolCall(id: ToolCallID("a1"), name: "request_approval", arguments: [
             "title": "YouTube demo", "destination": "YouTube", "text": "Description.", "headline": "Title",

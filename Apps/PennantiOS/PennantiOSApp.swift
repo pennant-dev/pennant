@@ -7,6 +7,7 @@ import UIKit
 @main
 struct PennantiOSApp: App {
     @UIApplicationDelegateAdaptor(PennantAppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @State private var session: HostSession
     @State private var paired: Bool
     /// A Mac's connect code opened from the Camera app (pennant://connect?…).
@@ -44,6 +45,8 @@ struct PennantiOSApp: App {
     var body: some Scene {
         WindowGroup {
             rootContent.pennantAppearance()
+                // iOS drops the connection while the app sleeps: back in front, it reconnects at once.
+                .onChange(of: scenePhase) { _, phase in if phase == .active { session.resume() } }
         }
     }
 

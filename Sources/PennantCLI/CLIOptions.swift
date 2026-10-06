@@ -76,6 +76,7 @@ Usage: pennant [--host H] [--port P] [--token T] <command> [args]
   skills preview <folder|url>  Show what an import would add, update, or skip, without writing
   skills folders [add|remove <path>]  Known and remembered skill folders, with kind and origin
   skills delete <id>…        Delete skills by id (prefixes work); built-in skills can only be disabled
+  skills claude-code [on|off]  Link Claude Code's skills (~/.claude and enabled plugins), kept in step; lists them
   library                    Brand collections and files agents use (find_assets)
   approval <id> approve|changes|reject [comment]  Answer an approval card
   export [--to <folder>] [--passphrase P]  Export this host's Pennant (secrets only with a passphrase, sealed)

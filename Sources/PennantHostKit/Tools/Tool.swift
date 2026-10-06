@@ -65,12 +65,18 @@ public struct RuntimeHooks: Sendable {
     public var startCoding: @Sendable (_ request: String, _ folder: String?, _ mode: CodingMode?, _ thread: ConversationID?) async throws -> (TaskID, ConversationID) = { _, _, _, _ in throw ToolError.failed("Coding is unavailable in this context") }
     /// Posts a file already in the artifact store into the task's conversation as an assistant `.file` message.
     public var shareFile: @Sendable (_ taskID: TaskID, _ ref: FileRef) async throws -> Void
+    /// Starts a Claude Code run for a skill only Claude Code can follow: a thread of its own under the caller, asked to use
+    /// the skill for `request`. Returns its task and thread.
+    public var runInClaudeCode: @Sendable (_ skill: Skill, _ request: String) async throws -> (TaskID, ConversationID) = { _, _ in throw ToolError.failed("Claude Code is unavailable in this context") }
     /// Shows an approval card and waits for the user's decision; returns the decided request.
     public var requestApproval: @Sendable (_ taskID: TaskID, _ request: ApprovalRequest) async throws -> ApprovalRequest = { _, _ in throw ToolError.failed("Approvals are unavailable in this context") }
     /// Looks up an approval by id (for publishing tools).
     public var approval: @Sendable (_ id: String) async throws -> ApprovalRequest? = { _ in nil }
     /// Posts a card that carries its own action and returns at once (the task doesn't wait for the decision).
     public var postApproval: @Sendable (_ taskID: TaskID, _ request: ApprovalRequest) async throws -> Void = { _, _ in throw ToolError.failed("Approvals are unavailable in this context") }
+    /// The exact name of the tool a card's action names (models write connection tools several ways), or an error
+    /// that says why there's none, so a card never goes up with an action that can't run.
+    public var resolveTool: @Sendable (_ name: String) async throws -> String = { $0 }
     /// Posts a proposed change to an agent or a skill: a card whose action (an approval-only tool) applies it once
     /// the user approves. Only the proposal tools post these.
     public var postProposal: @Sendable (_ taskID: TaskID, _ request: ApprovalRequest) async throws -> Void = { _, _ in throw ToolError.failed("Proposals are unavailable in this context") }

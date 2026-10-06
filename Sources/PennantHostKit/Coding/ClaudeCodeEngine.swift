@@ -55,8 +55,9 @@ struct ClaudeCodeEngine: Sendable {
         return candidates.first { fm.isExecutableFile(atPath: $0) }.map { URL(fileURLWithPath: $0) }
     }
 
-    func arguments(prompt: String, sessionID: String?, mcpConfig: URL?, mode: CodingMode = .acceptEdits, model: String? = nil, instructions: String? = nil) -> [String] {
+    func arguments(prompt: String, sessionID: String?, mcpConfig: URL?, mode: CodingMode = .acceptEdits, model: String? = nil, instructions: String? = nil, chrome: Bool = false) -> [String] {
         var args = ["-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", mode.rawValue]
+        if chrome { args.append("--chrome") }
         if let model, !model.isEmpty { args += ["--model", model] }
         if let instructions, !instructions.isEmpty { args += ["--append-system-prompt", instructions] }
         if let mcpConfig {
@@ -72,11 +73,11 @@ struct ClaudeCodeEngine: Sendable {
     /// Runs one message and calls `onEvent` for each event as it arrives. Cancelling the task stops the CLI.
     /// `environment` is laid over the host's (the session's GitHub identity); `instructions` go after Claude Code's own.
     func run(prompt: String, in directory: URL, sessionID: String?, mcpConfig: URL?, mode: CodingMode = .acceptEdits, model: String? = nil,
-             instructions: String? = nil, environment: [String: String] = [:],
+             instructions: String? = nil, chrome: Bool = false, environment: [String: String] = [:],
              onEvent: @escaping @Sendable (Event) async -> Void) async throws -> Finish {
         let process = Process()
         process.executableURL = executable
-        process.arguments = arguments(prompt: prompt, sessionID: sessionID, mcpConfig: mcpConfig, mode: mode, model: model, instructions: instructions)
+        process.arguments = arguments(prompt: prompt, sessionID: sessionID, mcpConfig: mcpConfig, mode: mode, model: model, instructions: instructions, chrome: chrome)
         process.currentDirectoryURL = directory
         var env = ProcessInfo.processInfo.environment
         // A host started by the app has a thin PATH; the CLI and the tools it runs need the usual places.

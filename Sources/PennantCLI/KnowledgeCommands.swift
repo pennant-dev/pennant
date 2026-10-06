@@ -134,6 +134,23 @@ func runSkills(_ sub: String, args: [String], options: CLIOptions) async throws 
         guard case .skillLocations(let locs) = r else { await session.disconnect(); fail(replyError(r)) }
         printLocations(locs)
 
+    case "claude-code":
+        var c = try await session.getConfig().config
+        switch args.first {
+        case "on"?, "off"?:
+            c.claudeCodeSkills = args.first == "on"
+            c = try await session.updateConfig(c).config
+        case nil: break
+        default: await session.disconnect(); fail("Usage: pennant skills claude-code [on|off]")
+        }
+        try await session.loadSkills()
+        let linked = session.state.skills.filter { $0.origin == "claude-code" && $0.status != .disabled }
+        out("Claude Code skills: \(c.claudeCodeSkills ? "on" : "off")\(c.claudeCodeSkills ? ", \(Set(linked.map(\.name)).count) linked" : "")")
+        for name in Set(linked.map(\.name)).sorted() {
+            let skill = linked.filter { $0.name == name }.max { $0.version < $1.version }
+            out("  \(name)\(skill?.needsClaudeCode.map { "  (runs in Claude Code: \($0))" } ?? "")")
+        }
+
     case "delete":
         guard !args.isEmpty else { await session.disconnect(); fail("Usage: pennant skills delete <id>…") }
         try await session.loadSkills()

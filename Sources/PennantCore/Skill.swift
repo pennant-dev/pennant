@@ -65,7 +65,8 @@ public struct Skill: Hashable, Codable, Sendable, Identifiable {
     public var previousVersionID: SkillID?
     public var createdAt: Date
     public var updatedAt: Date
-    /// "learned" (by an agent), "builtin" (shipped with Pennant), or "imported" (from a SKILL.md folder).
+    /// "learned" (by an agent), "builtin" (shipped with Pennant), "imported" (from a SKILL.md folder), or "claude-code"
+    /// (linked from Claude Code and kept in step with its file).
     public var origin: String
     /// Full instructions in Markdown (the SKILL.md body for imported skills). Shown to the model by use_skill.
     public var body: String
@@ -73,8 +74,11 @@ public struct Skill: Hashable, Codable, Sendable, Identifiable {
     public var sourcePath: String?
     /// The cards this skill produces (a report, an approval gate), declared in its SKILL.md.
     public var outputs: SkillOutputs?
+    /// For a skill linked from Claude Code that leans on what only Claude Code has: why ("it starts subagents").
+    /// use_skill hands such a skill to a Claude Code run. Nil: Pennant follows it itself.
+    public var needsClaudeCode: String?
 
-    public init(id: SkillID = SkillID(), name: String, version: Int = 1, purpose: String, applicability: String = "", prerequisites: [String] = [], inputs: [String] = [], steps: [SkillStep] = [], expectedResult: String = "", failureConditions: [String] = [], scripts: [String: String] = [:], status: SkillStatus = .provisional, evidenceTaskIDs: [TaskID] = [], outcomes: [SkillOutcome] = [], createdByAgentID: AgentID? = nil, previousVersionID: SkillID? = nil, createdAt: Date = Date(), updatedAt: Date = Date(), origin: String = "learned", body: String = "", sourcePath: String? = nil, outputs: SkillOutputs? = nil) {
+    public init(id: SkillID = SkillID(), name: String, version: Int = 1, purpose: String, applicability: String = "", prerequisites: [String] = [], inputs: [String] = [], steps: [SkillStep] = [], expectedResult: String = "", failureConditions: [String] = [], scripts: [String: String] = [:], status: SkillStatus = .provisional, evidenceTaskIDs: [TaskID] = [], outcomes: [SkillOutcome] = [], createdByAgentID: AgentID? = nil, previousVersionID: SkillID? = nil, createdAt: Date = Date(), updatedAt: Date = Date(), origin: String = "learned", body: String = "", sourcePath: String? = nil, outputs: SkillOutputs? = nil, needsClaudeCode: String? = nil) {
         self.id = id
         self.name = name
         self.version = version
@@ -97,9 +101,10 @@ public struct Skill: Hashable, Codable, Sendable, Identifiable {
         self.body = body
         self.sourcePath = sourcePath
         self.outputs = outputs
+        self.needsClaudeCode = needsClaudeCode
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, version, purpose, applicability, prerequisites, inputs, steps, expectedResult, failureConditions, scripts, status, evidenceTaskIDs, outcomes, createdByAgentID, previousVersionID, createdAt, updatedAt, origin, body, sourcePath, outputs }
+    private enum CodingKeys: String, CodingKey { case id, name, version, purpose, applicability, prerequisites, inputs, steps, expectedResult, failureConditions, scripts, status, evidenceTaskIDs, outcomes, createdByAgentID, previousVersionID, createdAt, updatedAt, origin, body, sourcePath, outputs, needsClaudeCode }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(SkillID.self, forKey: .id)
@@ -124,6 +129,7 @@ public struct Skill: Hashable, Codable, Sendable, Identifiable {
         outputs = try c.decodeIfPresent(SkillOutputs.self, forKey: .outputs)
         body = try c.decodeIfPresent(String.self, forKey: .body) ?? ""
         sourcePath = try c.decodeIfPresent(String.self, forKey: .sourcePath)
+        needsClaudeCode = try c.decodeIfPresent(String.self, forKey: .needsClaudeCode)
     }
 
     public var successRate: Double? {

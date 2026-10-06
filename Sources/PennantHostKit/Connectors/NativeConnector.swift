@@ -27,7 +27,7 @@ enum NativeConnectors {
 /// Everything a connector needs to call its API: the bearer token (refreshed by the manager when it nears
 /// expiry, and once more after a 401), and the server's settings.
 struct ConnectorAPI: Sendable {
-    let token: @Sendable () async -> String?
+    let token: @Sendable () async throws -> String?
     let refresh: @Sendable (_ rejected: String) async -> String?
     let settings: [String: String]
     var userAgent = "Pennant/\(PennantVersion.string) (macOS personal agent)"
@@ -41,7 +41,7 @@ struct ConnectorAPI: Sendable {
 
     /// Sends a request with the bearer token; on 401 refreshes once and retries. Returns the body and response.
     func send(_ method: String, _ url: URL, json: Any? = nil, form: [String: String]? = nil, body: Data? = nil, contentType: String? = nil, headers: [String: String] = [:], authorized: Bool = true) async throws -> (Data, HTTPURLResponse) {
-        var token = authorized ? await self.token() : nil
+        var token = authorized ? try await self.token() : nil
         if authorized, token == nil { throw Failure(status: 0, message: "Not signed in. Sign in from Connections.") }
         for attempt in 0 ..< 2 {
             var request = URLRequest(url: url)

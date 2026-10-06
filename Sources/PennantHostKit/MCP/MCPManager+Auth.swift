@@ -147,6 +147,7 @@ extension MCPManager {
     public func signOut(_ id: MCPServerID) async throws {
         guard let config = statuses[id]?.config else { throw MCPAuthError.notFound }
         await cancelPending(id)
+        cancelRetry(id)
         refreshTasks[id]?.cancel()
         refreshTasks[id] = nil
         forgetCredentials(config)
@@ -280,8 +281,11 @@ extension MCPManager {
         }
         guard let set = OAuthTokenSet.decode(raw) else { return (raw, nil) }
         if set.expires(within: Self.refreshLeeway) {
-            if set.refreshToken != nil, let refreshed = await refreshAccessToken(config.id, rejected: nil) { return refreshed }
-            if set.isExpired {
+            if set.refreshToken != nil {
+                if let refreshed = await refreshAccessToken(config.id, rejected: nil) { return refreshed }
+                // The refresh has set the state: refused (sign in again) or not reachable for now (still signed in).
+                if set.isExpired { return nil }
+            } else if set.isExpired {
                 await setAuth(config.id, .expired, "Sign in again")
                 return nil
             }
@@ -289,10 +293,15 @@ extension MCPManager {
         return (set.accessToken, set.expiresAt)
     }
 
-    /// The current bearer token for a built-in connector's API call, refreshed first when it nears expiry.
-    func connectorToken(_ id: MCPServerID) async -> String? {
+    /// The current bearer token for a built-in connector's API call, refreshed first when it nears expiry. Nil when
+    /// signed out; throws when the sign-in is good but couldn't be renewed just now.
+    func connectorToken(_ id: MCPServerID) async throws -> String? {
         guard let config = statuses[id]?.config else { return nil }
-        return await accessTokenForConnect(config)?.token
+        if let token = await accessTokenForConnect(config)?.token { return token }
+        if statuses[id]?.authState == .signedIn {
+            throw ConnectorAPI.Failure(status: 0, message: "Couldn't reach \(config.name) to renew the sign-in just now. The sign-in is still good; try again in a minute.")
+        }
+        return nil
     }
 
     /// Refreshes the server's token set once, however many requests ask at the same time. `rejected` is the
@@ -342,10 +351,27 @@ extension MCPManager {
             return (refreshed.accessToken, refreshed.expiresAt)
         } catch {
             if let e = error as? OAuthServerError, e.code == "invalid_client" || e.code == "unauthorized_client" { credentials.delete(key + ".client") }
+            guard Self.refusedSignIn(error) else {
+                // Offline, a timeout, the provider having a bad minute: the refresh token is still good, so the
+                // connection stays signed in and the next use (or the connection's retry) tries again.
+                log.warn("MCP server \(config.name): token refresh failed, trying again later: \(Self.describe(error))", category: "mcp")
+                await setAuth(id, .signedIn, "Couldn't renew the sign-in just now; trying again")
+                return nil
+            }
             log.warn("MCP server \(config.name): token refresh failed: \(Self.describe(error))", category: "mcp")
             await setAuth(id, .expired, "Sign in again")
             return nil
         }
+    }
+
+    /// Whether a failed refresh means the provider refused the sign-in (revoked, expired, a client it no longer
+    /// knows) rather than that it couldn't be reached or failed for a moment. Only a refusal asks to sign in again.
+    static func refusedSignIn(_ error: Error) -> Bool {
+        if case MCPAuthError.registrationFailed = error { return true }
+        guard let e = error as? OAuthServerError else { return false }
+        if e.code == "temporarily_unavailable" || e.code == "server_error" { return false }
+        guard let status = e.status ?? (e.code.hasPrefix("HTTP ") ? Int(e.code.dropFirst(5)) : nil) else { return true }
+        return (400 ..< 500).contains(status) && status != 408 && status != 429
     }
 
     func makeAuthorizer(for config: MCPServerConfig, token: String, expiresAt: Date?) -> MCPTokenAuthorizer {

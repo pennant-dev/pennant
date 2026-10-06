@@ -356,6 +356,9 @@ extension TaskRuntime {
                                                                     folder: path, mode: coding.mode(asked: mode), requestedBy: callerTask, engine: coding.engine)
             return (taskID, cid)
         }
+        hooks.runInClaudeCode = { [self] skill, request in
+            try await self.runSkillInClaudeCode(skill, request: request, caller: caller, callerTask: callerTask)
+        }
         hooks.delegateOnModel = { [self] parent, title, objective, criteria, context, name, role, model in
             try await self.delegate(parentTaskID: parent, title: title, objective: objective, completionCriteria: criteria, context: context, workerName: name, workerRole: role, model: model)
         }
@@ -368,6 +371,10 @@ extension TaskRuntime {
         hooks.approval = { [self] id in try await self.findApproval(id)?.request }
         hooks.markPublished = { [self] id, url in try await self.updateApproval(id) { $0.publishedURL = url } }
         hooks.postApproval = { [self] taskID, request in try await self.postApproval(taskID: taskID, request) }
+        hooks.resolveTool = { [self] name in
+            guard let tool = await self.deps.broker.resolve(name) else { throw ToolError.invalidArguments(await self.deps.broker.whyMissing(name)) }
+            return tool.spec.name
+        }
         hooks.postProposal = { [self] taskID, request in
             // The proposal tools' cards (a goal, a change to one, a skill's new version) replace an exact repeat.
             _ = try await self.makeRoom(for: request, taskID: taskID, replaces: [], alongside: true)

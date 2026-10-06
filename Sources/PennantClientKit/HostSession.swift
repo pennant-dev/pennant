@@ -98,6 +98,20 @@ public final class HostSession {
         receiveTask = Task { [weak self] in await self?.runConnectionLoop() }
     }
 
+    /// Back in the foreground: a connection the system dropped while the app slept comes back now, not after the
+    /// backoff's wait.
+    public func resume() {
+        guard wantsConnection else { return }
+        switch connection {
+        case .failed, .reconnecting: break
+        default: return
+        }
+        receiveTask?.cancel()
+        receiveTask = nil
+        reconnectAttempt = 0
+        connect()
+    }
+
     public func disconnect() async {
         wantsConnection = false
         receiveTask?.cancel()
@@ -132,8 +146,10 @@ public final class HostSession {
                 if screenSubscribed { _ = try? await send(.subscribeScreen(screenOptions)) }
                 await pump.value
             } catch {
-                connection = .failed(String(describing: error))
+                if !Task.isCancelled { connection = .failed(String(describing: error)) }
             }
+            // Cancelled by `resume`, a new loop already has the transport: leave its connection alone.
+            if Task.isCancelled { break }
             failPending(HostSessionError.notConnected)
             await transport.close()
             guard wantsConnection, !Task.isCancelled else { break }
@@ -142,7 +158,8 @@ public final class HostSession {
             let delay = min(pow(1.6, Double(reconnectAttempt)), 15)
             try? await Task.sleep(for: .seconds(delay))
         }
-        receiveTask = nil
+        // A loop cancelled by `resume` leaves the new one's task alone.
+        if !Task.isCancelled { receiveTask = nil }
         if !wantsConnection { connection = .disconnected }
     }
 

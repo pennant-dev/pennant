@@ -431,14 +431,33 @@ struct EntityCard: View {
         return parts.joined(separator: " · ")
     }
 
+    private var name: some View {
+        Text(entity.name).font(.zoomed(.body).weight(.medium)).foregroundStyle(PennantTheme.ink).lineLimit(1)
+    }
+
+    private var tags: some View {
+        HStack(spacing: 6) {
+            Chip(entity.kind.rawValue.capitalized)
+            Chip(entity.status.rawValue.capitalized, color: PennantTheme.color(for: entity.status))
+        }
+        .fixedSize()
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             MemoryCardGlyph(symbol: MemoryGlyph.symbol(entity.kind))
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(entity.name).font(.zoomed(.body).weight(.medium)).foregroundStyle(PennantTheme.ink).lineLimit(1)
-                    Chip(entity.kind.rawValue.capitalized)
-                    Chip(entity.status.rawValue.capitalized, color: PennantTheme.color(for: entity.status))
+                // The name and its tags on one line when they fit; with large text or a long name, the tags go under it
+                // rather than cutting the name short.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        name
+                        tags
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        name.lineLimit(2)
+                        tags
+                    }
                 }
                 if !entity.summary.isEmpty {
                     Text(entity.summary).font(.zoomed(.callout)).foregroundStyle(PennantTheme.inkSecondary).lineLimit(2)

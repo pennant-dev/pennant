@@ -225,8 +225,10 @@ public struct Chip: View {
     var color: Color
     public init(_ text: String, color: Color = PennantTheme.inkSecondary) { self.text = text; self.color = color }
     public var body: some View {
+        // A tag keeps to one line: never wrapped a letter or a syllable at a time in a narrow row.
         Text(text)
             .font(.zoomed(.caption2).weight(.medium))
+            .lineLimit(1)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(color.opacity(0.14), in: Capsule())

@@ -22,6 +22,8 @@ public struct ConversationView: View {
     @State private var sendError: String?
     @State private var loadedTaskIDs: Set<TaskID> = []
     @State private var checkpoints: [Checkpoint] = []
+    /// After /clear, what came before stays out of view until "Show earlier messages".
+    @State private var showsCleared = false
     /// True while the timeline is scrolled to (or within a few lines of) its end. New messages and streaming
     /// deltas keep the end in view only then; once the user scrolls up, the view stays where they are.
     @State private var pinnedToBottom = true
@@ -60,6 +62,17 @@ public struct ConversationView: View {
             if let m = c.throughMessageID { out[m] = c }
         }
         return out
+    }
+
+    /// The latest /clear in this conversation.
+    private var latestClear: Checkpoint? {
+        checkpointsByMessage.values.filter { $0.startedOver == true }.max { $0.createdAt < $1.createdAt }
+    }
+
+    /// The /clear whose earlier messages are out of view right now: the latest, once the message it follows is loaded.
+    private var hiddenClear: Checkpoint? {
+        guard !showsCleared, let clear = latestClear, let through = clear.throughMessageID, messages.contains(where: { $0.id == through }) else { return nil }
+        return clear
     }
 
     /// The most relevant task for this conversation: the newest non-terminal one, else the newest. A new thread has
@@ -109,6 +122,12 @@ public struct ConversationView: View {
     private func timeline(_ pairing: ToolPairing) -> [TimelineEntry] {
         let boundaries = checkpointsByMessage
         var out: [TimelineEntry] = []
+        // After /clear the timeline starts at its line; what came before shows only when asked for.
+        var shown = messages[...]
+        if let clear = hiddenClear, let i = messages.firstIndex(where: { $0.id == clear.throughMessageID }) {
+            out.append(TimelineEntry(id: "cp-\(clear.id.rawValue)", kind: .checkpoint(clear)))
+            shown = messages[(i + 1)...]
+        }
         var work: [WorkItem] = []
         var lastDate: Date?
         var lastUserSide: MessageRole?
@@ -124,7 +143,7 @@ public struct ConversationView: View {
                 lastUserSide = nil
             }
         }
-        for m in messages {
+        for m in shown {
             if pairing.suppresses(m) { checkpoint(after: m); continue }
             if let last = lastDate, m.createdAt.timeIntervalSince(last) <= Self.timestampGap {
                 // same stretch of conversation
@@ -222,7 +241,9 @@ public struct ConversationView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        if hasMore {
+                        let hidden = hiddenClear
+                        let clear = latestClear
+                        if hasMore, hidden == nil {
                             Button("Load earlier messages") { loadMore(proxy) }
                                 .buttonStyle(PennantButtonStyle(.ghost, compact: true))
                                 .frame(maxWidth: .infinity)
@@ -273,8 +294,13 @@ public struct ConversationView: View {
                                     .frame(maxWidth: part.isApproval || part.isUpdate ? ApprovalCard.maxWidth + 15 : 720, alignment: .leading)
                                     .padding(.top, afterAgent ? 8 : 14)
                             case .checkpoint(let c):
-                                CheckpointDivider(checkpoint: c)
-                                    .padding(.vertical, 10)
+                                if c.startedOver == true, c.id == clear?.id {
+                                    ClearedDivider(checkpoint: c, showsEarlier: hidden == nil) { toggleCleared(c, proxy) }
+                                        .padding(.vertical, 10)
+                                } else {
+                                    CheckpointDivider(checkpoint: c)
+                                        .padding(.vertical, 10)
+                                }
                             case .codingRun(let activity):
                                 CodingRunRow(activity: activity, from: session.state.agent(agentID))
                                     .padding(.top, afterAgent ? 8 : 14)
@@ -284,6 +310,14 @@ public struct ConversationView: View {
                             case .threadStarted(let activity):
                                 ThreadStartedRow(activity: activity)
                                     .padding(.top, afterAgent ? 8 : 14)
+                            }
+                        }
+                        // Just cleared: the chat reads as new below the line.
+                        if hidden != nil, entries.count == 1 {
+                            if isMainChat {
+                                PennantChatIntro(agent: session.state.agent(agentID))
+                            } else {
+                                EmptyConversation(agent: session.state.agent(agentID))
                             }
                         }
                         if let task = currentTask, task.state == .waitingForUser {
@@ -362,8 +396,11 @@ public struct ConversationView: View {
                 .onChange(of: conversationID) { _, _ in
                     pinnedToBottom = true
                     prepending = false
+                    showsCleared = false
                     scrollToBottom(proxy, animated: false)
                 }
+                // A new /clear puts what came before out of view again.
+                .onChange(of: latestClear?.id) { _, _ in showsCleared = false }
             }
             if let conversationID, session.state.conversation(conversationID)?.isCodingRun == true {
                 // A coding CLI keeps its own context; what matters here is which project it works in.
@@ -371,7 +408,7 @@ public struct ConversationView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 2)
             } else if conversationID != nil, threadInChat == nil {
-                ContextMeterView(conversationID: conversationID, agentID: agentID, hasMessages: !messages.isEmpty)
+                ContextMeterView(conversationID: conversationID, agentID: agentID)
                     .padding(.horizontal, 20)
                     .padding(.top, 2)
             }
@@ -545,6 +582,13 @@ public struct ConversationView: View {
             loadedTaskIDs.insert(t.id)
             try? await session.loadToolRecords(taskID: t.id)
         }
+    }
+
+    /// Shows or hides what came before the latest /clear; shown, the view lands on its last messages, just above the line.
+    private func toggleCleared(_ clear: Checkpoint, _ proxy: ScrollViewProxy) {
+        showsCleared.toggle()
+        guard showsCleared else { return }
+        DispatchQueue.main.async { proxy.scrollTo("cp-\(clear.id.rawValue)", anchor: .bottom) }
     }
 
     /// Prepends the previous page and keeps the row that was at the top where it is.

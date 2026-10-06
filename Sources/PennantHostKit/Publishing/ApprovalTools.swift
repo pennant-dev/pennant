@@ -20,7 +20,7 @@ public struct RequestApprovalTool: Tool {
                 "tags": .object(["type": "array", "items": .object(["type": "string"]), "description": "Keywords published with the content, such as a video's tags."]),
                 "details": .object(["type": "array", "description": "Settings published with the content, for the user to approve, e.g. [{\"label\": \"Altered or synthetic content\", \"value\": \"Yes: the narration is a cloned voice\"}]. The publishing script reads them by label.", "items": .object(["type": "object", "properties": .object(["label": JSONSchema.string("The setting."), "value": JSONSchema.string("Its value.")])])]),
                 "on_approve": .object(["type": "object", "description": "Optional. What Pennant does itself when the user approves, e.g. send an email reply: {\"tool\": \"<tool name>\", \"arguments\": {…}, \"text_field\": \"body\", \"label\": \"Approve & send\"}. The approved text (with the user's edits) goes into arguments[text_field]. With on_approve the card doesn't wait: this returns at once, so you can put up several cards; Pennant runs the action on approval, and a change request comes back to you as a new message.", "properties": .object([
-                    "tool": JSONSchema.string("The tool to call on approval, e.g. mcp:<server>:mail_reply."),
+                    "tool": JSONSchema.string("The tool to call on approval, named exactly as you call it; a connection's tools look like <connection>__<tool>, e.g. microsoft_365__mail_reply."),
                     "arguments": .object(["type": "object", "description": "Its arguments, without the text (Pennant fills text_field)."]),
                     "text_field": JSONSchema.string("Which argument receives the approved text (e.g. body)."),
                     "label": JSONSchema.string("The approve button's words (default \"Approve & send\")."),
@@ -81,16 +81,22 @@ public struct RequestApprovalTool: Tool {
         )
         var labelled = request
         labelled.approveLabel = arguments.string("approve_label")?.trimmingCharacters(in: .whitespaces).nilIfEmpty
-        let replaced = try await hooks.makeRoom(context.taskID, labelled, arguments.stringArray("replaces") ?? [], arguments["alongside"]?.boolValue ?? false)
-        let replacedNote = replaced.isEmpty ? "" : " It replaces " + replaced.map { "“\($0)”" }.joined(separator: ", ") + ", now withdrawn."
+        var action: ApprovalAction?
         if case .object(let spec)? = arguments["on_approve"] {
-            guard let tool = spec["tool"]?.stringValue, !tool.isEmpty, let field = spec["text_field"]?.stringValue, !field.isEmpty else {
+            guard let named = spec["tool"]?.stringValue, !named.isEmpty, let field = spec["text_field"]?.stringValue, !field.isEmpty else {
                 throw ToolError.invalidArguments("on_approve needs tool and text_field")
             }
+            // Checked before any card is withdrawn: an action that names no tool would only fail once approved.
+            let tool = try await hooks.resolveTool(named)
+            action = ApprovalAction(tool: tool, arguments: spec["arguments"] ?? .object([:]), textField: field, label: spec["label"]?.stringValue ?? "Approve & send")
+        }
+        let replaced = try await hooks.makeRoom(context.taskID, labelled, arguments.stringArray("replaces") ?? [], arguments["alongside"]?.boolValue ?? false)
+        let replacedNote = replaced.isEmpty ? "" : " It replaces " + replaced.map { "“\($0)”" }.joined(separator: ", ") + ", now withdrawn."
+        if let action {
             var withAction = labelled
-            withAction.action = ApprovalAction(tool: tool, arguments: spec["arguments"] ?? .object([:]), textField: field, label: spec["label"]?.stringValue ?? "Approve & send")
+            withAction.action = action
             try await hooks.postApproval(context.taskID, withAction)
-            return .text(ToolCallID("pending"), name: "request_approval", "Card \(withAction.id) is up.\(replacedNote) When the user approves, Pennant runs \(tool) with the approved text; you don't need to wait. A change request will come back to you as a new message.")
+            return .text(ToolCallID("pending"), name: "request_approval", "Card \(withAction.id) is up.\(replacedNote) When the user approves, Pennant runs \(action.tool) with the approved text; you don't need to wait. A change request will come back to you as a new message.")
         }
         let decided = try await hooks.requestApproval(context.taskID, labelled)
         let body: String

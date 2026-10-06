@@ -143,9 +143,9 @@ It connects by itself whenever Chrome and Pennant are both running; the card sho
   - `pennant chrome forget <site>` makes Pennant ask about that site again.
   - `pennant tool web_open '{"url":"https://example.com"}'` tries a tool by hand.
 
-## Starting over
+## Clearing and compacting
 
-Start over (above the composer, next to Compact) starts a conversation afresh. A reply in progress stops, and nothing said before reaches Pennant again: a "Started over" line marks the place, and the messages stay on screen. Pennant's memory and the work in threads are untouched. Compact, by contrast, keeps a summary of what came before.
+Type `/clear` in the composer to start a conversation afresh. A reply in progress stops, and nothing said before reaches Pennant again: a "Cleared" line marks the place, and the messages stay on screen. Pennant's memory and the work in threads are untouched. `/compact`, by contrast, keeps a summary of what came before. Both are listed when you type "/", along with your skills, and neither is sent to Pennant.
 
 ## Talk mode
 
@@ -210,6 +210,16 @@ Pennant reads the `SKILL.md` folder format used by Claude Code, Codex, and the A
 - **Git sources.** A source that looks like a repository (`https://…`, `git@…`, `ssh://…`, or a path ending in `.git`) is cloned shallowly under `~/Library/Application Support/Pennant/skills/repos/<name>` with the `git` on the host's PATH, and pulled (`--ff-only`) on every later preview or import of the same URL. Private repositories need credentials git can use without a prompt (SSH keys or a credential helper); the host never asks.
 - **Remembered folders.** Folders you add (`pennant skills folders add <path>`, or the folder list in the app) and cloned repositories are kept in the database and listed by `pennant skills folders` with their kind (`known`, `custom`, `git`) and, for repositories, the origin URL. `pennant skills folders remove <path>` forgets one and leaves any checkout on disk. Known harness folders are detected fresh on every scan.
 - **Deleting skills.** `pennant skills delete <id>…` removes learned or imported skills (id prefixes work). Built-in skills can be disabled but not deleted.
+
+## Claude Code skills
+
+Instead of copying, Pennant can link Claude Code's skills: Skills › "Claude Code skills" at the foot of the list, or `pennant skills claude-code on` (`off` to unlink; with no argument it lists them). Off by default.
+
+- **What's linked.** `~/.claude/skills/<name>/SKILL.md`, your Claude account's skills (Claude Code keeps them in `~/.claude/skills/synced/<account>/`), and the skills of every plugin that's installed for the user and enabled in `~/.claude/settings.json` (`enabledPlugins`): the plugin's `skills/` folder plus any folders its `.claude-plugin/plugin.json` lists under `skills`. A plugin's skills are named as Claude Code names them, `plugin:skill`. Deeper `SKILL.md` files (a plugin's templates) and project-scoped plugins aren't linked.
+- **Kept in step.** The host re-reads them when it starts, whenever Skills is listed, and every five minutes. An edit in Claude Code becomes a new version; a skill that's gone there, or a plugin turned off, is removed here. They're read-only in Pennant (edit them in Claude Code) and can be turned off here, which survives later edits.
+- **Names.** Pennant's skills go by name, so a Claude Code skill with the name of one of Pennant's own is left out, and the host log says so (`[skills] Claude Code skills: … skipped pdf: one of Pennant's skills has this name`).
+- **Where they run.** Pennant follows a linked skill itself, with `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_SKILL_DIR}` filled in, unless it leans on what only Claude Code has: `context: fork` or `agent:` in its front matter, hooks, tools named the way Claude Code names them (`mcp__server__tool`), subagents or the Task, Agent or Skill tools in its instructions, or `` !`command` `` lines. Those show "Runs in Claude Code" in Skills and the `/` list, and `use_skill` starts a Claude Code run for them in a thread of its own, invoking the skill by name (`/plugin:skill <request>`), whatever engine Settings › Coding uses, in the default project's folder or the home folder. A skill that browses with Claude in Chrome gets a run started with `--chrome`. That run uses Claude Code's own account and settings, and its permission requests come to Pennant as cards like any coding run's (only publishing, sending, deleting and spending ask).
+- **Picked in the chat.** A skill picked from the `/` list in the Pennant chat goes where it runs before the chat's model does anything: one that runs in Claude Code starts there at once and the chat says so in a line; one Pennant runs goes to a thread whose instructions start with `use_skill`, so it's followed rather than improvised with the chat's own tools.
 
 ## Signing in to MCP servers
 

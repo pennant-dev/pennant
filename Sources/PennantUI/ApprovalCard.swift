@@ -285,7 +285,7 @@ public struct ApprovalCard: View {
     @ViewBuilder private var allowRestButton: some View {
         if let label = request.allowRestLabel {
             Button { decide(.approveRest) } label: {
-                Label(label, systemImage: "checkmark.circle").lineLimit(1).frame(maxWidth: .infinity)
+                Label(label, systemImage: "checkmark.circle").lineLimit(2).multilineTextAlignment(.center).frame(maxWidth: .infinity)
             }
             .buttonStyle(.pennantSecondary)
             .disabled(busy)
