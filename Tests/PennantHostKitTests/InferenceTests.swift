@@ -462,6 +462,53 @@ final class InferenceTests: XCTestCase {
         XCTAssertFalse(unchanged.isEmpty)
     }
 
+    /// GLM on a server that passes its tool calls through as text (the message seen on 2026-10-06).
+    func testGLMToolCallWrittenAsTextIsReadAsACall() {
+        let schema: JSONValue = .object(["type": "object", "properties": .object([
+            "folder": .object(["type": "string"]), "limit": .object(["type": "integer"]), "received_after": .object(["type": "string"]),
+        ])])
+        let text = "<tool_call>microsoft_365__mail_search<arg_key>folder</arg_key><arg_value>inbox</arg_value><arg_key>limit</arg_key><arg_value>25</arg_value><arg_key>received_after</arg_key><arg_value>2026-10-06T05:38:00Z</arg_value></tool_call>"
+        let (cleaned, calls) = ChunkAssembler.extractPromptedToolCalls(from: text, allowedNames: ["microsoft_365__mail_search"], schemas: ["microsoft_365__mail_search": schema])
+        XCTAssertEqual(cleaned, "")
+        XCTAssertEqual(calls.map(\.name), ["microsoft_365__mail_search"])
+        XCTAssertEqual(calls.first?.arguments["folder"]?.stringValue, "inbox")
+        XCTAssertEqual(calls.first?.arguments["limit"]?.intValue, 25, "typed by the schema")
+        XCTAssertEqual(calls.first?.arguments["received_after"]?.stringValue, "2026-10-06T05:38:00Z")
+        // With newlines, without its closing tag (the stop token cut it), and a name that isn't a tool.
+        let (_, open) = ChunkAssembler.extractPromptedToolCalls(from: "<tool_call>mail_search\n<arg_key>q</arg_key>\n<arg_value>invoice</arg_value>\n", allowedNames: ["mail_search"])
+        XCTAssertEqual(open.first?.arguments["q"]?.stringValue, "invoice")
+        let (kept, none) = ChunkAssembler.extractPromptedToolCalls(from: "<tool_call>rm_rf<arg_key>p</arg_key><arg_value>/</arg_value></tool_call>", allowedNames: ["mail_search"])
+        XCTAssertTrue(none.isEmpty)
+        XCTAssertFalse(kept.isEmpty)
+    }
+
+    /// With native tools, a call written as text never shows as a message: what came before it streams, the call runs.
+    func testNativeToolsHoldBackACallWrittenAsText() throws {
+        func payload(_ content: String) -> String {
+            String(data: try! JSONSerialization.data(withJSONObject: ["choices": [["delta": ["content": content]]]]), encoding: .utf8)!
+        }
+        var assembler = ChunkAssembler(bufferText: false, toolNames: ["mail_search"])
+        var chunks: [InferenceChunk] = []
+        for part in ["Let me check a <", "b> tag first. <tool_", "call>mail_search<arg_key>q</arg_key>", "<arg_value>invoice</arg_value></tool_call>"] {
+            chunks += try assembler.handle(payload: payload(part))
+        }
+        chunks += assembler.end()
+        let text = chunks.compactMap { if case .textDelta(let t) = $0 { return t }; return nil }.joined()
+        XCTAssertEqual(text, "Let me check a <b> tag first. ")
+        let calls = chunks.compactMap { if case .toolCall(let c) = $0 { return c }; return nil }
+        XCTAssertEqual(calls.map(\.name), ["mail_search"])
+        XCTAssertEqual(calls.first?.arguments["q"]?.stringValue, "invoice")
+        XCTAssertTrue(chunks.contains { if case .finished(.toolCalls) = $0 { return true }; return false })
+
+        // A server that sends the call properly and echoes it as text: it runs once.
+        var both = ChunkAssembler(bufferText: false, toolNames: ["mail_search"])
+        var out = try both.handle(payload: payload("<tool_call>mail_search<arg_key>q</arg_key><arg_value>x</arg_value></tool_call>"))
+        let real = #"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"mail_search","arguments":"{\"q\":\"x\"}"}}]},"finish_reason":"tool_calls"}]}"#
+        out += try both.handle(payload: real)
+        out += both.end()
+        XCTAssertEqual(out.compactMap { if case .toolCall(let c) = $0 { return c.id.rawValue }; return nil }, ["c1"])
+    }
+
     func testContextLimitExtraction() {
         XCTAssertEqual(OpenAICompatibleProvider.contextLimit(from: "This model's maximum context length is 131072 tokens."), 131072)
         XCTAssertNil(OpenAICompatibleProvider.contextLimit(from: "nothing here"))

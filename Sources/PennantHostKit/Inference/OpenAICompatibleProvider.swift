@@ -346,7 +346,8 @@ public final class OpenAICompatibleProvider: InferenceProvider, Sendable {
             }
 
             let bufferText = !config.supportsTools && !request.disableTools && !request.tools.isEmpty
-            var assembler = ChunkAssembler(bufferText: bufferText, toolNames: Set(request.tools.map(\.name)))
+            var assembler = ChunkAssembler(bufferText: bufferText, toolNames: Set(request.tools.map(\.name)),
+                                           toolSchemas: Dictionary(request.tools.map { ($0.name, $0.inputSchema) }, uniquingKeysWith: { first, _ in first }))
             var parser = SSEParser()
             var lineBuffer = Data()
             lineBuffer.reserveCapacity(4096)
@@ -415,10 +416,19 @@ struct ChunkAssembler: Sendable {
     private let bufferText: Bool
     private var bufferedText = ""
     private let toolNames: Set<String>
+    private let toolSchemas: [String: JSONValue]
+    /// With native tool calling, some servers still pass a model's own tool-call text through as text (GLM's
+    /// `<tool_call>name<arg_key>…`, or JSON in the same tags). From the first `<tool_call>` on, the text is held back
+    /// and read as calls at the end, so it never shows as a message; `tagStart` is a tail that may be the tag's start.
+    private var heldText = ""
+    private var holding = false
+    private var tagStart = ""
+    private static let openTag = "<tool_call>"
 
-    init(bufferText: Bool, toolNames: Set<String>) {
+    init(bufferText: Bool, toolNames: Set<String>, toolSchemas: [String: JSONValue] = [:]) {
         self.bufferText = bufferText
         self.toolNames = toolNames
+        self.toolSchemas = toolSchemas
     }
 
     mutating func handle(payload: String) throws -> [InferenceChunk] {
@@ -451,7 +461,7 @@ struct ChunkAssembler: Sendable {
             out.append(.reasoningDelta(reasoning))
         }
         if let content = delta["content"]?.stringValue, !content.isEmpty {
-            if bufferText { bufferedText += content } else { out.append(.textDelta(content)) }
+            if bufferText { bufferedText += content } else { out.append(contentsOf: passText(content)) }
         }
         if let calls = delta["tool_calls"]?.arrayValue {
             sawToolCalls = true
@@ -480,10 +490,47 @@ struct ChunkAssembler: Sendable {
         return out
     }
 
+    /// Streams text on, except a tool call written out as text: from `<tool_call>` on, it's held for `end`.
+    private mutating func passText(_ content: String) -> [InferenceChunk] {
+        if holding { heldText += content; return [] }
+        let text = tagStart + content
+        tagStart = ""
+        if let tag = text.range(of: Self.openTag) {
+            holding = true
+            heldText = String(text[tag.lowerBound...])
+            let before = String(text[..<tag.lowerBound])
+            return before.isEmpty ? [] : [.textDelta(before)]
+        }
+        let keep = Self.partialTagLength(at: text)
+        tagStart = String(text.suffix(keep))
+        let shown = String(text.dropLast(keep))
+        return shown.isEmpty ? [] : [.textDelta(shown)]
+    }
+
+    /// How much of the end of `text` could be the start of `<tool_call>` ("<tool_c"), to hold until the next chunk.
+    static func partialTagLength(at text: String) -> Int {
+        for length in stride(from: min(openTag.count - 1, text.count), through: 1, by: -1) where text.hasSuffix(String(openTag.prefix(length))) {
+            return length
+        }
+        return 0
+    }
+
     mutating func end() -> [InferenceChunk] {
         var out: [InferenceChunk] = []
+        if !tagStart.isEmpty { out.append(.textDelta(tagStart)); tagStart = "" }
+        if holding {
+            let (cleaned, calls) = Self.extractPromptedToolCalls(from: heldText, allowedNames: toolNames, schemas: toolSchemas)
+            heldText = ""
+            holding = false
+            if !cleaned.isEmpty { out.append(.textDelta(cleaned)) }
+            // Calls the server also sent as real calls aren't run twice.
+            if !calls.isEmpty, !sawToolCalls {
+                sawToolCalls = true
+                out.append(contentsOf: calls.map { .toolCall($0) })
+            }
+        }
         if bufferText {
-            let (cleaned, calls) = Self.extractPromptedToolCalls(from: bufferedText, allowedNames: toolNames)
+            let (cleaned, calls) = Self.extractPromptedToolCalls(from: bufferedText, allowedNames: toolNames, schemas: toolSchemas)
             bufferedText = ""
             if !cleaned.isEmpty { out.append(.textDelta(cleaned)) }
             if !calls.isEmpty {
@@ -538,13 +585,15 @@ struct ChunkAssembler: Sendable {
         }
     }
 
-    /// Fallback for endpoints without native tool calling: pull `<tool_call>{...}</tool_call>` or
-    /// fenced ```json blocks shaped like {"name": ..., "arguments": {...}} out of the text.
-    static func extractPromptedToolCalls(from text: String, allowedNames: Set<String>) -> (String, [ToolCall]) {
+    /// Tool calls written out as text: `<tool_call>{...}</tool_call>` or fenced ```json blocks shaped like
+    /// {"name": ..., "arguments": {...}}, and GLM's `<tool_call>name<arg_key>k</arg_key><arg_value>v</arg_value></tool_call>`
+    /// (its values typed by the tool's schema). For endpoints without native tool calling, and for servers that pass a
+    /// model's own call text through. A last call whose closing tag never came is read too.
+    static func extractPromptedToolCalls(from text: String, allowedNames: Set<String>, schemas: [String: JSONValue] = [:]) -> (String, [ToolCall]) {
         var calls: [ToolCall] = []
         var cleaned = text
         let patterns = [
-            #"<tool_call>\s*([\s\S]*?)\s*</tool_call>"#,
+            #"<tool_call>\s*([\s\S]*?)\s*(?:</tool_call>|$)"#,
             #"```(?:json)?\s*([\s\S]*?)```"#,
         ]
         for pattern in patterns {
@@ -553,7 +602,8 @@ struct ChunkAssembler: Sendable {
             for match in regex.matches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned)) {
                 guard let inner = Range(match.range(at: 1), in: cleaned), let whole = Range(match.range, in: cleaned) else { continue }
                 let candidate = String(cleaned[inner]).trimmingCharacters(in: .whitespacesAndNewlines)
-                let parsed = parseToolCallJSON(candidate, allowedNames: allowedNames)
+                var parsed = parseToolCallJSON(candidate, allowedNames: allowedNames)
+                if parsed.isEmpty, let call = parseKeyValueToolCall(candidate, allowedNames: allowedNames, schemas: schemas) { parsed = [call] }
                 if !parsed.isEmpty {
                     calls.append(contentsOf: parsed)
                     removals.append(whole)
@@ -562,6 +612,25 @@ struct ChunkAssembler: Sendable {
             for range in removals.reversed() { cleaned.removeSubrange(range) }
         }
         return (cleaned.trimmingCharacters(in: .whitespacesAndNewlines), calls)
+    }
+
+    /// GLM's form: the tool's name, then `<arg_key>k</arg_key><arg_value>v</arg_value>` pairs. A value is text where the
+    /// schema says string, and read as JSON (a number, a flag, a list) otherwise when it is.
+    static func parseKeyValueToolCall(_ text: String, allowedNames: Set<String>, schemas: [String: JSONValue]) -> ToolCall? {
+        let name = String(text[..<(text.range(of: "<arg_key>")?.lowerBound ?? text.endIndex)]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !name.contains("<"), !name.contains("{"), allowedNames.isEmpty || allowedNames.contains(name) else { return nil }
+        guard let pair = try? NSRegularExpression(pattern: #"<arg_key>\s*([\s\S]*?)\s*</arg_key>\s*<arg_value>([\s\S]*?)</arg_value>"#) else { return nil }
+        var arguments: [String: JSONValue] = [:]
+        for match in pair.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let k = Range(match.range(at: 1), in: text), let v = Range(match.range(at: 2), in: text) else { continue }
+            let key = String(text[k])
+            let raw = String(text[v]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let type = schemas[name]?["properties"]?[key]?["type"]?.stringValue
+            if type == "string" { arguments[key] = .string(raw) }
+            else if let value = try? JSONValue.parse(raw), value.stringValue == nil || type == nil { arguments[key] = value }
+            else { arguments[key] = .string(raw) }
+        }
+        return ToolCall(id: ToolCallID("call_" + UUID().uuidString.lowercased().prefix(12)), name: name, arguments: .object(arguments))
     }
 
     private static func parseToolCallJSON(_ text: String, allowedNames: Set<String>) -> [ToolCall] {
