@@ -519,7 +519,9 @@ struct ChunkAssembler: Sendable {
         var out: [InferenceChunk] = []
         if !tagStart.isEmpty { out.append(.textDelta(tagStart)); tagStart = "" }
         if holding {
-            let (cleaned, calls) = Self.extractPromptedToolCalls(from: heldText, allowedNames: toolNames, schemas: toolSchemas)
+            // Any tool, not only this turn's: the chat loads a service's tools on demand, and a model calls one it used
+            // before. The runtime runs a real tool by name and answers an unknown one, as for a call sent properly.
+            let (cleaned, calls) = Self.extractPromptedToolCalls(from: heldText, allowedNames: [], schemas: toolSchemas, fencedJSON: false)
             heldText = ""
             holding = false
             if !cleaned.isEmpty { out.append(.textDelta(cleaned)) }
@@ -589,13 +591,11 @@ struct ChunkAssembler: Sendable {
     /// {"name": ..., "arguments": {...}}, and GLM's `<tool_call>name<arg_key>k</arg_key><arg_value>v</arg_value></tool_call>`
     /// (its values typed by the tool's schema). For endpoints without native tool calling, and for servers that pass a
     /// model's own call text through. A last call whose closing tag never came is read too.
-    static func extractPromptedToolCalls(from text: String, allowedNames: Set<String>, schemas: [String: JSONValue] = [:]) -> (String, [ToolCall]) {
+    static func extractPromptedToolCalls(from text: String, allowedNames: Set<String>, schemas: [String: JSONValue] = [:], fencedJSON: Bool = true) -> (String, [ToolCall]) {
         var calls: [ToolCall] = []
         var cleaned = text
-        let patterns = [
-            #"<tool_call>\s*([\s\S]*?)\s*(?:</tool_call>|$)"#,
-            #"```(?:json)?\s*([\s\S]*?)```"#,
-        ]
+        var patterns = [#"<tool_call>\s*([\s\S]*?)\s*(?:</tool_call>|$)"#]
+        if fencedJSON { patterns.append(#"```(?:json)?\s*([\s\S]*?)```"#) }
         for pattern in patterns {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { continue }
             var removals: [Range<String.Index>] = []

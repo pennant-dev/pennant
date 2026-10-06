@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Privacy · Pennant</title>
+<meta name="description" content="Pennant collects nothing about you: no account with us, no telemetry, no server of ours in the middle.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#0E0F13">
+<style>
+@font-face{font-family:"Plex Sans";src:url("/assets/fonts/IBMPlexSans.woff2") format("woff2");font-weight:100 700;font-display:swap}
+@font-face{font-family:"Plex Mono";src:url("/assets/fonts/IBMPlexMono-400.woff2") format("woff2");font-weight:400;font-display:swap}
+:root{color-scheme:dark;--page:#0E0F13;--fg:#ECECF1;--fg-2:#A1A3AE;--fg-3:#6E717D;--rule:rgba(255,255,255,.08);--accent:#9D8CFF;
+  --sans:"Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--mono:"Plex Mono",ui-monospace,"SF Mono",Menlo,monospace}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--fg);font:400 16.5px/1.65 var(--sans);-webkit-font-smoothing:antialiased}
+main{max-width:44em;margin:0 auto;padding:40px clamp(16px,4vw,40px) 72px}
+.brand{display:inline-flex;align-items:center;gap:10px;color:var(--fg);text-decoration:none;font-weight:600;font-size:18px}
+.brand img{width:22px;height:22px}
+.label{margin:44px 0 0;font:400 13px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--fg-3)}
+h1{margin:12px 0 0;font-weight:600;font-size:clamp(32px,5vw,44px);line-height:1.08;letter-spacing:-.025em;text-wrap:balance}
+.lede{margin:16px 0 0;font-size:19px;color:var(--fg-2)}
+h2{margin:40px 0 0;padding-top:28px;border-top:1px solid var(--rule);font-weight:600;font-size:20px;letter-spacing:-.01em}
+p,li{color:var(--fg-2)}
+p{margin:12px 0 0}
+ul{margin:12px 0 0;padding-left:1.2em}
+li{margin:8px 0 0}
+b{color:var(--fg);font-weight:600}
+a{color:var(--accent)}
+code{font-family:var(--mono);font-size:.92em}
+.fine{margin-top:44px;font-size:14px;color:var(--fg-3)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+</style>
+</head>
+<body>
+<main>
+  <a class="brand" href="/"><img src="/favicon.svg" alt="">Pennant</a>
+  <p class="label">Privacy</p>
+  <h1>Pennant collects nothing about you.</h1>
+  <p class="lede">There's no account with us, no telemetry and no server of ours in the middle. Pennant runs on your Mac, and the iPhone app talks to your Mac.</p>
+
+  <h2>What Pennant keeps, and where</h2>
+  <p>Everything Pennant works with stays on your Mac, in one folder you own (<code>~/Library/Application Support/Pennant</code>): your conversations, its memory, your skills, jobs and settings. Passwords and keys are kept in your Mac's Keychain. Export and import move the folder to your next Mac; deleting it removes everything.</p>
+  <ul>
+    <li><b>The iPhone app</b> connects straight to your Mac, over your own network or Tailscale, on an encrypted connection pinned to your Mac's certificate. It keeps your sign-in to your Mac and nothing else of note.</li>
+    <li><b>Talk mode</b> recognises what you say on the device itself. The natural voices are made on your Mac.</li>
+    <li><b>Notifications</b> on your iPhone, if you set them up, go from your Mac to Apple's push service with your own Apple key. They don't pass through us.</li>
+  </ul>
+
+  <h2>What leaves your devices, and only because you set it up</h2>
+  <ul>
+    <li><b>The AI model you choose.</b> What Pennant sends to answer you goes to that provider (OpenAI, Anthropic, Microsoft Azure, Google and the like) under their terms. With a model running on your own Mac or computer, nothing leaves.</li>
+    <li><b>The services you connect.</b> When you connect Microsoft 365, GitHub or any other service, Pennant talks to it directly, with your sign-in, to do what you ask.</li>
+    <li><b>Downloads.</b> The natural voices are downloaded from Hugging Face the first time you use them; the app itself comes from GitHub.</li>
+    <li><b>Updates.</b> If you allow it, the Mac app checks <code>pennant.dev/appcast.xml</code> at most once a day for a new version. It sends no system profile; the server sees an ordinary request.</li>
+  </ul>
+
+  <h2>This website</h2>
+  <p>pennant.dev is a static site hosted on Amazon Web Services. It sets no cookies and runs no analytics or trackers, and its fonts are served from the site itself. Like any web server, the host receives your IP address and browser details with each request.</p>
+
+  <h2>TestFlight</h2>
+  <p>If you test the iPhone app through TestFlight, Apple may share crash reports and any feedback you choose to send with us, as described in Apple's privacy policy. We use them only to fix the app.</p>
+
+  <h2>Email</h2>
+  <p>If you write to <a href="mailto:hello@pennant.dev">hello@pennant.dev</a>, we keep your message to reply to it. We don't add you to any list.</p>
+
+  <h2>Changes and contact</h2>
+  <p>If this changes, this page will say so, with the date. Questions: <a href="mailto:hello@pennant.dev">hello@pennant.dev</a>. Security reports: <a href="mailto:security@pennant.dev">security@pennant.dev</a>.</p>
+
+  <p class="fine">Last updated October 6, 2026. Pennant is free, open-source software under the Apache 2.0 licence; its source is on <a href="https://github.com/pennant-dev/pennant">GitHub</a>.</p>
+</main>
+</body>
+</html>

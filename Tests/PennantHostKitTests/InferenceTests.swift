@@ -500,6 +500,15 @@ final class InferenceTests: XCTestCase {
         XCTAssertEqual(calls.first?.arguments["q"]?.stringValue, "invoice")
         XCTAssertTrue(chunks.contains { if case .finished(.toolCalls) = $0 { return true }; return false })
 
+        // A tool this turn didn't carry (the chat loads a service's tools on demand) is still a call: the runtime decides.
+        var unloaded = ChunkAssembler(bufferText: false, toolNames: ["find_tools"])
+        var seen = try unloaded.handle(payload: payload("<tool_call>microsoft_365__mail_search<arg_key>folder</arg_key><arg_value>inbox</arg_value><arg_key>limit</arg_key><arg_value>25</arg_value></tool_call>"))
+        seen += unloaded.end()
+        XCTAssertFalse(seen.contains { if case .textDelta = $0 { return true }; return false }, "nothing shows as text")
+        let call = seen.compactMap { if case .toolCall(let c) = $0 { return c }; return nil }.first
+        XCTAssertEqual(call?.name, "microsoft_365__mail_search")
+        XCTAssertEqual(call?.arguments["limit"]?.intValue, 25)
+
         // A server that sends the call properly and echoes it as text: it runs once.
         var both = ChunkAssembler(bufferText: false, toolNames: ["mail_search"])
         var out = try both.handle(payload: payload("<tool_call>mail_search<arg_key>q</arg_key><arg_value>x</arg_value></tool_call>"))
