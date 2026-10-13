@@ -108,7 +108,7 @@ final class PennantChatTests: XCTestCase {
 
         let records = try await s.store.toolRecords(taskID: ask)
         XCTAssertEqual(records.count, TaskRuntime.chatStepLimit, "the calls up to the limit ran")
-        XCTAssertTrue(records.allSatisfy { $0.status == .succeeded }, "nothing refused: \(records.map { $0.resultSummary ?? "" })")
+        XCTAssertTrue(records.allSatisfy { $0.status == .succeeded }, "nothing refused: \(records.map(\.resultSummary))")
         let chatMessages = try await s.store.messagesAfter(conversationID: chat.id, after: nil, limit: 200)
         XCTAssertTrue(chatMessages.contains { $0.role == .assistant && $0.text == TaskRuntime.handedOffLine("Can you check the Harbor build servers?") })
 

@@ -110,7 +110,7 @@ final class HeartbeatTests: XCTestCase {
         try await wait(s, turn, .completed)
         XCTAssertEqual(search.lock.withLock { search.calls }, 7)
         let refused = try await s.store.toolRecords(taskID: turn).filter { $0.status == .denied }
-        XCTAssertEqual(refused.count, 0, refused.map { $0.resultSummary ?? "" }.joined(separator: "; "))
+        XCTAssertEqual(refused.count, 0, refused.map(\.resultSummary).joined(separator: "; "))
         await s.stop()
     }
 

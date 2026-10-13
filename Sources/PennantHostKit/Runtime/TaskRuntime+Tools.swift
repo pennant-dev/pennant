@@ -139,7 +139,7 @@ extension TaskRuntime {
                 call.arguments = arguments
                 record.call = call
             }
-        } else if let reason = SignOff.reason(spec, arguments: call.arguments) ?? SignOff.asksFirst(spec, arguments: call.arguments),
+        } else if let reason = SignOff.reason(spec, arguments: call.arguments) ?? SignOff.asksFirst(spec),
                   !(await approvedSend(call, reason: reason, task: task)), !(await alreadySignedOff(task: task, call: call)),
                   !signedOffEarlier(reason, call: call, in: task.conversationID) {
             let command = call.arguments["command"]?.stringValue

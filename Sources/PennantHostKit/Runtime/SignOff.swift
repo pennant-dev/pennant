@@ -42,7 +42,7 @@ public enum SignOff {
 
     /// A tool marked `asksFirst` waits on a card every time. An `approval_id` doesn't excuse it: no such tool checks one,
     /// and an approved card that runs it (on_approve) doesn't come through here.
-    public static func asksFirst(_ spec: ToolSpec, arguments: JSONValue) -> Reason? {
+    public static func asksFirst(_ spec: ToolSpec) -> Reason? {
         spec.asksFirst ? .changes : nil
     }
 

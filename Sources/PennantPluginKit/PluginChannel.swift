@@ -125,11 +125,6 @@ public actor PluginChannel {
         }
     }
 
-    /// Tells the other side something; no answer comes back.
-    public func notify(_ method: String, _ params: PluginValue = .null) {
-        send(Envelope(method: method, params: params))
-    }
-
     public func close() {
         input.readabilityHandler = nil
         try? output.close()

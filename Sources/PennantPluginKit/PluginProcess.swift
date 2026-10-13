@@ -54,7 +54,6 @@ public final class PluginProcess: PluginConnection, @unchecked Sendable {
     }
 
     public var isRunning: Bool { lock.lock(); defer { lock.unlock() }; return !exited && process.isRunning }
-    public var pid: Int32 { process.processIdentifier }
 
     private func markExited() { lock.lock(); exited = true; lock.unlock() }
 

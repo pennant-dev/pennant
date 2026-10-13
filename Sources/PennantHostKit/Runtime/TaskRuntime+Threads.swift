@@ -75,7 +75,7 @@ extension TaskRuntime {
         let done = ((try? await deps.store.toolRecords(taskID: task.id)) ?? [])
             .filter { $0.status == .succeeded || $0.status == .failed }
             .suffix(12)
-            .map { "- \($0.call.name) \(Self.briefArguments($0.call.arguments)) → \(($0.resultSummary ?? "").prefix(240).replacingOccurrences(of: "\n", with: " "))" }
+            .map { "- \($0.call.name) \(Self.briefArguments($0.call.arguments)) → \($0.resultSummary.prefix(240).replacingOccurrences(of: "\n", with: " "))" }
         var instructions = "The owner asked in the chat:\n\(request)\n\nThe chat started on it and handed it to you because it needs more than a quick answer."
         if !done.isEmpty { instructions += " What it did so far (don't redo what worked):\n" + done.joined(separator: "\n") }
         instructions += "\n\nFinish it, and report back what the owner needs to know."

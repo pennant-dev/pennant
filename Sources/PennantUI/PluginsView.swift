@@ -316,7 +316,7 @@ struct PluginDetails: View {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text(item.activity.at, format: .dateTime.month(.abbreviated).day().hour().minute())
                             .font(.zoomed(.caption).monospacedDigit()).foregroundStyle(PennantTheme.inkTertiary)
-                        Text(PluginPhrase.activity(item.activity.what, plugin: plugin)).font(.zoomed(.caption)).foregroundStyle(PennantTheme.ink)
+                        Text(PluginPhrase.activity(item.activity.what)).font(.zoomed(.caption)).foregroundStyle(PennantTheme.ink)
                         Spacer(minLength: 0)
                         if !item.activity.allowed { Chip("Refused", color: PennantTheme.danger) }
                     }
@@ -516,7 +516,7 @@ enum PluginPhrase {
     }
 
     /// "tool azure__costs" → "Used costs"; "secrets/get azure-service-principal" → "Read the secret Azure service principal".
-    static func activity(_ what: String, plugin: PluginStatus) -> String {
+    static func activity(_ what: String) -> String {
         let parts = what.split(separator: " ", maxSplits: 1).map(String.init)
         let detail = parts.count > 1 ? parts[1] : ""
         switch parts.first ?? "" {

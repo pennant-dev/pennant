@@ -263,10 +263,10 @@ final class PluginTests: XCTestCase {
     func testAnAsksFirstToolAlwaysWaitsOnACard() {
         let spec = ToolSpec(name: "azure__restart_app", description: "d", inputSchema: .object([:]), isConsequential: true, source: "plugin:dev.pennant.azure", asksFirst: true)
         XCTAssertNil(SignOff.reason(tool: spec.name, arguments: ["app": "web"]), "the classifier alone wouldn't stop it")
-        XCTAssertEqual(SignOff.asksFirst(spec, arguments: ["app": "web"]), .changes)
-        XCTAssertEqual(SignOff.asksFirst(spec, arguments: ["app": "web", "approval_id": "made-up"]), .changes, "an approval id doesn't excuse it")
+        XCTAssertEqual(SignOff.asksFirst(spec), .changes)
+        XCTAssertEqual(SignOff.reason(spec, arguments: ["app": "web", "approval_id": "made-up"]) ?? SignOff.asksFirst(spec), .changes, "an approval id doesn't excuse it")
         let plain = ToolSpec(name: "azure__costs", description: "d", inputSchema: .object([:]), source: "plugin:dev.pennant.azure")
-        XCTAssertNil(SignOff.asksFirst(plain, arguments: [:]))
+        XCTAssertNil(SignOff.asksFirst(plain))
     }
 
     func testToolSpecsWithoutTheFlagStillDecode() throws {
