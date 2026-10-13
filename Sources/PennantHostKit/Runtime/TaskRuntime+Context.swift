@@ -156,12 +156,15 @@ extension TaskRuntime {
     private func relevantSkills(for task: TaskRecord, agent: AgentProfile) async -> [Skill] {
         let found = (try? await deps.store.searchSkills(text: String(task.objective.prefix(300)), limit: 8)) ?? []
         var latestByName: [String: Skill] = [:]
+        var rank: [String: Int] = [:]
         for s in found where s.status != .disabled {
             if agent.skillIDs.isEmpty || agent.skillIDs.contains(s.id) {
+                if rank[s.name] == nil { rank[s.name] = rank.count }
                 if let cur = latestByName[s.name], cur.version >= s.version { continue }
                 latestByName[s.name] = s
             }
         }
-        return latestByName.values.sorted { ($0.status == .validated ? 0 : 1, $0.name) < ($1.status == .validated ? 0 : 1, $1.name) }
+        // Validated ones first, then by how well they match: the first gets its steps spelled out.
+        return latestByName.values.sorted { ($0.status == .validated ? 0 : 1, rank[$0.name] ?? 0) < ($1.status == .validated ? 0 : 1, rank[$1.name] ?? 0) }
     }
 }

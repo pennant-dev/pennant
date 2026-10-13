@@ -70,6 +70,9 @@ public actor FakeStore: StoreProtocol {
         if let before, let i = list.firstIndex(where: { $0.id == before }) { list = Array(list[..<i]) }
         return Array(list.suffix(limit).reversed())
     }
+    public func messages(taskID: TaskID) async throws -> [Message] {
+        messages.values.filter { $0.taskID == taskID }.sorted { $0.createdAt < $1.createdAt }
+    }
     public func messagesAfter(conversationID: ConversationID, after: MessageID?, limit: Int) async throws -> [Message] {
         var list = ordered(conversationID)
         if let after, let i = list.firstIndex(where: { $0.id == after }) { list = Array(list[(i + 1)...]) }

@@ -7,6 +7,8 @@ public actor ToolBroker {
     private var tools: [String: any Tool] = [:]
     /// Tool names grouped by MCP server so they can be unloaded when a server disconnects.
     private var mcpToolNames: [MCPServerID: [String]] = [:]
+    /// Tool names grouped by plugin, the same way.
+    private var pluginToolNames: [String: [String]] = [:]
 
     public init() {}
 
@@ -27,6 +29,25 @@ public actor ToolBroker {
     public func unregisterMCPTools(server: MCPServerID) {
         for name in mcpToolNames[server] ?? [] { tools[name] = nil }
         mcpToolNames[server] = nil
+    }
+
+    /// A plugin's tools. One whose name another tool already has isn't added; their names come back.
+    @discardableResult
+    public func registerPluginTools(_ list: [any Tool], plugin: String) -> [String] {
+        unregisterPluginTools(plugin: plugin)
+        var added: [String] = [], skipped: [String] = []
+        for t in list {
+            if tools[t.spec.name] != nil { skipped.append(t.spec.name); continue }
+            tools[t.spec.name] = t
+            added.append(t.spec.name)
+        }
+        pluginToolNames[plugin] = added
+        return skipped
+    }
+
+    public func unregisterPluginTools(plugin: String) {
+        for name in pluginToolNames[plugin] ?? [] { tools[name] = nil }
+        pluginToolNames[plugin] = nil
     }
 
     public func tool(named name: String) -> (any Tool)? { tools[name] }

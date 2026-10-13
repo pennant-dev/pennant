@@ -93,6 +93,7 @@ func describe(_ event: HostEvent) -> String {
     case .goalRemoved(let id): return "goal removed \(id.rawValue.prefix(8))"
     case .teachingUpdated(let t): return "\(stamp) teaching \(t.map { "\($0.isRecording ? "recording" : "stopped") \($0.events.count) step(s)" } ?? "ended")"
     case .mcpServerStatus(let s): return "\(stamp) mcp \(s.config.name) \(s.state.rawValue) tools=\(s.toolCount) auth=\(s.authState.rawValue)\(s.authDetail.map { " (\($0))" } ?? "")"
+    case .pluginsChanged(let list): return "\(stamp) plugins " + list.map { "\($0.name) \($0.enabled ? $0.state.rawValue : "off")" }.joined(separator: ", ")
     case .notice(let level, _, let text): return "\(stamp) \(level.rawValue): \(text)"
     }
 }

@@ -64,6 +64,67 @@ extension TaskRuntime {
     static let chatAlwaysAllowed: Set<String> = ThreadTools.names.union(["memory_search", "memory_remember", "remember_instruction", "share_file"])
     static let chatHandOffNote = "This is turning into more than a quick answer, and they're waiting on you. Hand the rest to a thread now: start_thread with what you've found so far and what's left to do, tell them in a line that it's on its way, and end your turn."
 
+    /// A chat reply past its limit that still wants more than the chat does: Pennant starts the thread itself, rather
+    /// than refusing the calls and hoping the model hands off (models often don't, and keep trying). The thread gets the
+    /// owner's request and what was done so far. Returns the thread's title, or nil when none could start (too many
+    /// going): the refusal then explains.
+    func handOffChatWork(_ task: TaskRecord) async -> String? {
+        let messages = (try? await deps.store.messagesAfter(conversationID: task.conversationID, after: nil, limit: 4000)) ?? []
+        let asked = messages.filter { $0.taskID == task.id && $0.role == .user }.map(\.text).joined(separator: "\n\n")
+        let request = asked.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? task.objective : asked
+        let done = ((try? await deps.store.toolRecords(taskID: task.id)) ?? [])
+            .filter { $0.status == .succeeded || $0.status == .failed }
+            .suffix(12)
+            .map { "- \($0.call.name) \(Self.briefArguments($0.call.arguments)) → \(($0.resultSummary ?? "").prefix(240).replacingOccurrences(of: "\n", with: " "))" }
+        var instructions = "The owner asked in the chat:\n\(request)\n\nThe chat started on it and handed it to you because it needs more than a quick answer."
+        if !done.isEmpty { instructions += " What it did so far (don't redo what worked):\n" + done.joined(separator: "\n") }
+        instructions += "\n\nFinish it, and report back what the owner needs to know."
+        let firstLine = request.split(separator: "\n").first.map(String.init) ?? task.title
+        let title = String(firstLine.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60))
+        do {
+            _ = try await startThread(from: task.id, title: title, instructions: instructions)
+            return title
+        } catch {
+            log.warn("Couldn't hand the chat's work to a thread: \(error)", category: "runtime")
+            return nil
+        }
+    }
+
+    /// What the owner reads when the chat hands its work to a thread.
+    static func handedOffLine(_ title: String) -> String {
+        "This needs more than a quick answer, so I've started a thread on it: “\(title)”. I'll let you know what it finds."
+    }
+
+    /// A tool call's arguments in a few words: its command, query or address when it has one.
+    static func briefArguments(_ arguments: JSONValue) -> String {
+        for key in ["command", "query", "q", "url", "path", "name"] {
+            if let v = arguments[key]?.stringValue { return "`\(v.prefix(120))`" }
+        }
+        let all = arguments.description
+        return all == "{}" ? "" : String(all.prefix(120))
+    }
+
+    /// How a call the owner asked to change (on its card) is recorded.
+    static let changesRequestedSummary = "Changes requested"
+
+    /// What a check-in at its limit is told.
+    static let heartbeatWrapUpNote = "This check-in is at its limit. Stop here and start nothing new: if something needs the owner soon, say it in a line; otherwise reply with only \(nothingToSay)."
+
+    /// This many steps in a row with every call refused end the work.
+    static let refusedStepLimit = 3
+    /// What the owner sees when that happens.
+    static let refusedStopNote = "I stopped: what I kept trying wasn't allowed here. Ask me again, or tell me how you'd like it done."
+
+    /// Whether every one of a step's tool calls was refused. Its records are the task's latest, in the order they ran.
+    /// The owner asking for changes on a card isn't a dead end: the work revises and asks again.
+    func everyCallRefused(_ taskID: TaskID, calls: [ToolCall]) async -> Bool {
+        let records = (try? await deps.store.toolRecords(taskID: taskID)) ?? []
+        guard !calls.isEmpty, records.count >= calls.count else { return false }
+        let step = records.suffix(calls.count)
+        guard step.map(\.call.id.rawValue).sorted() == calls.map(\.id.rawValue).sorted() else { return false }
+        return step.allSatisfy { $0.status == .denied && $0.resultSummary != Self.changesRequestedSummary }
+    }
+
     static func checkInNote(steps: Int) -> String {
         "Check-in, \(steps) steps in: take stock before going on. Are you still doing what you were asked, the way you were asked? If something it needs isn't there (a connection, an account, a credential, access you weren't given), don't look for a way around it or build a substitute: stop and say what's missing. If your last few steps were more of the same, another one won't change the answer: finish now with what you have, or say what's blocking you."
     }
@@ -88,7 +149,11 @@ extension TaskRuntime {
         guard let asker = try await deps.store.task(taskID), await inMainChat(asker) else {
             throw ToolError.failed("Threads are started from the Pennant chat. Here, do the work yourself, or hand a piece to a helper with delegate_task.")
         }
-        let going = try await chatThreads().filter { $0.task.map { !$0.state.isTerminal } ?? false }
+        // The chat's own threads: a run one of them started inside it is part of that thread's work.
+        let chat = try await ensureMainChat().id
+        let going = try await chatThreads().filter { t in
+            (t.conversation.parentID == nil || t.conversation.parentID == chat) && (t.task.map { !$0.state.isTerminal } ?? false)
+        }
         guard going.count < Self.maxChatThreads else {
             throw ToolError.failed("\(going.count) threads are already working. Wait for one to finish, steer one with message_thread, or stop one with stop_thread.")
         }
@@ -161,10 +226,20 @@ extension TaskRuntime {
         return out
     }
 
-    /// Stops the work going on in a thread. What it already did stays done.
+    /// Stops the work going on in a thread, and in the threads it started (a skill run in Claude Code, a coding run),
+    /// which would otherwise carry on out of sight. What it already did stays done.
     func stopThread(_ ref: String) async throws -> String {
         let thread = try await resolveThread(ref)
-        let open = try await deps.store.listTasks(agentID: nil, includeFinished: false).filter { $0.conversationID == thread.id && !$0.state.isTerminal }
+        let conversations = try await deps.store.listConversations(agentID: thread.agentID)
+        var threads: Set<ConversationID> = [thread.id]
+        var frontier: [ConversationID] = [thread.id]
+        while let next = frontier.popLast() {
+            for c in conversations where c.parentID == next && !threads.contains(c.id) {
+                threads.insert(c.id)
+                frontier.append(c.id)
+            }
+        }
+        let open = try await deps.store.listTasks(agentID: nil, includeFinished: false).filter { threads.contains($0.conversationID) && !$0.state.isTerminal }
         guard !open.isEmpty else { return "“\(thread.title)” has nothing going; there's nothing to stop." }
         for task in open { try await cancelTask(task.id, reason: "Stopped from the Pennant chat") }
         return "Stopped “\(thread.title)”. What it already did stays done."
@@ -206,8 +281,9 @@ extension TaskRuntime {
         tell the owner something they'd want to know now, in a line or two, the way you'd mention it in passing. \
         What the owner asked for on each check-in, do with the tools you have, and tell them only what needs them \
         soon, a line each; leave the routine out. \
-        Don't remind them of something you already told them today. If nothing needs doing or saying, reply with \
-        exactly \(Self.nothingToSay): they won't see this check.
+        Don't remind them of something you already told them today, and keep no notes for yourself in the chat: they \
+        read everything there, and the next check-in is told when this one was. If nothing needs doing or saying, \
+        reply with only \(Self.nothingToSay), no other words or punctuation. They won't see this check.
         """
         let task = TaskRecord(agentID: chat.agentID, conversationID: chat.id, title: "Checking in", objective: objective, completionCriteria: "",
                               budget: TaskBudget(maxSteps: 8, maxTokens: 200_000, maxDuration: 600, maxDelegations: 0))
@@ -217,12 +293,30 @@ extension TaskRuntime {
         return task.id
     }
 
-    /// A heartbeat turn that had nothing to say leaves nothing in the chat.
+    /// A heartbeat turn that had nothing to say leaves nothing in the chat: not its "(nothing)", and not the look it
+    /// took (its thinking, its tool calls and their results; the calls stay in the tool records). Cards, updates and
+    /// files it made stay.
     func clearQuietHeartbeat(_ task: TaskRecord, reply: String) async {
         guard Self.isHeartbeat(task), Self.saysNothing(reply) else { return }
-        let messages = (try? await deps.store.listMessages(conversationID: task.conversationID, before: nil, limit: 40)) ?? []
-        let quiet = messages.filter { $0.taskID == task.id && $0.role == .assistant && !$0.text.isEmpty && Self.saysNothing($0.text) }.map(\.id)
-        if !quiet.isEmpty { await removeMessages(quiet, in: task.conversationID) }
+        let messages = (try? await deps.store.messages(taskID: task.id)) ?? []
+        let trace = messages.filter { m in
+            m.parts.allSatisfy { part in
+                switch part {
+                case .text, .reasoning, .toolCall, .toolResult: return true
+                default: return false
+                }
+            }
+        }.map(\.id)
+        if !trace.isEmpty { await removeMessages(trace, in: task.conversationID) }
+    }
+
+    /// Check-ins of the last week that said nothing but left a trace (finished before the trace was cleared, or under
+    /// an older way of saying nothing): cleared when the host starts.
+    func clearQuietHeartbeats(since: Date = Date().addingTimeInterval(-7 * 86_400)) async {
+        guard let chat = try? await ensureMainChat() else { return }
+        let done = ((try? await deps.store.listTasks(agentID: nil, includeFinished: true)) ?? [])
+            .filter { $0.conversationID == chat.id && $0.state == .completed && $0.createdAt > since && Self.isHeartbeat($0) }
+        for task in done { await clearQuietHeartbeat(task, reply: task.resultSummary ?? "") }
     }
 
     /// Whether the work a goal job runs is waiting on the owner: a question or a card in the goal's thread, or in its
@@ -279,17 +373,19 @@ extension TaskRuntime {
         var cards: Int
     }
 
-    /// Pennant's threads: every conversation of the lead agent but the chat, except threads started inside another
-    /// thread (a coding run's, a helper's), newest activity first.
+    /// Pennant's threads: every conversation of the lead agent but the chat, newest activity first. A thread started
+    /// inside another (a skill run in Claude Code, a coding run) counts while it has work going, so nothing runs unseen.
     func chatThreads(includeClosed: Bool = false, since: Date? = nil) async throws -> [ChatThread] {
         guard let lead = await leadAgent() else { return [] }
         let chat = try await ensureMainChat().id
+        let tasks = try await deps.store.listTasks(agentID: nil, includeFinished: true)
+        let busy = Set(tasks.filter { !$0.state.isTerminal }.map(\.conversationID))
         let conversations = try await deps.store.listConversations(agentID: lead.id).filter { c in
-            !c.isMain && (c.parentID == nil || c.parentID == chat) && (includeClosed || !c.isClosed) && (since.map { c.updatedAt >= $0 } ?? true)
+            !c.isMain && (c.parentID == nil || c.parentID == chat || busy.contains(c.id)) && (includeClosed || !c.isClosed) && (since.map { c.updatedAt >= $0 } ?? true)
         }
         let ids = Set(conversations.map(\.id))
         var latest: [ConversationID: TaskRecord] = [:]
-        for t in try await deps.store.listTasks(agentID: nil, includeFinished: true) where ids.contains(t.conversationID) && t.parentTaskID == nil {
+        for t in tasks where ids.contains(t.conversationID) && t.parentTaskID == nil {
             if let have = latest[t.conversationID], have.createdAt >= t.createdAt { continue }
             latest[t.conversationID] = t
         }
@@ -325,6 +421,9 @@ extension TaskRuntime {
             var line = "- “\(t.conversation.title)” (thread \(t.conversation.id.rawValue.prefix(8))): "
             line += t.task.map { Self.stateWords($0) } ?? "nothing started yet"
             if t.cards > 0, t.task?.state != .waitingForUser { line += "; \(t.cards == 1 ? "a draft" : "\(t.cards) drafts") waiting for their OK" }
+            if let up = t.conversation.parentID, up != mainChatID, let parent = try? await deps.store.conversation(up) {
+                line += "; started by the thread “\(parent.title)” (stopping that one stops this too)"
+            }
             line += " (\(ago.localizedString(for: t.conversation.updatedAt, relativeTo: now)))"
             s += line + "\n"
         }
@@ -390,6 +489,20 @@ extension TaskRuntime {
         }
         if let id = update.approvalID { updateMessages[id] = message.id }
         boardCache = nil
+        await publish(.messageAppended(message))
+        await publishConversation(chat.id, after: message)
+    }
+
+    /// A plugin's note in the Pennant chat, under its name.
+    public func postPluginNote(from plugin: String, _ text: String) async {
+        guard let chat = try? await ensureMainChat() else { return }
+        let message = Message(conversationID: chat.id, agentID: chat.agentID, role: .assistant, parts: [.text("**\(plugin):** \(text)")])
+        do {
+            try await deps.store.appendMessage(message)
+        } catch {
+            log.warn("Couldn't post \(plugin)'s note to the Pennant chat: \(error)", category: "plugins")
+            return
+        }
         await publish(.messageAppended(message))
         await publishConversation(chat.id, after: message)
     }
@@ -498,8 +611,56 @@ extension TaskRuntime {
     /// The reply for "nothing to tell them".
     static let nothingToSay = "(nothing)"
 
+    /// Whether a reply is the "nothing to say" marker. Models don't always write it exactly ("(noting nothing)",
+    /// "(nnothing)", "(none)"), so a short aside about nothing counts too; one with news in it ("(nothing urgent, but
+    /// Dana replied)") doesn't. Nor do notes it keeps for itself ("(noting the 14:55 check-in: no new mail)"), alone or
+    /// ahead of the marker, or any asides it ends with the marker: they aren't for the owner, and once one stays in the
+    /// chat every check-in after it copies it.
     static func saysNothing(_ text: String) -> Bool {
-        text.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " .\n\"'`*")) == "(nothing)" || text.lowercased() == "nothing"
+        let t = text.lowercased().trimmingCharacters(in: strayMarks)
+        if isNothingMarker(t) { return true }
+        let (asides, rest) = bracketedAsides(t)
+        let left = rest.trimmingCharacters(in: strayMarks)
+        // Everything in brackets and the last word the marker: what came before it was said to itself.
+        if left.isEmpty, asides.count > 1, let last = asides.last, isNothingMarker("(\(last))") { return true }
+        func isNote(_ aside: String) -> Bool {
+            let a = aside.trimmingCharacters(in: .whitespacesAndNewlines)
+            return a.hasPrefix("noting ") || a.hasPrefix("note:") || a.hasPrefix("note to self")
+        }
+        guard asides.contains(where: isNote) else { return false }
+        return asides.allSatisfy { isNote($0) || isNothingMarker("(\($0))") } && (left.isEmpty || isNothingMarker(left))
+    }
+
+    /// Stray punctuation around the marker ("(nothing):", copied with the colon that followed it) doesn't count.
+    private static let strayMarks = CharacterSet(charactersIn: " .,:;!?\n\"'`*_~-—")
+
+    private static func isNothingMarker(_ t: String) -> Bool {
+        let inner = t.trimmingCharacters(in: CharacterSet(charactersIn: "()[] .!"))
+        if ["nothing", "none", "nothing to say", "nothing to report", "nothing new", "nothing needs you", "all quiet"].contains(inner) { return true }
+        let words = inner.split(whereSeparator: \.isWhitespace)
+        guard t.hasPrefix("("), t.hasSuffix(")") else { return false }
+        return words.count <= 3 && !inner.contains(",") && (inner.contains("noth") || inner == "none")
+    }
+
+    /// A reply's asides in round brackets, and what's written outside them.
+    private static func bracketedAsides(_ text: String) -> (asides: [String], rest: String) {
+        var asides: [String] = [], rest = "", current = "", depth = 0
+        for ch in text {
+            if ch == "(" {
+                if depth > 0 { current.append(ch) }
+                depth += 1
+            } else if ch == ")", depth > 0 {
+                depth -= 1
+                if depth == 0 { asides.append(current); current = "" } else { current.append(ch) }
+            } else if depth > 0 {
+                current.append(ch)
+            } else {
+                rest.append(ch)
+            }
+        }
+        // An aside left open is written out, not set aside.
+        if depth > 0 { rest += "(" + current }
+        return (asides, rest)
     }
 
     /// What Pennant does with each kind of news.

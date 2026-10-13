@@ -193,7 +193,7 @@ public struct ConversationView: View {
                         if DelegatedWork.quietThreadTools.contains(call.name) { continue }
                         let record = records.first { $0.call.id == call.id }
                         let activity = ToolActivity(call: call, result: pairing.results[call.id], record: record, taskActive: taskActive)
-                        if DelegatedWork.isDelegated(call.name) {
+                        if DelegatedWork.isDelegated(call.name) || DelegatedWork.skillInClaudeCode(activity) != nil {
                             // Work handed off gets its own rows instead of folding into the tool group.
                             flushWork()
                             if call.name == DelegatedWork.delegation, let last = out.indices.last, case .workers(let group) = out[last].kind {

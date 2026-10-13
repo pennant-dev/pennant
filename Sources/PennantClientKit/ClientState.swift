@@ -16,6 +16,8 @@ public final class ClientState {
     public internal(set) var checkpoints: [TaskID: [Checkpoint]] = [:]
     public internal(set) var desktop = DesktopStatus()
     public internal(set) var mcpServers: [MCPServerStatus] = []
+    /// Plugins on the host, loaded by the Plugins page and kept up to date by `pluginsChanged`.
+    public internal(set) var plugins: [PluginStatus] = []
     /// The host's teach-mode session: recording, stopped for review, or drafted. `nil` when there is none.
     public internal(set) var teaching: TeachingSession?
     public internal(set) var skills: [Skill] = []
@@ -135,11 +137,12 @@ public final class ClientState {
     public var leadAgent: AgentProfile? { persistentAgents.first }
     /// The Pennant chat: the one conversation people have with Pennant (nil on hosts from before it).
     public var mainConversation: Conversation? { conversations.first { $0.isMain } }
-    /// Pennant's threads, as the Work list shows them: its conversations but the chat, without the ones a thread
-    /// started inside another (a coding run's, a helper's), which open from their thread.
+    /// Pennant's threads, as the Work list shows them: its conversations but the chat. One a thread started inside
+    /// another (a skill run in Claude Code, a coding run) opens from its thread, and is listed too while it works, so
+    /// nothing runs out of sight.
     public func isWorkThread(_ c: Conversation) -> Bool {
         guard !c.isMain, agent(c.agentID)?.kind == .persistent else { return false }
-        return c.parentID == nil || c.parentID == mainConversation?.id
+        return c.parentID == nil || c.parentID == mainConversation?.id || tasks.contains { $0.conversationID == c.id && !$0.state.isTerminal }
     }
     public var isStale: Bool { guard let t = lastUpdateAt else { return true }; return Date().timeIntervalSince(t) > 30 }
 
@@ -184,6 +187,7 @@ public final class ClientState {
         }
     }
     public func setMCPServers(_ items: [MCPServerStatus]) { mcpServers = items }
+    public func setPlugins(_ items: [PluginStatus]) { if items != plugins { plugins = items } }
     public func setSchedules(_ items: [ScheduledJob]) { schedules = items }
     public func setEntities(_ items: [MemoryEntity]) { entities = items }
     public func setPreferences(_ items: [Preference]) { preferences = items }
@@ -286,6 +290,8 @@ public final class ClientState {
             goalItems[id] = nil
         case .mcpServerStatus(let s):
             upsert(&mcpServers, s)
+        case .pluginsChanged(let list):
+            setPlugins(list)
         case .notice(let level, _, let text):
             notices.append(Notice(level: level, text: text, at: event.at))
             if notices.count > 200 { notices.removeFirst(notices.count - 200) }

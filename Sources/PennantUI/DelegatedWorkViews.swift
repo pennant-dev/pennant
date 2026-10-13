@@ -13,6 +13,13 @@ enum DelegatedWork {
     /// The chat's other thread tools: not shown, they're how Pennant works.
     static let quietThreadTools: Set<String> = ["message_thread", "read_thread", "stop_thread"]
     static func isDelegated(_ name: String) -> Bool { name == coding || name == delegation || name == thread }
+    /// A skill only Claude Code can follow: `use_skill` starts it in a thread of its own ("<name> runs in Claude Code
+    /// (…), so it's started there: task …"), and it shows like a coding run.
+    static func skillInClaudeCode(_ activity: ToolActivity) -> String? {
+        guard activity.name == "use_skill", let text = activity.result?.textContent,
+              let m = text.firstMatch(of: /^(\S+) runs in Claude Code/) else { return nil }
+        return String(m.1)
+    }
 
     /// The task a call started, read from its result ("Coding run started (task <id>…").
     static func taskID(from activity: ToolActivity) -> TaskID? {
@@ -108,6 +115,14 @@ struct CodingRunRow: View {
         guard let task, task.state.isTerminal, let s = task.resultSummary, !s.isEmpty else { return nil }
         return s
     }
+    /// A skill handed to Claude Code, by name; nil for a `code` run.
+    private var skill: String? { DelegatedWork.skillInClaudeCode(activity) }
+    /// While it works, the latest thing it said in its thread: how far it has got, without opening it.
+    private var latest: String? {
+        guard let task, !task.state.isTerminal, let preview = session.state.conversation(task.conversationID)?.preview else { return nil }
+        let line = preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        return line.isEmpty ? nil : line
+    }
 
     var body: some View {
         let phase = DelegatedWork.phase(task, call: answer == nil ? activity.status : .done)
@@ -116,7 +131,7 @@ struct CodingRunRow: View {
                 if let from { AgentAvatar(agent: from, size: 20) }
                 BatonLine(active: phase.live, color: PennantTheme.info)
                 Image(systemName: "chevron.left.forwardslash.chevron.right").font(.zoomed(.caption).weight(.semibold)).foregroundStyle(PennantTheme.info)
-                Text("Coding in \(folder)")
+                Text(skill.map { "Running \($0) in Claude Code" } ?? "Coding in \(folder)")
                     .font(.zoomed(.subheadline).weight(.semibold))
                     .foregroundStyle(PennantTheme.ink)
                     .lineLimit(1)
@@ -132,6 +147,18 @@ struct CodingRunRow: View {
                     .textSelection(.enabled)
                     .onTapGesture { expanded.toggle() }
             }
+            if let latest {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "text.bubble").foregroundStyle(PennantTheme.info)
+                    Text(latest)
+                        .foregroundStyle(PennantTheme.inkSecondary)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.zoomed(.caption))
+                .transition(.opacity)
+                .accessibilityLabel("Latest: \(latest)")
+            }
             if let answer {
                 PennantMarkdown(answer)
                     .fixedSize(horizontal: false, vertical: true)
@@ -143,7 +170,7 @@ struct CodingRunRow: View {
             }
             if let openChat, let task, let from {
                 Button { openChat(from.id, task.conversationID) } label: {
-                    Label("Open the coding thread", systemImage: "arrow.up.right")
+                    Label(skill == nil ? "Open the coding thread" : phase.live ? "Watch it in its thread" : "Open its thread", systemImage: "arrow.up.right")
                 }
                 .buttonStyle(.pennantGhostCompact)
             }
@@ -153,6 +180,7 @@ struct CodingRunRow: View {
         .overlay(RoundedRectangle(cornerRadius: PennantTheme.cornerRadius, style: .continuous)
             .strokeBorder(PennantTheme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
         .animation(.easeOut(duration: 0.3), value: answer)
+        .animation(.easeOut(duration: 0.2), value: latest)
         .accessibilityElement(children: .contain)
     }
 }

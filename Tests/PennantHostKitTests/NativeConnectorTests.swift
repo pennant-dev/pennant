@@ -150,6 +150,22 @@ final class NativeConnectorTests: XCTestCase {
         XCTAssertEqual(items.first { $0.name == "$top" }?.value, "5")
     }
 
+    /// Mail times reach the model in the Mac's zone, and a time with a plus offset filters as written.
+    func testGraphMailTimesAreLocalAndOffsetsSurviveTheFilter() async throws {
+        StubAPI.handler = { _ in
+            StubAPI.json(["value": [["id": "AAA", "subject": "Invoice", "isRead": true, "receivedDateTime": "2026-09-22T10:00:00Z", "bodyPreview": "", "from": ["emailAddress": ["name": "Acme", "address": "billing@acme.com"]]]]])
+        }
+        let out = try await MicrosoftGraphConnector().call("mail_search", arguments: ["received_after": "2026-09-22T09:00:00+01:00"], api: api())
+        let local = ISO8601DateFormatter()
+        local.timeZone = .current
+        let when = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-22T10:00:00Z"))
+        XCTAssertTrue(out.contains("· \(local.string(from: when))"), out)
+        let seen = try XCTUnwrap(StubAPI.seen.first)
+        let items = URLComponents(url: seen.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(items.first { $0.name == "$filter" }?.value, "receivedDateTime gt 2026-09-22T09:00:00+01:00")
+        XCTAssertEqual(ConnectorText.localTime("yesterday"), "yesterday", "what isn't a time is left as it is")
+    }
+
     func testGraphErrorsSurfaceGraphsMessage() async {
         StubAPI.handler = { _ in StubAPI.json(["error": ["code": "Forbidden", "message": "Missing scope ChannelMessage.Read.All"]], status: 403) }
         do {

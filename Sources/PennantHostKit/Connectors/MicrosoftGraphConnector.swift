@@ -121,7 +121,8 @@ struct MicrosoftGraphConnector: NativeConnector {
                 path = "/me/mailFolders/\(folder)/messages?$top=\(limit)&$orderby=receivedDateTime desc&\(select)"
                 // Graph wants the sort's property first in the filter.
                 var filters: [String] = []
-                if let after = a.string("received_after") { filters.append("receivedDateTime gt \(after)") }
+                // A "+01:00" offset stays a plus, not a space.
+                if let after = a.string("received_after") { filters.append("receivedDateTime gt \(after.replacingOccurrences(of: "+", with: "%2B"))") }
                 if a.bool("unread_only") == true { filters.append("isRead eq false") }
                 if !filters.isEmpty { path += "&$filter=" + filters.joined(separator: " and ") }
             }
@@ -132,7 +133,7 @@ struct MicrosoftGraphConnector: NativeConnector {
                 let from = ((m["from"] as? [String: Any])?["emailAddress"] as? [String: Any])
                 let who = "\(from?["name"] as? String ?? "") <\(from?["address"] as? String ?? "")>"
                 let unread = (m["isRead"] as? Bool) == false ? " [unread]" : ""
-                return "• \(m["subject"] as? String ?? "(no subject)")\(unread)\n  from \(who) · \(m["receivedDateTime"] as? String ?? "")\n  \(String((m["bodyPreview"] as? String ?? "").prefix(160)))\n  id: \(m["id"] as? String ?? "")"
+                return "• \(m["subject"] as? String ?? "(no subject)")\(unread)\n  from \(who) · \(ConnectorText.localTime(m["receivedDateTime"] as? String ?? ""))\n  \(String((m["bodyPreview"] as? String ?? "").prefix(160)))\n  id: \(m["id"] as? String ?? "")"
             }.joined(separator: "\n")
 
         case "mail_read":
@@ -145,7 +146,7 @@ struct MicrosoftGraphConnector: NativeConnector {
             From: \(from)
             To: \(addresses(m["toRecipients"]))
             Cc: \(addresses(m["ccRecipients"]))
-            Date: \(m["receivedDateTime"] as? String ?? "")\((m["hasAttachments"] as? Bool) == true ? "\nHas attachments" : "")\((m["importance"] as? String) == "high" ? "\nImportance: high" : "")
+            Date: \(ConnectorText.localTime(m["receivedDateTime"] as? String ?? ""))\((m["hasAttachments"] as? Bool) == true ? "\nHas attachments" : "")\((m["importance"] as? String) == "high" ? "\nImportance: high" : "")
             Thread: \(m["conversationId"] as? String ?? "")
             Link: \(m["webLink"] as? String ?? "")
 
@@ -163,7 +164,7 @@ struct MicrosoftGraphConnector: NativeConnector {
             return ConnectorText.clip(items.map { m in
                 let from = ((m["from"] as? [String: Any])?["emailAddress"] as? [String: Any])
                 let body = ((m["uniqueBody"] as? [String: Any])?["content"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                return "— \(from?["name"] as? String ?? "") <\(from?["address"] as? String ?? "")> · \(m["receivedDateTime"] as? String ?? "")\n\(body)"
+                return "— \(from?["name"] as? String ?? "") <\(from?["address"] as? String ?? "")> · \(ConnectorText.localTime(m["receivedDateTime"] as? String ?? ""))\n\(body)"
             }.joined(separator: "\n\n"))
 
         case "mail_send":

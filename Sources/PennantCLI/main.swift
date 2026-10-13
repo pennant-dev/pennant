@@ -25,6 +25,8 @@ func run(_ options: CLIOptions) async throws {
         try await runLibrary(options.args.first ?? "list", args: Array(options.args.dropFirst()), options: options)
     case "mcp":
         try await runMCP(options.args.first ?? "list", args: Array(options.args.dropFirst()), options: options)
+    case "plugin", "plugins":
+        try await runPlugin(options.args.first ?? "list", args: Array(options.args.dropFirst()), options: options)
     case "chatgpt":
         try await runChatGPT(options.args.first ?? "status", options: options)
     case "status":
@@ -84,7 +86,7 @@ func run(_ options: CLIOptions) async throws {
     case "teach":
         try await teachCommand(options)
     case "skills":
-        if let sub = options.args.first, ["import", "preview", "folders", "delete", "claude-code"].contains(sub) {
+        if let sub = options.args.first, ["import", "preview", "folders", "delete", "disable", "enable", "claude-code"].contains(sub) {
             try await runSkills(sub, args: Array(options.args.dropFirst()), options: options)
             break
         }

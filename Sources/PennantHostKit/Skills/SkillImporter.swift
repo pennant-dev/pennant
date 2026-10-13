@@ -117,6 +117,8 @@ public enum SkillImporter {
                     if latest.body == skill.body, latest.scripts == skill.scripts, latest.outputs == skill.outputs { result.warnings.append("\(skill.name): unchanged, skipped"); continue }
                     skill.version = latest.version + 1
                     skill.previousVersionID = latest.id
+                    // Turned off stays off: a change to its files doesn't bring a retired skill back.
+                    if latest.status == .disabled { skill.status = .disabled }
                 }
                 try await store.upsertSkill(skill)
                 if let event = try? await store.appendEvent(.skillUpserted(skill)) { await eventBus.publish(event) }

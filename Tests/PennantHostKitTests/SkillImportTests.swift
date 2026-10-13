@@ -86,6 +86,15 @@ final class SkillImportTests: XCTestCase {
         let reimported = await importAll(folder.path, only: [changed.sourcePath])
         XCTAssertEqual(reimported.skills.map(\.version), [2])
 
+        // Turned off, it stays off: a change to its files makes a new version that's still off.
+        var v2 = try XCTUnwrap(reimported.skills.first)
+        v2.status = .disabled
+        try await store.upsertSkill(v2)
+        try writeSkill("deploy", in: folder, steps: ["Open the app.", "Press go.", "Check the result.", "Tell them."])
+        let v3 = await importAll(folder.path, only: [changed.sourcePath])
+        XCTAssertEqual(v3.skills.map(\.version), [3])
+        XCTAssertEqual(v3.skills.first?.status, .disabled)
+
         // An empty folder previews with a warning and no items.
         let empty = root.appendingPathComponent("empty")
         try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
@@ -239,6 +248,47 @@ final class SkillImportTests: XCTestCase {
     }
 
     /// A skill can ask for more thinking (`effort: high`) than the model's default, never less.
+    /// A skill with many versions doesn't crowd the search: each skill comes back once, as its newest enabled version.
+    func testSearchFindsEachSkillOnceAtItsNewestVersion() async throws {
+        let folder = root.appendingPathComponent("skills")
+        for n in 1...4 {
+            try writeSkill("demo", in: folder, description: "Make a product demo video.", steps: (1...n).map { "Record scene \($0) of the video." })
+            _ = await importAll(folder.path)
+        }
+        try writeSkill("youtube", in: folder, description: "Make a long YouTube video.", steps: ["Write the video script."])
+        _ = await importAll(folder.path)
+
+        let found = try await store.searchSkills(text: "video", limit: 3)
+        XCTAssertEqual(found.map(\.name).sorted(), ["demo", "youtube"])
+        XCTAssertEqual(found.first { $0.name == "demo" }?.version, 4)
+
+        // Retired: no version of it is found.
+        for var s in try await store.listSkills(includeDisabled: true) where s.name == "demo" {
+            s.status = .disabled
+            try await store.upsertSkill(s)
+        }
+        let after = try await store.searchSkills(text: "video", limit: 3)
+        XCTAssertEqual(after.map(\.name), ["youtube"])
+    }
+
+    /// Instructions longer than use_skill returns say where the rest is, instead of stopping mid-way unannounced.
+    func testLongInstructionsSayWhereTheRestIs() async throws {
+        let store = FakeStore()
+        let long = String(repeating: "Step on. ", count: 2000)
+        let skill = Skill(name: "long-one", purpose: "Long.", status: .validated, body: long + "\n## Upload\nThe end.", sourcePath: "/skills/long-one/SKILL.md")
+        try await store.upsertSkill(skill)
+        let context = ToolContext(agentID: AgentID("a"), taskID: TaskID("t"), conversationID: ConversationID("c"), store: store, desktop: FakeDesktop(), lease: DesktopLease(), config: HostConfig())
+        let text = try await UseSkillTool(tracker: SkillUsageTracker()).invoke(["skill_id": "long-one"], context: context).textContent
+        XCTAssertFalse(text.contains("## Upload"))
+        XCTAssertTrue(text.contains("[The instructions go on past this point"), String(text.suffix(300)))
+        XCTAssertTrue(text.contains("/skills/long-one/SKILL.md"))
+
+        let short = Skill(name: "short-one", purpose: "Short.", status: .validated, body: "Do it.", sourcePath: "/skills/short-one")
+        try await store.upsertSkill(short)
+        let shortText = try await UseSkillTool(tracker: SkillUsageTracker()).invoke(["skill_id": "short-one"], context: context).textContent
+        XCTAssertFalse(shortText.contains("go on past this point"))
+    }
+
     func testASkillCanRaiseTheEffortButNeverLowerIt() {
         XCTAssertEqual(SkillImporter.outputs(["effort": "High"])?.effort, "high")
         XCTAssertNil(SkillImporter.outputs(["effort": "enormous"]))

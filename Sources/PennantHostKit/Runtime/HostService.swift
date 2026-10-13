@@ -146,6 +146,8 @@ public actor HostService: HostAPIDelegate {
     public let vault: VaultService
     public let runtime: TaskRuntime
     public let mcp: MCPManager
+    /// Plugins: programs of their own, sandboxed, that add tools and use what the owner grants them.
+    public let plugins: PluginManager
     public let chatGPT: ChatGPTAuthManager
     public let scheduler: Scheduler
     /// Pennant waking up on its own to look over its work (and start goal sessions).
@@ -221,6 +223,11 @@ public actor HostService: HostAPIDelegate {
         let cursorDesktop = desktopImpl
         let chromeLink = BrowserLink { x, y, click in await cursorDesktop.showCursor(x: x, y: y, click: click) }
         runtimeDeps.chromeConnected = { await chromeLink.currentStatus().connected }
+        let folderAsks = FolderAsks()
+        runtimeDeps.folderBlocked = { result in
+            guard let key = FolderAccess.blockedFolder(in: result) else { return nil }
+            return await folderAsks.blocked(key)
+        }
         runtimeDeps.goalFreedom = { taskID in await goalBox.get()?.freedom(forTask: taskID) }
         runtimeDeps.goals = { (try? await goalBox.get()?.list()) ?? [] }
         let vaultForGitHub = vault
@@ -259,6 +266,7 @@ public actor HostService: HostAPIDelegate {
         self.push = PushService(paths: paths, keychain: KeychainStore.host(service: "dev.pennant.host.push", fallbackFileURL: paths.root.appendingPathComponent("push-credentials.json")))
         let keychain = KeychainStore.host(service: "dev.pennant.host.mcp", fallbackFileURL: paths.root.appendingPathComponent("mcp-credentials.json"))
         self.mcp = MCPManager(store: store, eventBus: eventBus, broker: broker, credentials: KeychainCredentialStore(keychain: keychain))
+        self.plugins = PluginManager(root: paths.root, broker: broker, vault: vaultService, hostName: "Pennant \(PennantVersion.string)")
     }
 
     // MARK: Lifecycle
@@ -298,6 +306,15 @@ public actor HostService: HostAPIDelegate {
         try await ensureDefaultAgent()
         // The Pennant chat: what every app opens on.
         _ = try? await runtime.ensureMainChat()
+        // Documents, Desktop and Downloads: what macOS allows Pennant, so a folder it's kept out of shows as missing (and
+        // macOS asks about any it never has).
+        Task.detached(priority: .utility) { [weak self] in
+            await FolderAccess.checkAll()
+            _ = await self?.currentPermissions(forceFresh: true)
+        }
+        // Check-ins that said nothing but left a trace in it (from before that was cleared) go, without holding up the start.
+        let quietRuntime = runtime
+        Task.detached(priority: .utility) { await quietRuntime.clearQuietHeartbeats() }
         await BuiltinSkills.seed(store: store, eventBus: eventBus)
         await runtime.attach(scheduler: scheduler)
         await chatGPT.setOnChange { [weak self] in await self?.chatGPTAccountChanged() }
@@ -353,6 +370,12 @@ public actor HostService: HostAPIDelegate {
         // not wait on them. Tools register with the broker as each server comes up.
         let mcp = self.mcp
         Task.detached(priority: .utility) { await mcp.start() }
+        // Plugins start the same way, each in its own sandbox; their notes go to the Pennant chat.
+        let plugins = self.plugins, chatRuntime = self.runtime
+        await plugins.setChatPoster { name, text in await chatRuntime.postPluginNote(from: name, text) }
+        let pluginEvents = eventBus
+        await plugins.setChangeHandler { list in await pluginEvents.publish(HostEvent(seq: 0, payload: .pluginsChanged(list))) }
+        Task.detached(priority: .utility) { await plugins.start() }
         // Channels: what people send arrives as messages from them; the built-in assistant takes new threads.
         let runtime = self.runtime, store = self.store
         // Reviews: batches post to chats; approvals there are heard first; the asking agent hears how it goes, with the
@@ -409,6 +432,7 @@ public actor HostService: HostAPIDelegate {
         await channels.stop()
         await runtime.stop()
         await mcp.stop()
+        await plugins.stop()
         await api?.stop()
         await humanInput.stop()
         await store.close()
@@ -581,7 +605,9 @@ public actor HostService: HostAPIDelegate {
         if !forceFresh, let cached = permissionsCache, Date().timeIntervalSince(cached.at) < 3 { return cached.value }
         let inProcess = await desktop.permissions()
         var value = inProcess
-        if useFreshPermissionChecks, let fresh = await PermissionCheck.fresh() {
+        if useFreshPermissionChecks, var fresh = await PermissionCheck.fresh() {
+            // Folders are checked in this process (opening one can bring up macOS's prompt, which belongs here).
+            fresh.folders = inProcess.folders
             value = fresh
             if PermissionCheck.restartNeeded(fresh: fresh, inProcess: inProcess) { await scheduleRestartForPermissions() }
         }

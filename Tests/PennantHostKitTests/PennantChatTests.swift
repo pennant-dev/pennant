@@ -93,6 +93,37 @@ final class PennantChatTests: XCTestCase {
         await s.stop()
     }
 
+    /// A reply that outgrows the chat and keeps going instead of handing off: past the limit, Pennant starts the thread
+    /// itself with the request and what was done so far, says so in a line, and ends the reply. Nothing is refused.
+    func testAReplyThatOutgrowsTheChatIsHandedToAThreadWithoutRefusals() async throws {
+        func look(_ n: Int) -> ScriptedProvider.Turn {
+            .init(toolCalls: [ToolCall(id: ToolCallID("c\(n)"), name: "shell", arguments: ["command": .string("echo step-\(n)")])])
+        }
+        let provider = ScriptedProvider([.init(text: "Both build servers are healthy.")])
+        provider.chatTurns = (1 ... 8).map(look) + [.init(text: "(the chat went on)")]
+        let s = try await service(provider)
+        let chat = try await s.runtime.ensureMainChat()
+        let (_, _, ask) = try await s.runtime.submitUserMessage(agentID: chat.agentID, conversationID: chat.id, text: "Can you check the Harbor build servers?", attachments: [])
+        try await wait(s, ask, .completed)
+
+        let records = try await s.store.toolRecords(taskID: ask)
+        XCTAssertEqual(records.count, TaskRuntime.chatStepLimit, "the calls up to the limit ran")
+        XCTAssertTrue(records.allSatisfy { $0.status == .succeeded }, "nothing refused: \(records.map { $0.resultSummary ?? "" })")
+        let chatMessages = try await s.store.messagesAfter(conversationID: chat.id, after: nil, limit: 200)
+        XCTAssertTrue(chatMessages.contains { $0.role == .assistant && $0.text == TaskRuntime.handedOffLine("Can you check the Harbor build servers?") })
+
+        let conversations = try await s.store.listConversations(agentID: chat.agentID)
+        let thread = try XCTUnwrap(conversations.first { $0.parentID == chat.id })
+        XCTAssertEqual(thread.title, "Can you check the Harbor build servers?")
+        let threadMessages = try await s.store.messagesAfter(conversationID: thread.id, after: nil, limit: 10)
+        let kickoff = try XCTUnwrap(threadMessages.first).text
+        XCTAssertTrue(kickoff.contains("Can you check the Harbor build servers?"), kickoff)
+        XCTAssertTrue(kickoff.contains("shell `echo step-1` → step-1"), kickoff)
+        XCTAssertTrue(kickoff.contains("don't redo what worked"), kickoff)
+        try await until("the thread's result reached the chat") { try await self.updates(s).contains { $0.kind == .finished } }
+        await s.stop()
+    }
+
     func testAThreadStartedFromTheChatRunsOnItsOwnAndItsResultComesBack() async throws {
         let start = ToolCall(id: ToolCallID("t1"), name: "start_thread", arguments: ["title": "README summary", "instructions": "Read the README and summarise it in two lines."])
         let provider = ScriptedProvider([.init(text: "The README covers setup and the CLI.")])
@@ -220,7 +251,9 @@ final class PennantChatTests: XCTestCase {
         let look = ToolCall(id: ToolCallID("l"), name: "list_directory", arguments: ["path": .string(paths.root.path)])
         // It keeps looking: more of the same, step after step.
         // Sixteen steps of it (the limit set below), then the wrap-up it's asked for.
-        let provider = ScriptedProvider(Array(repeating: ScriptedProvider.Turn(toolCalls: [look]), count: 16) + [.init(text: "Found three venues so far; two more to check if you want.")])
+        // Its first step waits until the test has set the limit, so it can't finish before the limit applies.
+        let provider = ScriptedProvider([.init(toolCalls: [look], blockUntilReleased: true)] + Array(repeating: ScriptedProvider.Turn(toolCalls: [look]), count: 15)
+                                        + [.init(text: "Found three venues so far; two more to check if you want.")])
         provider.chatTurns = [.init(text: "On it.")]
         let s = try await service(provider)
         let chat = try await s.runtime.ensureMainChat()
@@ -231,6 +264,7 @@ final class PennantChatTests: XCTestCase {
         XCTAssertEqual(started?.budget.maxSteps, 50, "a chat thread gets its own allowance")
         // Small for the test: at its limit it's told to wrap up, once, instead of pausing.
         try await s.runtime.updateTask(task) { $0.budget.maxSteps = 16 }
+        provider.release()
         let deadline = Date().addingTimeInterval(15)
         while Date() < deadline, try await s.store.task(task)?.state.isTerminal != true { try await Task.sleep(for: .milliseconds(50)) }
         let notes = provider.requests.compactMap { $0.messages.last?.text }
@@ -506,6 +540,72 @@ final class PennantChatTests: XCTestCase {
         XCTAssertTrue(all.isEmpty, "\(all)")
         await s.stop()
     }
+
+    /// A thread waiting on a skill it handed to Claude Code (a thread of its own under it): while that run works it's
+    /// on the board, and stopping the thread stops it too, instead of leaving it running out of sight.
+    func testStoppingAThreadStopsTheRunItStartedInsideIt() async throws {
+        let provider = ScriptedProvider([.init(text: "Never finishes.", blockUntilReleased: true)])
+        let s = try await service(provider)
+        await s.runtime.setMaxConcurrentTasks(1)
+        let chat = try await s.runtime.ensureMainChat()
+        let (_, thread, task) = try await s.runtime.submitUserMessage(agentID: chat.agentID, conversationID: nil, text: "Make the launch video", attachments: [])
+        try await wait(s, task, .running)
+        let (_, inside, run) = try await s.runtime.submitUserMessage(agentID: chat.agentID, conversationID: nil, text: "/make-video the launch", attachments: [], requestedBy: task)
+        let parent = try await s.store.conversation(inside)?.parentID
+        XCTAssertEqual(parent, thread)
+        let listed = try await s.runtime.chatThreads().map(\.conversation.id)
+        XCTAssertTrue(listed.contains(inside), "a run inside a thread is listed while it works")
+        let board = await s.runtime.workBoard()
+        XCTAssertTrue(board.contains("started by the thread “Make the launch video”"), board)
+
+        _ = try await s.runtime.stopThread("Make the launch")
+        try await wait(s, task, .cancelled)
+        try await wait(s, run, .cancelled)
+        let after = try await s.runtime.chatThreads().map(\.conversation.id)
+        XCTAssertFalse(after.contains(inside), "once it's stopped it opens from its thread again")
+        await s.stop()
+    }
+
+    /// The Stop button cancels the thread's task directly: the run it handed off stops with it.
+    func testStoppingATaskStopsTheRunItHandedOff() async throws {
+        let provider = ScriptedProvider([.init(text: "Never finishes.", blockUntilReleased: true)])
+        let s = try await service(provider)
+        await s.runtime.setMaxConcurrentTasks(1)
+        let chat = try await s.runtime.ensureMainChat()
+        let (_, _, task) = try await s.runtime.submitUserMessage(agentID: chat.agentID, conversationID: nil, text: "Make the launch video", attachments: [])
+        try await wait(s, task, .running)
+        let (_, _, run) = try await s.runtime.submitUserMessage(agentID: chat.agentID, conversationID: nil, text: "/make-video the launch", attachments: [], requestedBy: task)
+        try await s.runtime.cancelTask(task, reason: "Stopped by the owner")
+        try await wait(s, task, .cancelled)
+        try await wait(s, run, .cancelled)
+        let why = try await s.store.task(run)?.stateReason
+        XCTAssertEqual(why, "Stopped with the thread that started it")
+        await s.stop()
+    }
+
+    /// A thread the chat started carries on when the chat's turn that started it is stopped: that turn ends as the
+    /// thread starts.
+    func testStoppingAChatTurnLeavesItsThreadsGoing() async throws {
+        let provider = ScriptedProvider([.init(text: "Never finishes.", blockUntilReleased: true)])
+        provider.chatTurns = [.init(text: "On it.")]
+        let s = try await service(provider)
+        await s.runtime.setMaxConcurrentTasks(1)
+        let chat = try await s.runtime.ensureMainChat()
+        let (_, _, busy) = try await s.runtime.submitUserMessage(agentID: chat.agentID, conversationID: nil, text: "A long job", attachments: [])
+        try await wait(s, busy, .running)
+        let (_, _, turn) = try await s.runtime.submitUserMessage(agentID: chat.agentID, conversationID: chat.id, text: "Find venues", attachments: [])
+        try await wait(s, turn, .completed)
+        let (_, thread, waiting) = try await s.runtime.submitUserMessage(agentID: chat.agentID, conversationID: nil, text: "Find venues in Lisbon", attachments: [], requestedBy: turn)
+        let parent = try await s.store.conversation(thread)?.parentID
+        XCTAssertEqual(parent, chat.id)
+        try await s.runtime.cancelTask(turn, reason: "Stopped by the owner")
+        try await Task.sleep(for: .milliseconds(200))
+        let state = try await s.store.task(waiting)?.state
+        XCTAssertEqual(state, .queued)
+        try await s.runtime.cancelTask(busy, reason: "Test over")
+        try await s.runtime.cancelTask(waiting, reason: "Test over")
+        await s.stop()
+    }
 }
 
 /// The Pennant chat stays quick: it thinks lightly, carries a short list of tools and a short history, and hands
@@ -568,12 +668,13 @@ final class PennantChatSpeedTests: XCTestCase {
         provider.chatTurns = (1 ... 6).map(look) + [.init(text: "I'll have a thread finish it.")]
         let s = try await service(provider)
         let id = try await ask(s, "Look through everything in that folder")
-        let records = try await s.store.toolRecords(taskID: id).sorted { $0.startedAt < $1.startedAt }
-        XCTAssertEqual(records.prefix(5).map(\.status), Array(repeating: .succeeded, count: 5))
-        XCTAssertEqual(records.last?.status, .denied)
-        XCTAssertEqual(records.last?.resultSummary, "Chat reply ran long")
+        let records = try await s.store.toolRecords(taskID: id)
+        XCTAssertEqual(records.map(\.status), Array(repeating: .succeeded, count: 5), "up to the limit it works; past it, nothing is refused")
         let told = provider.requests.flatMap(\.messages).map(\.text).contains { $0.contains("Hand the rest to a thread now") }
         XCTAssertTrue(told, "after a few steps the chat is told to hand over")
+        let chat = try await s.runtime.ensureMainChat()
+        let conversations = try await s.store.listConversations(agentID: chat.agentID)
+        XCTAssertNotNil(conversations.first { $0.parentID == chat.id }, "it didn't, so Pennant started the thread itself")
         await s.stop()
     }
 

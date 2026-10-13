@@ -156,6 +156,7 @@ extension HostService {
     }
 
     private static let ownerOnly = ReplyBody.error(code: "owner_only", message: "Only the host's owner can change who has access.")
+    private static let pluginsOwnerOnly = ReplyBody.error(code: "owner_only", message: "Only the host's owner can install, change or remove plugins.")
 
     private func dispatch(_ body: CommandBody, client: ConnectedClient) async throws -> ReplyBody {
         switch body {
@@ -659,6 +660,28 @@ extension HostService {
             let (dates, error) = Scheduler.preview(expression: expression, timeZone: timeZone, count: count)
             return .schedulePreview(dates, error: error)
 
+        // Plugins: anyone may see them; only the owner changes them (a plugin is a program that runs on this Mac).
+        case .listPlugins:
+            return .plugins(await plugins.statuses())
+        case .installPlugin(let path):
+            guard client.isOwner else { return Self.pluginsOwnerOnly }
+            return .plugins(try await plugins.install(path: path))
+        case .removePlugin(let id):
+            guard client.isOwner else { return Self.pluginsOwnerOnly }
+            return .plugins(try await plugins.remove(id))
+        case .setPluginEnabled(let id, let enabled):
+            guard client.isOwner else { return Self.pluginsOwnerOnly }
+            return .plugins(try await plugins.setEnabled(id, enabled))
+        case .grantPlugin(let id, let capability, let value):
+            guard client.isOwner else { return Self.pluginsOwnerOnly }
+            return .plugins(try await plugins.grant(id, capability: capability, value: value))
+        case .revokePlugin(let id, let capability):
+            guard client.isOwner else { return Self.pluginsOwnerOnly }
+            return .plugins(try await plugins.revoke(id, capability: capability))
+        case .setPluginSettings(let id, let settings):
+            guard client.isOwner else { return Self.pluginsOwnerOnly }
+            return .plugins(try await plugins.setSettings(id, settings))
+
         // MCP
         case .listMCPServers:
             return .mcpServers(await mcp.allStatuses())
@@ -740,6 +763,7 @@ extension HostService {
             await eventBus.publish(HostEvent(seq: 0, payload: .desktopStatus(status)))
             return .desktop(status)
         case .recheckPermissions:
+            await FolderAccess.checkAll()
             let status = await desktopStatus(freshPermissions: true)
             await eventBus.publish(HostEvent(seq: 0, payload: .desktopStatus(status)))
             return .desktop(status)

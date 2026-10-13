@@ -71,8 +71,10 @@ public actor Heartbeat {
         }
         let ask = settings.instructions?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !ask.isEmpty {
-            let last = lastAsked.map { "; the last one was at \($0.formatted(date: .omitted, time: .shortened))" } ?? ""
-            fresh.append(("asked:\(now.timeIntervalSince1970)", "On each check-in the owner asked you to: \(ask) (you check in every \(settings.intervalMinutes) minutes\(last))"))
+            // Full times with their zone: a bare "9:24 PM" from last night reads as later today, and a search "since
+            // then" asks about the future.
+            let last = lastAsked.map { "; the last one was at \(Self.stamp($0))" } ?? ""
+            fresh.append(("asked:\(now.timeIntervalSince1970)", "On each check-in the owner asked you to: \(ask) (you check in every \(settings.intervalMinutes) minutes\(last); it's now \(Self.stamp(now)))"))
         }
         beat.signals = fresh.map(\.text)
         if !fresh.isEmpty {
@@ -94,6 +96,14 @@ public actor Heartbeat {
             log.info("Heartbeat: \(beat.goalSessions.count) goal session(s), \(beat.signals.count) thing(s) to look at\(beat.turn == nil ? "" : ", Pennant took a turn")", category: "heartbeat")
         }
         return beat
+    }
+
+    /// "2026-10-08T21:24:00-04:00": the date, the time and the zone.
+    static func stamp(_ date: Date) -> String {
+        let f = ISO8601DateFormatter()
+        f.timeZone = .current
+        f.formatOptions = [.withInternetDateTime]
+        return f.string(from: date)
     }
 
     static func day(_ date: Date) -> String {

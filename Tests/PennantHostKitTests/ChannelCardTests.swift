@@ -95,8 +95,13 @@ final class ChannelCardTests: XCTestCase {
         var updated = message
         updated.parts = [.approval(decided)]
         await bus.publish(HostEvent(seq: 0, payload: .messageFinalized(updated)))
-        try await Task.sleep(for: .milliseconds(200))
-        let last = box.lock.withLock { box.cards.last?.1 ?? "" }
+        // Waits for the replacement rather than a fixed pause, which a busy full run can outlast.
+        var last = ""
+        let deadline = Date().addingTimeInterval(3)
+        repeat {
+            try await Task.sleep(for: .milliseconds(50))
+            last = box.lock.withLock { box.cards.last?.1 ?? "" }
+        } while !last.contains("Approved by Maya") && Date() < deadline
         XCTAssertTrue(last.contains("Approved by Maya") && !last.contains("Action.Submit"))
         await channels.stop()
     }

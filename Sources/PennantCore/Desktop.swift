@@ -21,31 +21,41 @@ public struct DesktopPermissions: Hashable, Codable, Sendable {
     public var automationTargets: [String: PermissionState]
     /// Name of the process macOS attributes grants to (the app, or pennant-host when run by launchd).
     public var grantee: String
+    /// The folders macOS keeps to the apps allowed there, by key ("documents", "desktop", "downloads"): what the host
+    /// last found when it opened each.
+    public var folders: [String: PermissionState]
 
-    public init(accessibility: Bool = false, screenRecording: Bool = false, automation: Bool = false, inputMonitoring: Bool = false, automationTargets: [String: PermissionState] = [:], grantee: String = "") {
+    /// The protected folders Pennant's work opens.
+    public static let folderKeys = ["documents", "desktop", "downloads"]
+    /// "documents" → "Documents folder".
+    public static func folderTitle(_ key: String) -> String { key.prefix(1).uppercased() + key.dropFirst() + " folder" }
+
+    public init(accessibility: Bool = false, screenRecording: Bool = false, automation: Bool = false, inputMonitoring: Bool = false, automationTargets: [String: PermissionState] = [:], grantee: String = "", folders: [String: PermissionState] = [:]) {
         self.accessibility = accessibility
         self.screenRecording = screenRecording
         self.automation = automation
         self.inputMonitoring = inputMonitoring
         self.automationTargets = automationTargets
         self.grantee = grantee
+        self.folders = folders
     }
 
     /// Everything the desktop tools need for full computer use. Automation consent is per app and macOS
     /// asks on first use, so targets that were never asked do not count as missing; denied ones do.
-    public var allGranted: Bool { accessibility && screenRecording && !automationTargets.values.contains(.denied) }
+    public var allGranted: Bool { accessibility && screenRecording && !automationTargets.values.contains(.denied) && !folders.values.contains(.denied) }
     public var missing: [String] {
         var out: [String] = []
         if !accessibility { out.append("Accessibility") }
         if !screenRecording { out.append("Screen Recording") }
         if !inputMonitoring { out.append("Input Monitoring (optional)") }
         for (target, state) in automationTargets.sorted(by: { $0.key < $1.key }) where state == .denied { out.append("Automation denied: \(target)") }
+        for key in Self.folderKeys where folders[key] == .denied { out.append(Self.folderTitle(key)) }
         return out
     }
     /// Automation targets macOS has not asked about yet; they prompt on first use or via Request.
     public var automationNotAsked: [String] { automationTargets.filter { $0.value == .notDetermined }.keys.sorted() }
 
-    private enum CodingKeys: String, CodingKey { case accessibility, screenRecording, automation, inputMonitoring, automationTargets, grantee }
+    private enum CodingKeys: String, CodingKey { case accessibility, screenRecording, automation, inputMonitoring, automationTargets, grantee, folders }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         accessibility = try c.decodeIfPresent(Bool.self, forKey: .accessibility) ?? false
@@ -54,6 +64,7 @@ public struct DesktopPermissions: Hashable, Codable, Sendable {
         inputMonitoring = try c.decodeIfPresent(Bool.self, forKey: .inputMonitoring) ?? false
         automationTargets = try c.decodeIfPresent([String: PermissionState].self, forKey: .automationTargets) ?? [:]
         grantee = try c.decodeIfPresent(String.self, forKey: .grantee) ?? ""
+        folders = try c.decodeIfPresent([String: PermissionState].self, forKey: .folders) ?? [:]
     }
 }
 

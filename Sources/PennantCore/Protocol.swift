@@ -414,6 +414,18 @@ public enum CommandBody: Hashable, Codable, Sendable {
     case signOutMCP(MCPServerID)
     case listMCPCatalog
 
+    // Plugins (owner only, but for listing). Each replies `plugins`.
+    case listPlugins
+    /// Installs (or updates) the plugin bundle at a path on the host; it starts once its grants allow.
+    case installPlugin(path: String)
+    case removePlugin(id: String)
+    case setPluginEnabled(id: String, enabled: Bool)
+    /// Grants a capability. `value`: the vault item for a secret slot, the command for a credential helper (default:
+    /// the one the plugin suggests).
+    case grantPlugin(id: String, capability: String, value: String?)
+    case revokePlugin(id: String, capability: String)
+    case setPluginSettings(id: String, settings: JSONValue)
+
     // Models
     /// Sends a model one short prompt and reports whether it answered. Replies `modelTest`.
     case testModel(HostConfig.Inference)
@@ -533,6 +545,7 @@ public enum ReplyBody: Hashable, Codable, Sendable {
     case goalItem(GoalItem)
     case schedulePreview([Date], error: String?)
     case mcpServers([MCPServerStatus])
+    case plugins([PluginStatus])
     case mcpAuthStarted(serverID: MCPServerID, url: String)
     case mcpCatalog([MCPCatalogEntry])
     case chatGPTSignInStarted(url: String)

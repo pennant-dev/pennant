@@ -82,6 +82,8 @@ public actor SkillUsageTracker {
 
 public struct UseSkillTool: Tool {
     let tracker: SkillUsageTracker
+    /// How much of a skill's instructions the call returns.
+    static let instructionLimit = 12000
     public init(tracker: SkillUsageTracker) { self.tracker = tracker }
     public var spec: ToolSpec {
         ToolSpec(name: "use_skill", description: "Declare that you are following a skill for this task so its outcome can be recorded. Returns the skill steps. A skill that runs in Claude Code is started there instead, in a thread of its own.", inputSchema: JSONSchema.object([
@@ -118,7 +120,16 @@ public struct UseSkillTool: Tool {
         let folder = skill.folder
         if let folder { text += "\n\nSkill folder: \(folder)" }
         if let outputs = skill.outputs, !outputs.isEmpty { text += "\n\n" + outputs.guide }
-        if !skill.body.isEmpty { text += "\n\nInstructions:\n\(skill.expandingFolder(skill.body).prefix(12000))" }
+        if !skill.body.isEmpty {
+            let instructions = skill.expandingFolder(skill.body)
+            text += "\n\nInstructions:\n\(instructions.prefix(Self.instructionLimit))"
+            // Longer ones are cut here: say so and where the rest is, so they aren't followed half-read.
+            if instructions.count > Self.instructionLimit {
+                let file = skill.sourcePath.map { $0.hasSuffix(".md") ? $0 : ($0 as NSString).appendingPathComponent("SKILL.md") }
+                text += "\n\n[The instructions go on past this point: only the first \(Self.instructionLimit) characters are shown. Read the rest"
+                    + (file.map { " in \($0)" } ?? " with find_skill") + " before you get there.]"
+            }
+        }
         if !skill.scripts.isEmpty { text += "\n\nFiles: \(skill.scripts.keys.sorted().joined(separator: ", ")) (contents available through find_skill)" }
         return .text(ToolCallID("pending"), name: spec.name, text)
     }

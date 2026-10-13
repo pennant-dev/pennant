@@ -1,0 +1,82 @@
+{
+  "id": "dev.pennant.azure",
+  "name": "Azure",
+  "version": "0.1.0",
+  "publisher": "Pennant",
+  "description": "Your Azure subscriptions: resources, costs, AKS clusters, logs and alerts, plus scaling a node pool and restarting an app when you approve.",
+  "api": "1",
+  "pennant": ">=0.4",
+  "executable": "Contents/MacOS/Azure",
+  "capabilities": [
+    "network",
+    { "credential": "azure-management", "why": "Reads and manages Azure resources as you, with your Azure CLI sign-in.",
+      "suggest": "az account get-access-token --resource https://management.azure.com/ -o json" },
+    { "credential": "azure-logs", "why": "Runs log queries in your Log Analytics workspaces.",
+      "suggest": "az account get-access-token --resource https://api.loganalytics.io -o json" },
+    { "secret": "azure-service-principal", "why": "Instead of your az sign-in: a service principal (client id as the username, secret as the password)." }
+  ],
+  "contributes": {
+    "settings": {
+      "type": "object",
+      "properties": {
+        "subscriptions": { "type": "array", "items": { "type": "string" }, "description": "Subscriptions to look in, by name or id. Empty: every one the sign-in sees." },
+        "auth": { "type": "string", "enum": ["helper", "servicePrincipal"], "description": "How to sign in. Default: the az helper if granted, else the service principal." },
+        "tenant": { "type": "string", "description": "Directory (tenant) id, for the service principal." },
+        "workspace": { "type": "string", "description": "Default Log Analytics workspace (name or workspace id) for logs." }
+      }
+    },
+    "tools": [
+      { "name": "subscriptions", "readOnly": true,
+        "description": "Azure subscriptions this sign-in can see, and which are in scope for the other Azure tools.",
+        "inputSchema": { "type": "object", "properties": {} } },
+      { "name": "resources", "readOnly": true,
+        "description": "Find Azure resources across subscriptions (Azure Resource Graph). Filter by type, resource group, name, tag or location, or pass a Resource Graph KQL query for anything else (counts, properties, joins).",
+        "inputSchema": { "type": "object", "properties": {
+          "type": { "type": "string", "description": "Resource type, full (microsoft.web/sites) or a fragment (sites, storage)" },
+          "resource_group": { "type": "string" },
+          "name": { "type": "string", "description": "Part of the name" },
+          "tag": { "type": "string", "description": "key=value, or key to find anything with that tag" },
+          "location": { "type": "string" },
+          "subscription": { "type": "string", "description": "One subscription, by name or id (default: all in scope)" },
+          "query": { "type": "string", "description": "A Resource Graph query instead of the filters, e.g. resources | summarize count() by type" },
+          "top": { "type": "integer", "description": "At most this many rows (default 50, up to 1000)" } } } },
+      { "name": "costs", "readOnly": true,
+        "description": "Azure spend per subscription, this month so far (or last month), grouped by service, resource group, resource, location or meter.",
+        "inputSchema": { "type": "object", "properties": {
+          "group_by": { "type": "string", "enum": ["service", "resource_group", "resource", "location", "meter", "none"] },
+          "last_month": { "type": "boolean" },
+          "subscription": { "type": "string" } } } },
+      { "name": "clusters", "readOnly": true,
+        "description": "AKS clusters in scope: Kubernetes version, power and provisioning state, and each node pool's size, VM size, autoscale range and state.",
+        "inputSchema": { "type": "object", "properties": {
+          "name": { "type": "string", "description": "Part of a cluster's name" },
+          "subscription": { "type": "string" } } } },
+      { "name": "logs", "readOnly": true,
+        "description": "Run a KQL query in a Log Analytics workspace (container logs, app requests, exceptions, KubeEvents…). Read-only.",
+        "inputSchema": { "type": "object", "required": ["query"], "properties": {
+          "query": { "type": "string", "description": "KQL, e.g. ContainerLogV2 | where LogLevel == 'error' | take 50" },
+          "workspace": { "type": "string", "description": "Workspace name or id (default: the plugin's setting)" },
+          "timespan": { "type": "string", "description": "How far back: 30m, 1h, 24h, 7d (default 1h)" } } } },
+      { "name": "alerts", "readOnly": true,
+        "description": "Azure Monitor alerts firing now, newest first: severity, target resource and since when.",
+        "inputSchema": { "type": "object", "properties": {
+          "since_hours": { "type": "integer", "description": "Look back this many hours (default 24)" },
+          "severity": { "type": "string", "enum": ["Sev0", "Sev1", "Sev2", "Sev3", "Sev4"] },
+          "subscription": { "type": "string" } } } },
+      { "name": "scale_node_pool", "asksFirst": true,
+        "description": "Set an AKS node pool's node count (not for autoscaled pools). The owner approves every call.",
+        "inputSchema": { "type": "object", "required": ["cluster", "pool", "count"], "properties": {
+          "cluster": { "type": "string" },
+          "pool": { "type": "string" },
+          "count": { "type": "integer" },
+          "resource_group": { "type": "string" },
+          "subscription": { "type": "string" } } } },
+      { "name": "restart_app", "asksFirst": true,
+        "description": "Restart an App Service web app or function app. The owner approves every call.",
+        "inputSchema": { "type": "object", "required": ["app"], "properties": {
+          "app": { "type": "string" },
+          "resource_group": { "type": "string" },
+          "subscription": { "type": "string" } } } }
+    ]
+  }
+}

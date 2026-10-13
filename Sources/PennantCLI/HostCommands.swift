@@ -338,7 +338,7 @@ func permissionsCommand(_ options: CLIOptions) async throws {
             guard !target.isEmpty else { await session.disconnect(); fail("Usage: pennant permissions reset <target>") }
             status = try await session.resetPermission(target)
         case "recheck": status = try await session.recheckPermissions()
-        default: await session.disconnect(); fail("Usage: pennant permissions [request|reset|recheck [target]]")
+        default: await session.disconnect(); fail("Usage: pennant permissions [request|reset|recheck [target]]   (targets include documents, desktop, downloads)")
         }
     } else {
         status = try await session.recheckPermissions()
@@ -348,6 +348,7 @@ func permissionsCommand(_ options: CLIOptions) async throws {
     out("Accessibility: \(p.accessibility ? "granted" : "missing")")
     out("Screen Recording: \(p.screenRecording ? "granted" : "missing")")
     out("Input Monitoring: \(p.inputMonitoring ? "granted" : "missing")")
+    for key in DesktopPermissions.folderKeys { out("\(DesktopPermissions.folderTitle(key)): \(p.folders[key]?.rawValue ?? "not checked")") }
     for (target, state) in p.automationTargets.sorted(by: { $0.key < $1.key }) { out("Automation \(target): \(state.rawValue)") }
     await session.disconnect()
 }

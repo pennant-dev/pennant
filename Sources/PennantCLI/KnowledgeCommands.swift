@@ -151,6 +151,23 @@ func runSkills(_ sub: String, args: [String], options: CLIOptions) async throws 
             out("  \(name)\(skill?.needsClaudeCode.map { "  (runs in Claude Code: \($0))" } ?? "")")
         }
 
+    case "disable", "enable":
+        // Every version: Pennant falls back to an older enabled one, so turning off only the newest isn't retiring it.
+        guard !args.isEmpty else { await session.disconnect(); fail("Usage: pennant skills \(sub) <name>…") }
+        try await session.loadSkills()
+        for name in args {
+            let versions = session.state.skills.filter { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+            guard !versions.isEmpty else { await session.disconnect(); fail("No skill named \(name)") }
+            var changed = 0
+            for s in versions where (sub == "disable") == (s.status != .disabled) {
+                let next: SkillStatus = sub == "disable" ? .disabled : (s.outcomes.filter(\.succeeded).count >= 3 ? .validated : .provisional)
+                let r = try await session.send(.setSkillStatus(s.id, next))
+                if case .error = r { await session.disconnect(); fail(replyError(r)) }
+                changed += 1
+            }
+            out("\(name): \(sub)d \(changed) of \(versions.count) version(s)")
+        }
+
     case "delete":
         guard !args.isEmpty else { await session.disconnect(); fail("Usage: pennant skills delete <id>…") }
         try await session.loadSkills()

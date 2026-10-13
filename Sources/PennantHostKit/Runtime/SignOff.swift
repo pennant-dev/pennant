@@ -9,12 +9,15 @@ import Foundation
 public enum SignOff {
     public enum Reason: String, Sendable {
         case publishes, deletes, spends
+        /// A tool marked `asksFirst`: every call, whatever it does.
+        case changes
 
         public var title: String {
             switch self {
             case .publishes: return "Publish or send"
             case .deletes: return "Delete"
             case .spends: return "Spend money"
+            case .changes: return "Make a change"
             }
         }
         public var why: String {
@@ -22,6 +25,7 @@ public enum SignOff {
             case .publishes: return "it publishes to a public page or sends an email"
             case .deletes: return "it deletes something"
             case .spends: return "it spends money"
+            case .changes: return "its maker marked as needing your OK every time"
             }
         }
     }
@@ -36,9 +40,23 @@ public enum SignOff {
     static let exempt: Set<String> = ["request_approval", "ask_user", "post_report", "memory_forget", "forget_instruction", "cancel_schedule", "goal_update",
                                       "update_goal", "channel_send", "send_message", "list_contacts", "request_reviews", "link_reviewer", "approve_review_batch"]
 
-    /// Why a tool call needs the owner's sign-off, or nil. Tools that take an `approval_id` check their approval themselves.
+    /// A tool marked `asksFirst` waits on a card every time. An `approval_id` doesn't excuse it: no such tool checks one,
+    /// and an approved card that runs it (on_approve) doesn't come through here.
+    public static func asksFirst(_ spec: ToolSpec, arguments: JSONValue) -> Reason? {
+        spec.asksFirst ? .changes : nil
+    }
+
+    /// Why a call to a tool needs the owner's sign-off, or nil. A tool that declares an `approval_id` (browser_script)
+    /// checks the approval it's given itself, so a call that passes one goes to it. Any other tool's call carrying one is
+    /// classified as usual: nothing would check the id, and a made-up one must not wave a send through.
+    public static func reason(_ spec: ToolSpec, arguments: JSONValue) -> Reason? {
+        if arguments["approval_id"] != nil, spec.inputSchema["properties"]?["approval_id"] != nil { return nil }
+        return reason(tool: spec.name, arguments: arguments)
+    }
+
+    /// Why a call needs the owner's sign-off, by the tool's name and what it's given.
     public static func reason(tool name: String, arguments: JSONValue) -> Reason? {
-        if exempt.contains(name) || arguments["approval_id"] != nil { return nil }
+        if exempt.contains(name) { return nil }
         if name == "shell" { return reason(command: arguments["command"]?.stringValue ?? "") }
         let lower = name.lowercased()
         let words = Set(lower.split(whereSeparator: { $0 == "_" || $0 == "-" || $0 == "." }).map(String.init))

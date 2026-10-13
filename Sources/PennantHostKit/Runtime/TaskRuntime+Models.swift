@@ -143,12 +143,12 @@ extension TaskRuntime {
         // The Pennant chat talks: it carries what a quick answer, a look on the web and steering its threads take, and
         // loads a connected service only when it asks for one (find_tools). The rest of the work is a thread's.
         if await inMainChat(task) {
-            let services = Set(activeServers[task.id, default: []].map { "mcp:\($0)" })
+            let services = Set(activeServers[task.id, default: []].map(Self.serviceSource))
             return all.filter { Self.chatTools.contains($0.name) || services.contains($0.source) } + [Self.findToolsSpec]
         }
         all.removeAll { ThreadTools.names.contains($0.name) }
         let limit = Self.maxToolsPerRequest
-        let mcp = all.filter { $0.source.hasPrefix("mcp:") }
+        let mcp = all.filter { Self.serviceKey($0.source) != nil }
         if !agent.toolAllowlist.isEmpty || mcp.count <= Self.loadAllMCPToolsUpTo, all.count <= limit { return all }
         let core = all.count - mcp.count + 1  // built-in and granted tools, and find_tools
         guard core <= limit else {
@@ -158,12 +158,12 @@ extension TaskRuntime {
         var room = limit - core
         var fits: Set<String> = []
         for server in wanted where !fits.contains(server) {
-            let count = mcp.filter { $0.source == "mcp:\(server)" }.count
+            let count = mcp.filter { $0.source == Self.serviceSource(server) }.count
             if count <= room { fits.insert(server); room -= count }
         }
         let visible = all.filter { spec in
-            guard spec.source.hasPrefix("mcp:") else { return true }
-            return fits.contains(String(spec.source.dropFirst(4)))
+            guard let key = Self.serviceKey(spec.source) else { return true }
+            return fits.contains(key)
         }
         return visible + [Self.findToolsSpec]
     }
@@ -176,6 +176,17 @@ extension TaskRuntime {
         "list_schedules", "schedule_job", "cancel_schedule", "list_goals", "goal_board", "update_goal",
         "code",
     ])
+
+    /// A connected service's key in `activeServers`, from its tools' source: an MCP server's id, or "plugin:<id>" for a
+    /// plugin. Nil for built-in tools.
+    static func serviceKey(_ source: String) -> String? {
+        if source.hasPrefix("mcp:") { return String(source.dropFirst(4)) }
+        if source.hasPrefix("plugin:") { return source }
+        return nil
+    }
+
+    /// The source a service's tools carry, from its key.
+    static func serviceSource(_ key: String) -> String { key.hasPrefix("plugin:") ? key : "mcp:\(key)" }
 
     /// Up to this many connected-service tools, everything loads; above it, services load on demand.
     static let loadAllMCPToolsUpTo = 16
@@ -203,7 +214,7 @@ extension TaskRuntime {
 
     /// Connected services and their tool counts, for the prompt: what exists even when it is not loaded.
     func connectedServices(agent: AgentProfile, visible: [ToolSpec]) async -> [ContextBuilder.Service] {
-        let all = await deps.broker.specs(for: agent).filter { $0.source.hasPrefix("mcp:") }
+        let all = await deps.broker.specs(for: agent).filter { Self.serviceKey($0.source) != nil }
         let loaded = Set(visible.map(\.source))
         var byServer: [String: (name: String, count: Int)] = [:]
         for spec in all {
@@ -224,8 +235,8 @@ extension TaskRuntime {
 
     /// Runs `find_tools`: matches services and tools, loads the matching services for this task, and lists them.
     func findTools(query raw: String, task: TaskRecord, agent: AgentProfile) async -> String {
-        let all = await deps.broker.specs(for: agent).filter { $0.source.hasPrefix("mcp:") }
-        guard !all.isEmpty else { return "No services are connected. Connect them in Pennant's Connections screen." }
+        let all = await deps.broker.specs(for: agent).filter { Self.serviceKey($0.source) != nil }
+        guard !all.isEmpty else { return "No services are connected. Connect them in Pennant's Connections screen, or install a plugin." }
         let query = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let groups = Dictionary(grouping: all, by: \.source)
         if query.isEmpty {
@@ -251,7 +262,7 @@ extension TaskRuntime {
             return "No connected service matches \"\(raw)\". Connected: \(names). Try a service name."
         }
         // The best match goes in last, so it is the newest and the last to give way when a request is full.
-        for (source, _, _) in ranked.reversed() { markLoaded(String(source.dropFirst(4)), task: task.id) }
+        for (source, _, _) in ranked.reversed() { markLoaded(Self.serviceKey(source) ?? source, task: task.id) }
         let fits = Set(((try? await turnSpecs(task: task, agent: agent)) ?? []).map(\.source))
         var out: [String] = []
         for (source, specs, _) in ranked {
@@ -271,8 +282,8 @@ extension TaskRuntime {
 
     /// Calling a service's tool directly (from memory or a skill) loads that service too.
     func noteToolUse(_ spec: ToolSpec, task: TaskID) {
-        guard spec.source.hasPrefix("mcp:") else { return }
-        markLoaded(String(spec.source.dropFirst(4)), task: task)
+        guard let key = Self.serviceKey(spec.source) else { return }
+        markLoaded(key, task: task)
     }
 
     // MARK: Speed

@@ -26,6 +26,9 @@ public actor TaskRuntime {
         /// Whether Pennant's Chrome extension is connected, so threads work in its tabs instead of driving Chrome with
         /// AppleScript. Nil in tests that don't set it.
         public var chromeConnected: (@Sendable () async -> Bool)?
+        /// A tool's result came back refused in a folder macOS keeps private (Documents, Desktop, Downloads): what to tell
+        /// the model (Pennant has asked the owner, or did lately), or nil when it isn't that. Nil in tests that don't set it.
+        public var folderBlocked: (@Sendable (_ result: String) async -> String?)?
         /// The freedom of the goal a task works for (nil: not goal work). Nil in tests.
         public var goalFreedom: (@Sendable (TaskID) async -> Goal.Freedom?)?
         /// Every goal, for telling which one a card comes from. Nil in tests that have no goals.
@@ -61,6 +64,11 @@ public actor TaskRuntime {
     var downUntil: [String: Date] = [:]
     /// MCP servers whose tools a task has loaded with find_tools or by calling one, most recently loaded first.
     var activeServers: [TaskID: [String]] = [:]
+    /// Steps in a row where every call a task made was refused.
+    var refusedSteps: [TaskID: Int] = [:]
+    /// Approved cards a call has already sent (each sends once), and the call each pending send came from.
+    var spentApprovals: Set<String> = []
+    var approvalSends: [ToolCallID: String] = [:]
     /// How many times a task was sent back for stopping at an offer.
     var offerNudges: [TaskID: Int] = [:]
     /// The answer an offer nudge followed up on: the next reply either stands by it ("(done)") or replaces it, so the
@@ -317,6 +325,20 @@ public actor TaskRuntime {
             try await transition(id, to: .cancelled, reason: reason)
             await finish(task: id)
         }
+        // Work it handed to a thread of its own (a skill run in Claude Code, a coding run) was for it alone: it stops too.
+        for nested in await handedOffWork(of: task) {
+            try? await cancelTask(nested.id, reason: "Stopped with the thread that started it")
+        }
+    }
+
+    /// Open work a task started in threads under its own (`requestedBy`, their thread's parent is its thread). A thread
+    /// the Pennant chat started isn't one: the chat's turn ends as the thread starts, and the thread carries on.
+    func handedOffWork(of task: TaskRecord) async -> [TaskRecord] {
+        guard task.conversationID != mainChatID else { return [] }
+        let open = ((try? await deps.store.listTasks(agentID: nil, includeFinished: false)) ?? []).filter { $0.requestedByTaskID == task.id && !$0.state.isTerminal }
+        var out: [TaskRecord] = []
+        for t in open where (try? await deps.store.conversation(t.conversationID))?.parentID == task.conversationID { out.append(t) }
+        return out
     }
 
     /// Closes a conversation: it leaves the list until something happens in it (a message, an answer, a reply) or it's
@@ -495,15 +517,18 @@ public actor TaskRuntime {
                     // A helper never stops to ask the owner: it reports what it has to the task that asked for it, and
                     // past that, it finishes with what it has (its parent was waiting on it, and nobody else would answer).
                     let helper = task.parentTaskID != nil
+                    // A check-in the owner didn't ask for never stops to ask them whether to go on: waiting there, it
+                    // would hold the chat (and every check-in after it) until someone wrote.
+                    let heartbeat = Self.isHeartbeat(task)
                     // Work that reports to the Pennant chat, and helpers, wrap up once with what they have (a few steps
                     // to write it); the owner (or the parent) says whether to go on.
-                    let toChat = helper ? false : await reportsToChat(task)
-                    if !wrappedUp.contains(taskID), helper || toChat {
+                    let toChat = helper || heartbeat ? false : await reportsToChat(task)
+                    if !wrappedUp.contains(taskID), helper || toChat || heartbeat {
                         wrappedUp.insert(taskID)
                         // Helpers still at work would be stopped when this finishes (mid-change, maybe): it collects
                         // them first, a step each.
                         let working = ((try? await deps.store.childTasks(parentTaskID: taskID)) ?? []).filter { !$0.state.isTerminal }
-                        var note = helper ? Self.helperWrapUpNote(why) : Self.wrapUpNote(why)
+                        var note = helper ? Self.helperWrapUpNote(why) : heartbeat ? Self.heartbeatWrapUpNote : Self.wrapUpNote(why)
                         if !working.isEmpty { note += " " + Self.collectHelpersNote(working) }
                         runtimeNotes[taskID, default: []].append(note)
                         task = try await updateTask(taskID) {
@@ -515,6 +540,10 @@ public actor TaskRuntime {
                         let last = (try? await deps.store.listMessages(conversationID: task.conversationID, before: nil, limit: 30))?
                             .first { $0.taskID == taskID && $0.role == .assistant && !$0.text.isEmpty }?.text
                         try await complete(task: taskID, summary: "Stopped at its limit (\(why)) before it finished." + (last.map { " Its last note:\n" + $0 } ?? ""))
+                        break
+                    }
+                    if heartbeat {
+                        try await complete(task: taskID, summary: "Stopped at the check-in's limit (\(why)).")
                         break
                     }
                     // A limit is a checkpoint, not a verdict: ask the user and carry on if they say so.
@@ -535,7 +564,7 @@ public actor TaskRuntime {
                 if !response.toolCalls.isEmpty, task.usage.steps % Self.checkInEvery == 0, !wrappedUp.contains(taskID) {
                     runtimeNotes[taskID, default: []].append(Self.checkInNote(steps: task.usage.steps))
                 }
-                if !response.toolCalls.isEmpty, task.usage.steps == Self.chatHandOffStep, await inMainChat(task) {
+                if !response.toolCalls.isEmpty, task.usage.steps == Self.chatHandOffStep, !Self.isHeartbeat(task), await inMainChat(task) {
                     runtimeNotes[taskID, default: []].append(Self.chatHandOffNote)
                 }
 
@@ -586,6 +615,24 @@ public actor TaskRuntime {
                 }
 
                 usedDesktopThisStep = false
+                // Past the chat's limit and still after more than the chat does: the work goes to a thread, started
+                // here, and the chat says so and ends its turn. The calls it asked for go with the work, not run here.
+                if task.usage.steps > Self.chatStepLimit, coding == nil, !Self.isHeartbeat(task),
+                   response.toolCalls.contains(where: { !Self.chatAlwaysAllowed.contains($0.name) }), await inMainChat(task),
+                   let title = await handOffChatWork(task) {
+                    for call in response.toolCalls {
+                        let result = ToolResult.text(call.id, name: call.name, "Not run here: the work went to the thread “\(title)”.")
+                        let toolMessage = Message(conversationID: task.conversationID, agentID: agent.id, taskID: taskID, role: .tool, parts: [.toolResult(result)])
+                        try await deps.store.appendMessage(toolMessage)
+                        await publish(.messageAppended(toolMessage))
+                    }
+                    let line = Message(conversationID: task.conversationID, agentID: agent.id, taskID: taskID, role: .assistant, parts: [.text(Self.handedOffLine(title))])
+                    try await deps.store.appendMessage(line)
+                    await publish(.messageAppended(line))
+                    await publishConversation(task.conversationID, after: line)
+                    try await complete(task: taskID, summary: Self.handedOffLine(title))
+                    break
+                }
                 for call in response.toolCalls {
                     try Task.checkCancellation()
                     let (result, needsDesktop) = try await executeTool(call, task: task, agent: profile)
@@ -601,6 +648,25 @@ public actor TaskRuntime {
                 }
                 if !usedDesktopThisStep { await deps.lease.forget(taskID: taskID) }
                 await publish(.taskUpserted(task))
+                // Every call refused, step after step: another try of the same won't go differently. It ends here with
+                // what it has rather than spinning (a model that ignores the refusal would go on until its budget).
+                if await everyCallRefused(taskID, calls: response.toolCalls) {
+                    refusedSteps[taskID, default: 0] += 1
+                    if refusedSteps[taskID, default: 0] >= Self.refusedStepLimit {
+                        refusedSteps[taskID] = nil
+                        // Someone waiting on this hears why it stopped; a check-in stays quiet.
+                        if !Self.isHeartbeat(task) {
+                            let note = Message(conversationID: task.conversationID, agentID: task.agentID, taskID: taskID, role: .assistant, parts: [.text(Self.refusedStopNote)])
+                            try await deps.store.appendMessage(note)
+                            await publish(.messageAppended(note))
+                            await publishConversation(task.conversationID, after: note)
+                        }
+                        try await complete(task: taskID, summary: "Stopped: its last \(Self.refusedStepLimit) steps were all refused.")
+                        break
+                    }
+                } else {
+                    refusedSteps[taskID] = nil
+                }
             }
         } catch is CancellationError {
             await handleCancellation(taskID)

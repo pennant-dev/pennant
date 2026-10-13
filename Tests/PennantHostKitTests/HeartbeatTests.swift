@@ -61,7 +61,8 @@ final class HeartbeatTests: XCTestCase {
         let s = try await service(provider, heartbeat: settings)
 
         let first = await s.heartbeat.beat()
-        XCTAssertEqual(first.signals, ["On each check-in the owner asked you to: Check my email for anything that needs me today. (you check in every 30 minutes)"])
+        XCTAssertEqual(first.signals.count, 1)
+        XCTAssertTrue(first.signals[0].hasPrefix("On each check-in the owner asked you to: Check my email for anything that needs me today. (you check in every 30 minutes; it's now 20"), first.signals[0])
         let turn = try XCTUnwrap(first.turn)
         try await wait(s, turn, .completed)
         let objective = try await s.store.task(turn)?.objective ?? ""
@@ -70,12 +71,131 @@ final class HeartbeatTests: XCTestCase {
         XCTAssertFalse(objective.contains("inbox runs"), "nothing assumes a setup the owner may not have")
 
         let second = await s.heartbeat.beat()
-        XCTAssertTrue(second.signals.first?.contains("the last one was at") ?? false, "\(second.signals)")
+        // With its date and zone, so "since then" can't land in the future.
+        XCTAssertTrue(second.signals.first?.contains("the last one was at 20") ?? false, "\(second.signals)")
+        XCTAssertNotNil(second.signals.first?.range(of: #"at \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})"#, options: .regularExpression), "\(second.signals)")
         try await wait(s, try XCTUnwrap(second.turn, "every check-in, not just when something changed"), .completed)
 
         let third = await s.heartbeat.beat()
         XCTAssertNil(third.turn)
         XCTAssertEqual(third.skipped, "already took 2 turns today", "the daily cap still holds")
+        await s.stop()
+    }
+
+    /// A stand-in for a connection's search, counting its calls.
+    final class Search: Tool, @unchecked Sendable {
+        let lock = NSLock()
+        var calls = 0
+        var spec: ToolSpec { ToolSpec(name: "mail__search", description: "[Mail] Search", inputSchema: JSONSchema.object(["q": JSONSchema.string("")]), source: "mcp:mail") }
+        func invoke(_ arguments: JSONValue, context: ToolContext) async throws -> ToolResult {
+            lock.withLock { calls += 1 }
+            return .text(ToolCallID("pending"), name: spec.name, "No messages.")
+        }
+    }
+
+    static func searches(_ n: Int) -> [ScriptedProvider.Turn] {
+        (1 ... n).map { .init(toolCalls: [ToolCall(id: ToolCallID("s\($0)"), name: "mail__search", arguments: ["q": .string("since \($0)")])]) }
+    }
+
+    /// What the owner asked for can take more steps than a quick chat answer: a check-in isn't held to the chat's
+    /// "hand it to a thread" limit, only to its own budget.
+    func testACheckInIsntHeldToTheChatsQuickAnswerLimit() async throws {
+        var settings = HostConfig.Heartbeat()
+        settings.instructions = "Check my inbox."
+        let s = try await service(ScriptedProvider(Self.searches(7) + [.init(text: TaskRuntime.nothingToSay)]), heartbeat: settings)
+        let search = Search()
+        await s.broker.register(search)
+        let beat = await s.heartbeat.beat()
+        let turn = try XCTUnwrap(beat.turn)
+        try await wait(s, turn, .completed)
+        XCTAssertEqual(search.lock.withLock { search.calls }, 7)
+        let refused = try await s.store.toolRecords(taskID: turn).filter { $0.status == .denied }
+        XCTAssertEqual(refused.count, 0, refused.map { $0.resultSummary ?? "" }.joined(separator: "; "))
+        await s.stop()
+    }
+
+    /// A check-in at its limit wraps up and ends: it never stops to ask the owner, who didn't ask for it, so the chat
+    /// stays free and the next check-in comes.
+    func testACheckInAtItsLimitEndsWithoutAskingAndDoesntHoldTheChat() async throws {
+        var settings = HostConfig.Heartbeat()
+        settings.instructions = "Check my inbox."
+        let s = try await service(ScriptedProvider(Self.searches(20) + [.init(text: TaskRuntime.nothingToSay)]), heartbeat: settings)
+        await s.broker.register(Search())
+        let beat = await s.heartbeat.beat()
+        let turn = try XCTUnwrap(beat.turn)
+        try await wait(s, turn, .completed)
+        let task = try await s.store.task(turn)
+        XCTAssertEqual(task?.resultSummary?.hasPrefix("Stopped at the check-in's limit"), true, task?.resultSummary ?? "")
+        let transitions = try await s.store.transitions(taskID: turn)
+        XCTAssertFalse(transitions.contains { $0.to == .waitingForUser }, "it never waits on the owner")
+        let next = await s.heartbeat.beat()
+        XCTAssertNotNil(next.turn, next.skipped ?? "")
+        await s.stop()
+    }
+
+    /// "Nothing to say" as models actually write it, and replies that only look like it.
+    func testNothingToSayAsModelsWriteIt() {
+        for quiet in ["(nothing)", "(noting nothing)", "(nnothing)", "(none)", "nothing", "Nothing.", "(nothing new)", "**(nothing)**", "(nothing):", "(nothing);", "— (nothing) —"] {
+            XCTAssertTrue(TaskRuntime.saysNothing(quiet), quiet)
+        }
+        for news in ["(nothing urgent, but Dana replied)", "Dana needs the signed contract back today.", "(none of the threads are stuck but the build failed)", "Nothing new on the contract, but the venue called back.",
+                     "(noting the 9:00 check-in) Dana needs the signed contract back today.", "Dana replied about the venue.\n\n(nothing)", "(noting the 9:00 check-in: the venue called (twice) and wants an answer"] {
+            XCTAssertFalse(TaskRuntime.saysNothing(news), news)
+        }
+    }
+
+    /// Notes a check-in keeps for itself, alone or ahead of the marker, say nothing to the owner.
+    func testNotesToItselfSayNothing() {
+        for note in ["(noting the 14:55 check-in: no new mail since the two 13:32 notifications; the test run is still going)\n\n(nothing)",
+                     "(noting the 15:55 check-in: no new mail since 15:25; nothing needs you)  (nothing)",
+                     "(noting the 15:26 check-in: inbox quiet; nudged the venue search to report back)",
+                     "(noting the 16:25 check-in: one new item, a calendar reminder (routine))\n\nNothing new.",
+                     "(noting the 16:55 check-in: inbox quiet)\n\nNothing needs you.",
+                     "(none needed — the inbox search above found nothing since the 9:25 check)\n\n(none)"] {
+            XCTAssertTrue(TaskRuntime.saysNothing(note), note)
+        }
+    }
+
+    /// A check-in that looked (a search) and found nothing to say leaves nothing in the chat: not its reply, not its
+    /// thinking, not its tool calls. They stay in the tool records.
+    func testAQuietCheckInLeavesNoTraceInTheChat() async throws {
+        var settings = HostConfig.Heartbeat()
+        settings.instructions = "Check my inbox."
+        let s = try await service(ScriptedProvider(Self.searches(2) + [.init(text: "(noting nothing)", reasoning: "Nothing new since the last look.")]), heartbeat: settings)
+        await s.broker.register(Search())
+        let beat = await s.heartbeat.beat()
+        let turn = try XCTUnwrap(beat.turn)
+        try await wait(s, turn, .completed)
+        let chat = try await s.runtime.ensureMainChat()
+        let left = try await s.store.messagesAfter(conversationID: chat.id, after: nil, limit: 200).filter { $0.taskID == turn }
+        XCTAssertEqual(left.count, 0, left.map { "\($0.role): \($0.text)" }.joined(separator: "; "))
+        let records = try await s.store.toolRecords(taskID: turn)
+        XCTAssertEqual(records.count, 2, "what it did is still on record")
+        await s.stop()
+    }
+
+    /// Check-ins from before, that said nothing but left their trace, are cleared when the host starts.
+    func testOldQuietCheckInsAreClearedAtStart() async throws {
+        let s = try await service(ScriptedProvider([]))
+        let chat = try await s.runtime.ensureMainChat()
+        var old = TaskRecord(agentID: chat.agentID, conversationID: chat.id, title: "Checking in", objective: TaskRuntime.heartbeatLead + "Since your last look: …",
+                             completionCriteria: "", budget: TaskBudget())
+        old.state = .completed
+        old.resultSummary = "(nnothing)"
+        try await s.store.upsertTask(old)
+        let call = ToolCall(id: ToolCallID("o1"), name: "mail__search", arguments: [:])
+        for message in [Message(conversationID: chat.id, agentID: chat.agentID, taskID: old.id, role: .assistant, parts: [.toolCall(call)]),
+                        Message(conversationID: chat.id, agentID: chat.agentID, taskID: old.id, role: .tool, parts: [.toolResult(.text(call.id, name: call.name, "No messages."))]),
+                        Message(conversationID: chat.id, agentID: chat.agentID, taskID: old.id, role: .assistant, parts: [.text("(nnothing)")])] {
+            try await s.store.appendMessage(message)
+        }
+        // Days of chat since: the old check-in is far back.
+        for n in 0 ..< 350 {
+            try await s.store.appendMessage(Message(conversationID: chat.id, agentID: chat.agentID, role: n % 2 == 0 ? .user : .assistant, parts: [.text("Message \(n)")]))
+        }
+        await s.runtime.clearQuietHeartbeats()
+        let left = try await s.store.messagesAfter(conversationID: chat.id, after: nil, limit: 200).filter { $0.taskID == old.id }
+        XCTAssertEqual(left.count, 0)
         await s.stop()
     }
 

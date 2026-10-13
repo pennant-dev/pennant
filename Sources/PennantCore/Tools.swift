@@ -13,10 +13,13 @@ public struct ToolSpec: Hashable, Codable, Sendable, Identifiable {
     public var source: String
     /// Who may use it. Nil: every agent (within its allowlist).
     public var access: ToolAccess?
+    /// Every call waits on the owner's card: it changes something the sign-off rules wouldn't catch (scaling a
+    /// cluster, restarting an app).
+    public var asksFirst: Bool
 
     public var id: String { name }
 
-    public init(name: String, description: String, inputSchema: JSONValue, isConsequential: Bool = false, needsDesktop: Bool = false, source: String = "builtin", access: ToolAccess? = nil) {
+    public init(name: String, description: String, inputSchema: JSONValue, isConsequential: Bool = false, needsDesktop: Bool = false, source: String = "builtin", access: ToolAccess? = nil, asksFirst: Bool = false) {
         self.name = name
         self.description = description
         self.inputSchema = inputSchema
@@ -24,6 +27,21 @@ public struct ToolSpec: Hashable, Codable, Sendable, Identifiable {
         self.needsDesktop = needsDesktop
         self.source = source
         self.access = access
+        self.asksFirst = asksFirst
+    }
+
+    private enum CodingKeys: String, CodingKey { case name, description, inputSchema, isConsequential, needsDesktop, source, access, asksFirst }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        description = try c.decode(String.self, forKey: .description)
+        inputSchema = try c.decode(JSONValue.self, forKey: .inputSchema)
+        isConsequential = try c.decode(Bool.self, forKey: .isConsequential)
+        needsDesktop = try c.decode(Bool.self, forKey: .needsDesktop)
+        source = try c.decode(String.self, forKey: .source)
+        access = try c.decodeIfPresent(ToolAccess.self, forKey: .access)
+        asksFirst = try c.decodeIfPresent(Bool.self, forKey: .asksFirst) ?? false
     }
 }
 

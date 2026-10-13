@@ -593,6 +593,11 @@ struct PhoneSettingsView: View {
                     Label("Connections", systemImage: "point.3.connected.trianglepath.dotted")
                 }
                 NavigationLink {
+                    PluginsView().navigationTitle("Plugins")
+                } label: {
+                    Label("Plugins", systemImage: "puzzlepiece.extension")
+                }
+                NavigationLink {
                     DiagnosticsView().navigationTitle("Diagnostics")
                 } label: {
                     Label("Diagnostics", systemImage: "stethoscope")

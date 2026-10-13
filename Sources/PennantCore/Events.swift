@@ -136,6 +136,8 @@ public enum EventPayload: Hashable, Codable, Sendable {
     /// A goal deleted, with its board and its jobs.
     case goalRemoved(GoalID)
     case mcpServerStatus(MCPServerStatus)
+    /// The plugins changed: one installed, removed, granted something, started, stopped or failed. Not kept in the log.
+    case pluginsChanged([PluginStatus])
     case notice(level: NoticeLevel, agentID: AgentID?, text: String)
     /// The teach-mode session changed (a step recorded, stopped, drafted), or ended (`nil`).
     case teachingUpdated(TeachingSession?)

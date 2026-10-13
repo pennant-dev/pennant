@@ -40,7 +40,13 @@ final class SignOffTests: XCTestCase {
                      "hubspot__get_invoice_list"] {
             XCTAssertNil(SignOff.reason(tool: name, arguments: [:]), name)
         }
-        XCTAssertNil(SignOff.reason(tool: "linkedin__create_post", arguments: ["approval_id": "A1"]), "a publishing tool that checks its own approval")
+        // An approval id excuses only a tool that takes one, and so checks it (browser_script); for any other tool it's
+        // just another argument, and a made-up one changes nothing.
+        let checks = ToolSpec(name: "browser_script", description: "d", inputSchema: JSONSchema.object(["script": JSONSchema.string(""), "approval_id": JSONSchema.string("")]))
+        XCTAssertNil(SignOff.reason(checks, arguments: ["script": "post.mjs", "approval_id": "A1"]))
+        let mcp = ToolSpec(name: "linkedin__create_post", description: "d", inputSchema: JSONSchema.object(["text": JSONSchema.string("")]), source: "mcp:abc")
+        XCTAssertEqual(SignOff.reason(mcp, arguments: ["text": "hi", "approval_id": "A1"]), .publishes)
+        XCTAssertEqual(SignOff.reason(tool: "microsoft_365__mail_send", arguments: ["approval_id": "made-up"]), .publishes)
     }
 
     /// Real commands from threads (2026-10-04, paths changed) that asked only because the temporary folder came from a

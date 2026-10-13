@@ -33,6 +33,8 @@ public protocol StoreProtocol: Sendable {
     /// Oldest-first messages after a given message (exclusive). Nil returns from the start.
     func messagesAfter(conversationID: ConversationID, after: MessageID?, limit: Int) async throws -> [Message]
     func searchMessages(text: String, agentID: AgentID?, limit: Int) async throws -> [Message]
+    /// Every message a task wrote, oldest first.
+    func messages(taskID: TaskID) async throws -> [Message]
 
     // MARK: Tasks
     func upsertTask(_ task: TaskRecord) async throws

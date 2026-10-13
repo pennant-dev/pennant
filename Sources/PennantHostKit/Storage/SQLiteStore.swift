@@ -123,6 +123,7 @@ public actor SQLiteStore: StoreProtocol {
         case .goalItemUpserted: return "goalItemUpserted"
         case .goalRemoved: return "goalRemoved"
         case .mcpServerStatus: return "mcpServerStatus"
+        case .pluginsChanged: return "pluginsChanged"
         case .notice: return "notice"
         case .teachingUpdated: return "teachingUpdated"
         }
@@ -287,6 +288,12 @@ public actor SQLiteStore: StoreProtocol {
             "SELECT json FROM messages WHERE conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
             [.text(conversationID.rawValue), .int(limit)]
         ) { Self.decode(Message.self, $0.string(0), context: "message") }.compactMap { $0 }
+    }
+
+    public func messages(taskID: TaskID) throws -> [Message] {
+        try db.query("SELECT json FROM messages WHERE task_id = ? ORDER BY created_at ASC, rowid ASC", [.text(taskID.rawValue)]) {
+            Self.decode(Message.self, $0.string(0), context: "message")
+        }.compactMap { $0 }
     }
 
     public func messagesAfter(conversationID: ConversationID, after: MessageID?, limit: Int) throws -> [Message] {

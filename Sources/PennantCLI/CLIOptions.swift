@@ -76,6 +76,7 @@ Usage: pennant [--host H] [--port P] [--token T] <command> [args]
   skills preview <folder|url>  Show what an import would add, update, or skip, without writing
   skills folders [add|remove <path>]  Known and remembered skill folders, with kind and origin
   skills delete <id>…        Delete skills by id (prefixes work); built-in skills can only be disabled
+  skills disable|enable <name>…  Turn a skill off or on by name, every version (retiring it for good)
   skills claude-code [on|off]  Link Claude Code's skills (~/.claude and enabled plugins), kept in step; lists them
   library                    Brand collections and files agents use (find_assets)
   approval <id> approve|changes|reject [comment]  Answer an approval card
@@ -105,6 +106,15 @@ Usage: pennant [--host H] [--port P] [--token T] <command> [args]
   mcp signout <id|name>      Forget the stored credentials and disconnect
   mcp remove <id|name>       Remove a server and its credentials
   mcp catalog                Servers Pennant knows how to connect to
+  plugin [list]              Plugins: version, state, tools, what isn't granted yet
+  plugin show <plugin>       What it asks for, what's granted, its tools, settings, and its latest requests
+  plugin install <path>      Install or update a .plugin bundle; it runs in its own sandbox
+  plugin grant <plugin> <capability> [vault item | command]
+                             Let it use something: network, chat.post, secret:<slot> (a vault item), credential:<name>
+                             (a command Pennant runs for a token; default: the plugin's suggestion)
+  plugin revoke <plugin> <capability>
+  plugin set <plugin> <key> [value]  Change a setting (JSON, text, or a,b,c for a list; no value removes it)
+  plugin enable|disable|remove <plugin>
   chatgpt login              Sign a ChatGPT account in for inference: opens the browser (Codex OAuth) and waits for the host (5 min)
   chatgpt import             Reuse the Codex CLI login on this Mac (~/.codex/auth.json)
   chatgpt status             The signed-in ChatGPT account, plan, and session expiry

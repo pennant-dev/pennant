@@ -28,5 +28,11 @@
 	<string>Pennant reads on-screen controls and clicks and types for you.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Pennant looks at the screen to see what it is doing and shows you a live view.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Pennant works with your projects and files in Documents when you ask it to.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Pennant opens files on your Desktop, like screenshots, when you ask it to.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Pennant opens files you download when you ask it to.</string>
 </dict>
 </plist>

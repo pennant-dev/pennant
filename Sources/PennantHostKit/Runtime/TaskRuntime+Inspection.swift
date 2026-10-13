@@ -12,7 +12,7 @@ extension TaskRuntime {
         let tools = specs.map { spec in
             PromptInspection.Tool(
                 name: spec.name,
-                service: spec.source.hasPrefix("mcp:") ? Self.serviceName(of: spec) : "Built in",
+                service: Self.serviceKey(spec.source) != nil ? Self.serviceName(of: spec) : "Built in",
                 description: spec.description,
                 tokens: TokenEstimator.tokens(for: spec)
             )

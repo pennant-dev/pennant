@@ -193,6 +193,18 @@ enum ConnectorText {
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// A service's UTC time ("2026-10-04T14:00:00Z") in the Mac's zone ("2026-10-04T10:00:00-04:00"): read in UTC, a
+    /// model tells the owner times hours off their clock.
+    static func localTime(_ iso: String) -> String {
+        let parse = ISO8601DateFormatter()
+        parse.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = parse.date(from: iso) ?? ISO8601DateFormatter().date(from: iso) else { return iso }
+        let f = ISO8601DateFormatter()
+        f.timeZone = .current
+        f.formatOptions = [.withInternetDateTime]
+        return f.string(from: date)
+    }
+
     static func encodeQuery(_ s: String) -> String {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&=+?#'\" ")

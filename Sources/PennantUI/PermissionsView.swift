@@ -40,10 +40,31 @@ public struct PermissionsView: View {
             Row(id: "screenRecording", title: "Screen Recording", detail: "Screenshots and the live computer panel.", symbol: "rectangle.dashed.badge.record", state: permissions.screenRecording ? .granted : .denied, settingsPane: "Privacy_ScreenCapture"),
             Row(id: "inputMonitoring", title: "Input Monitoring", detail: "Detects when you use the mouse or keyboard so agents pause.", symbol: "keyboard", state: permissions.inputMonitoring ? .granted : .denied, settingsPane: "Privacy_ListenEvent"),
         ]
+        // Folders macOS keeps private: Grant asks again (an earlier "Don't Allow" is cleared), and macOS shows its prompt.
+        for key in DesktopPermissions.folderKeys {
+            out.append(Row(id: key, title: DesktopPermissions.folderTitle(key), detail: Self.folderDetail(key), symbol: Self.folderSymbol(key),
+                           state: permissions.folders[key] ?? .unknown, settingsPane: "Privacy_FilesAndFolders"))
+        }
         for (bundleID, state) in permissions.automationTargets.sorted(by: { Self.displayName($0.key) < Self.displayName($1.key) }) {
             out.append(Row(id: bundleID, title: "Automation: \(Self.displayName(bundleID))", detail: bundleID, symbol: "app.connected.to.app.below.fill", state: state, settingsPane: "Privacy_Automation"))
         }
         return out
+    }
+
+    static func folderDetail(_ key: String) -> String {
+        switch key {
+        case "desktop": return "Files on your Desktop, like screenshots and things you saved there."
+        case "downloads": return "Files you download, for Pennant to open and use."
+        default: return "Your projects and files, and what Pennant makes for you there."
+        }
+    }
+
+    static func folderSymbol(_ key: String) -> String {
+        switch key {
+        case "desktop": return "menubar.dock.rectangle"
+        case "downloads": return "arrow.down.circle"
+        default: return "folder"
+        }
     }
 
     static func displayName(_ bundleID: String) -> String {

@@ -11,6 +11,10 @@ let package = Package(
         .library(name: "PennantUI", targets: ["PennantUI"]),
         .executable(name: "pennant-host", targets: ["PennantHost"]),
         .executable(name: "pennant", targets: ["PennantCLI"]),
+        // Plugins: the kit Pennant and plugins share, and the SDK plugin authors use.
+        .library(name: "PennantPluginKit", targets: ["PennantPluginKit"]),
+        .library(name: "PennantPluginSDK", targets: ["PennantPluginSDK"]),
+        .executable(name: "pennant-azure-plugin", targets: ["AzurePlugin"]),
     ],
     dependencies: [
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.12.1"),
@@ -23,11 +27,20 @@ let package = Package(
         // Cross-platform models, task state machine, event and command protocol.
         .target(name: "PennantCore"),
 
+        // Plugins (docs/PLUGINS.md): manifests, the two-way channel and plugin processes, with no knowledge of Pennant's
+        // chats or tasks; and the SDK a plugin is written with.
+        .target(name: "PennantPluginKit", swiftSettings: [.enableUpcomingFeature("StrictConcurrency")]),
+        .target(name: "PennantPluginSDK", dependencies: ["PennantPluginKit"], swiftSettings: [.enableUpcomingFeature("StrictConcurrency")]),
+        // The Azure plugin: its logic (tested), and the executable a bundle carries.
+        .target(name: "AzurePluginKit", dependencies: ["PennantPluginSDK"], path: "Plugins/Azure/Sources/AzurePluginKit"),
+        .executableTarget(name: "AzurePlugin", dependencies: ["AzurePluginKit"], path: "Plugins/Azure/Sources/AzurePlugin"),
+
         // macOS host: runtime, memory, skills, desktop control, tools, inference, API server.
         .target(
             name: "PennantHostKit",
             dependencies: [
                 "PennantCore",
+                "PennantPluginKit",
                 "CSQLite",
                 .product(name: "MCP", package: "swift-sdk"),
             ],
@@ -60,7 +73,7 @@ let package = Package(
         .executableTarget(name: "PennantCLI", dependencies: ["PennantClientKit", "PennantCore"]),
 
         .testTarget(name: "PennantCoreTests", dependencies: ["PennantCore"]),
-        .testTarget(name: "PennantHostKitTests", dependencies: ["PennantHostKit", "PennantClientKit"]),
+        .testTarget(name: "PennantHostKitTests", dependencies: ["PennantHostKit", "PennantClientKit", "PennantPluginSDK", "AzurePluginKit"]),
         .testTarget(name: "PennantUITests", dependencies: ["PennantUI", "PennantCore", "PennantClientKit"]),
     ]
 )

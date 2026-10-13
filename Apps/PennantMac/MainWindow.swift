@@ -4,11 +4,11 @@ import PennantUI
 import SwiftUI
 
 enum SidebarSection: String, CaseIterable, Identifiable {
-    case dashboard, goals, approvals, reports, memory, skills, library, vault, usage, schedules, connections, diagnostics
+    case dashboard, goals, approvals, reports, memory, skills, library, vault, usage, schedules, connections, plugins, diagnostics
     var id: String { rawValue }
     /// The rows under the thread list. The dashboard has its own row on top; the rest sit in the More menu.
     static let utilities: [SidebarSection] = [.goals, .reports, .memory, .schedules, .skills]
-    static let more: [SidebarSection] = [.library, .vault, .usage, .connections, .diagnostics, .approvals]
+    static let more: [SidebarSection] = [.library, .vault, .usage, .connections, .plugins, .diagnostics, .approvals]
     var title: String { self == .approvals ? "Approval history" : rawValue.capitalized }
     var symbol: String {
         switch self {
@@ -23,6 +23,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .schedules: return "calendar.badge.clock"
         case .goals: return ThreadMark.goalSymbol
         case .connections: return "point.3.connected.trianglepath.dotted"
+        case .plugins: return "puzzlepiece.extension"
         case .diagnostics: return "stethoscope"
         }
     }
@@ -438,6 +439,7 @@ struct MainWindow: View {
                 case .schedules: SchedulesView { agentID, conversationID in openConversation(agentID: agentID, conversationID: conversationID) }
                 case .goals: GoalsView(open: $openGoal) { agentID, conversationID in openConversation(agentID: agentID, conversationID: conversationID) }
                 case .connections: ConnectionsView()
+                case .plugins: PluginsView()
                 case .diagnostics: DiagnosticsView()
                 }
             }
@@ -535,6 +537,7 @@ struct MainWindow: View {
             ("usage", { section = .usage }),
             ("schedules", { section = .schedules }),
             ("skills", { section = .skills }),
+            ("plugins", { section = .plugins }),
         ]
         for look in DemoLaunch.appearances {
             NSApp.appearance = NSAppearance(named: look.appearance)
@@ -745,6 +748,7 @@ private struct MorePanel: View {
         case .vault: return "Keys and passwords Pennant may use"
         case .usage: return "What each model and job has cost"
         case .connections: return "The services Pennant is connected to"
+        case .plugins: return "Add-ons that run beside Pennant"
         case .diagnostics: return "How the host is doing"
         case .approvals: return "Every card you've decided"
         default: return ""

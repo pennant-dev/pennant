@@ -129,7 +129,7 @@ enum PhoneSettings {
 
 /// Debug builds only: the simulator opens one screen against the host on this Mac, for layout checks.
 /// `SIMCTL_CHILD_PENNANT_DEBUG_HOST=127.0.0.1:7331`, `SIMCTL_CHILD_PENNANT_DEBUG_TOKEN_FILE=<the host's client-token
-/// file>`, `SIMCTL_CHILD_PENNANT_DEBUG_SCREEN=skills` (or pennant, computer, fullscreen, memory, home, threads, approval:<job>, agent:<name>; touchlab needs no host). Release builds ignore all of it.
+/// file>`, `SIMCTL_CHILD_PENNANT_DEBUG_SCREEN=skills` (or plugins, pennant, computer, fullscreen, memory, home, threads, approval:<job>, agent:<name>; touchlab needs no host). Release builds ignore all of it.
 enum DebugLaunch {
     static var screen: String? {
         #if DEBUG
@@ -156,6 +156,8 @@ enum DebugLaunch {
         switch screen {
         case "skills":
             NavigationStack { SkillsView().navigationTitle("Skills") }
+        case "plugins":
+            NavigationStack { PluginsView().navigationTitle("Plugins") }
         case "computer":
             ComputerTab()
         case "fullscreen":

@@ -13,6 +13,38 @@ extension TaskRuntime {
         return deletions.allSatisfy { $0.isTemporary || $0.isCovered(by: approved) }
     }
 
+    /// A call that passes an `approval_id` sends what the owner approved on that card when the card was approved, belongs
+    /// to this work, hasn't sent already, and one of its arguments is the approved text: then no second card. Anything less (a
+    /// made-up id, another thread's card, different text, a second send) asks. A tool marked asksFirst always asks.
+    func approvedSend(_ call: ToolCall, reason: SignOff.Reason, task: TaskRecord) async -> Bool {
+        guard reason != .changes, let id = call.arguments["approval_id"]?.stringValue, !spentApprovals.contains(id),
+              let approval = (try? await findApproval(id))?.request, approval.state == .approved, approval.publishedURL == nil else { return false }
+        if approval.taskID != task.id {
+            guard let asker = try? await deps.store.task(approval.taskID),
+                  asker.conversationID == task.conversationID || task.parentTaskID == asker.id || asker.parentTaskID == task.id else { return false }
+        }
+        let approved = Self.squeezed(approval.finalText)
+        // Exactly the approved text (spacing aside): text added before or after it is text the owner didn't see.
+        guard !approved.isEmpty, Self.strings(in: call.arguments).contains(where: { Self.squeezed($0) == approved }) else { return false }
+        approvalSends[call.id] = id
+        return true
+    }
+
+    /// Every string in a tool's arguments, however deep.
+    static func strings(in value: JSONValue) -> [String] {
+        switch value {
+        case .string(let s): return [s]
+        case .array(let a): return a.flatMap(strings)
+        case .object(let o): return o.values.flatMap(strings)
+        default: return []
+        }
+    }
+
+    /// Text with its runs of whitespace as single spaces, for comparing what was approved with what's sent.
+    static func squeezed(_ s: String) -> String {
+        s.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
     // MARK: Tools
 
     func executeTool(_ requested: ToolCall, task: TaskRecord, agent: AgentProfile) async throws -> (ToolResult, needsDesktop: Bool) {
@@ -69,8 +101,10 @@ extension TaskRuntime {
                 return (ToolResult.text(call.id, name: call.name, fromChat ? Self.chromeFromChat : Self.chromeInThread, isError: true), false)
             }
         }
-        // A chat reply that has run long hands the rest to a thread instead of doing more itself.
-        if task.usage.steps > Self.chatStepLimit, !Self.chatAlwaysAllowed.contains(spec.name), await inMainChat(task) {
+        // A chat reply that has run long hands the rest to a thread instead of doing more itself (the loop starts the
+        // thread itself; this is for when it couldn't). A check-in isn't a reply anyone waits on: it keeps to its own
+        // small budget instead.
+        if task.usage.steps > Self.chatStepLimit, !Self.chatAlwaysAllowed.contains(spec.name), !Self.isHeartbeat(task), await inMainChat(task) {
             record.status = .denied; record.isError = true; record.resultSummary = "Chat reply ran long"; record.finishedAt = Date()
             try? await deps.store.upsertToolRecord(record)
             await publish(.toolRecordUpserted(record))
@@ -105,7 +139,8 @@ extension TaskRuntime {
                 call.arguments = arguments
                 record.call = call
             }
-        } else if let reason = SignOff.reason(tool: spec.name, arguments: call.arguments), !(await alreadySignedOff(task: task, call: call)),
+        } else if let reason = SignOff.reason(spec, arguments: call.arguments) ?? SignOff.asksFirst(spec, arguments: call.arguments),
+                  !(await approvedSend(call, reason: reason, task: task)), !(await alreadySignedOff(task: task, call: call)),
                   !signedOffEarlier(reason, call: call, in: task.conversationID) {
             let command = call.arguments["command"]?.stringValue
             // A delete whose places are known can be allowed for the rest of the thread, there.
@@ -114,7 +149,7 @@ extension TaskRuntime {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
             let shown = command ?? (String(data: (try? encoder.encode(call.arguments)) ?? Data(), encoding: .utf8) ?? spec.name)
             var request = ApprovalRequest(taskID: task.id, title: "\(reason.title): \(agent.name) wants to \(spec.name == "shell" ? "run a command" : "use \(spec.name)")",
-                                          destination: spec.source.hasPrefix("mcp:") ? String(spec.source.dropFirst(4)) : spec.name, text: shown,
+                                          destination: spec.source.hasPrefix("mcp:") || spec.source.hasPrefix("plugin:") ? String(spec.source.split(separator: ":", maxSplits: 1).last ?? "") : spec.name, text: shown,
                                           notes: "Pennant asks before anything \(reason.why). Approving runs exactly this.")
             request.details = [ApprovalDetail(label: "Tool", value: spec.name)]
             request.approveLabel = ApprovalRequest.signOffLabel
@@ -128,7 +163,7 @@ extension TaskRuntime {
                 return (ToolResult.text(call.id, name: call.name, "Cancelled while waiting for the owner's sign-off.", isError: true), spec.needsDesktop)
             }
             guard decided.state == .approved else {
-                record.status = .denied; record.isError = true; record.resultSummary = decided.state == .changesRequested ? "Changes requested" : "Declined"; record.finishedAt = Date()
+                record.status = .denied; record.isError = true; record.resultSummary = decided.state == .changesRequested ? Self.changesRequestedSummary : "Declined"; record.finishedAt = Date()
                 try? await deps.store.upsertToolRecord(record)
                 await publish(.toolRecordUpserted(record))
                 let why = decided.comment.map { ": \($0)" } ?? "."
@@ -227,6 +262,9 @@ extension TaskRuntime {
             }
             result.callID = call.id
             result.name = call.name
+            if let id = approvalSends.removeValue(forKey: call.id), !result.isError { spentApprovals.insert(id) }
+            // macOS keeping Pennant out of a folder: Pennant asks the owner itself, and the model says so in a line.
+            if let blocked = deps.folderBlocked, let note = await blocked(result.textContent) { runtimeNotes[task.id, default: []].append(note) }
             record.status = .succeeded
             record.isError = result.isError
             if result.isError { record.status = .failed }

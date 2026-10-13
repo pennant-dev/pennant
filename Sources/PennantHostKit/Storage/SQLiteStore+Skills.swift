@@ -42,11 +42,15 @@ extension SQLiteStore {
         }.map(\.0)
     }
 
+    /// Each skill's newest enabled version only: a skill with many versions would otherwise fill the results with its
+    /// old ones and push other skills out.
     private func searchSkills(match: String, limit: Int) throws -> [Skill] {
         return try db.query(
             """
             SELECT s.json FROM skills_fts f JOIN skills s ON s.id = f.skill_id
-            WHERE skills_fts MATCH ? AND s.status != 'disabled' ORDER BY bm25(skills_fts) LIMIT ?
+            WHERE skills_fts MATCH ? AND s.status != 'disabled'
+              AND s.version = (SELECT MAX(v.version) FROM skills v WHERE v.name = s.name AND v.status != 'disabled')
+            ORDER BY bm25(skills_fts) LIMIT ?
             """,
             [.text(match), .int(max(0, limit))]
         ) { Self.decode(Skill.self, $0.string(0), context: "skill") }.compactMap { $0 }

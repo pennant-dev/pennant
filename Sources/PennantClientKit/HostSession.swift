@@ -565,6 +565,34 @@ public final class HostSession {
 
     // MARK: MCP servers
 
+    /// Installs the plugin bundle at `url`, on the host on this Mac. The host can't read every folder (macOS keeps
+    /// Documents, Desktop and Downloads to the apps allowed there), so the bundle goes to it through a temporary copy
+    /// this app or the CLI makes, since they can read what the owner picked.
+    @discardableResult
+    public func installPlugin(from url: URL) async throws -> [PluginStatus] {
+        let fm = FileManager.default
+        let folder = fm.temporaryDirectory.appendingPathComponent("pennant-plugin-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: folder) }
+        let staged = folder.appendingPathComponent(url.lastPathComponent)
+        try fm.copyItem(at: url, to: staged)
+        return try await plugins(.installPlugin(path: staged.path))
+    }
+
+    public func loadPlugins() async throws {
+        state.setPlugins(try await plugins(.listPlugins))
+    }
+
+    /// Sends a plugin command (install, grant, settings…) and keeps the list it answers with.
+    @discardableResult
+    public func plugins(_ command: CommandBody) async throws -> [PluginStatus] {
+        let r = try await send(command, timeout: 120)
+        if case .error(_, let message) = r { throw HostSessionError.hostError(code: "plugin", message: message) }
+        guard case .plugins(let list) = r else { throw HostSessionError.unexpectedReply }
+        state.setPlugins(list)
+        return list
+    }
+
     public func loadMCPServers() async throws {
         let r = try await send(.listMCPServers)
         guard case .mcpServers(let list) = r else { throw HostSessionError.unexpectedReply }

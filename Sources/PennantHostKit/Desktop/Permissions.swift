@@ -131,6 +131,7 @@ public enum PermissionCheck {
         case "accessibility": return "Accessibility"
         case "screenrecording": return "ScreenCapture"
         case "inputmonitoring": return "ListenEvent"
+        case let key where FolderAccess.keys.contains(key): return FolderAccess.service(key)
         default: return "AppleEvents"
         }
     }
@@ -147,10 +148,13 @@ public enum PermissionCheck {
         return nil
     }
 
-    /// The identity System Settings keys a service to: the outer app for Apple Events, this bundle otherwise.
+    /// The identity System Settings keys a service to: the outer app for Apple Events and for the folders (macOS files a
+    /// helper's Documents, Desktop and Downloads access under the app it's inside: `Sub:{dev.pennant.mac}` in tccd's
+    /// log), this bundle otherwise.
     public static func tccClient(for target: String) -> String {
         let own = Bundle.main.bundleIdentifier ?? "dev.pennant.host"
-        return tccService(for: target) == "AppleEvents" ? (outerBundleIdentifier() ?? own) : own
+        let service = tccService(for: target)
+        return service == "AppleEvents" || service.hasPrefix("SystemPolicy") ? (outerBundleIdentifier() ?? own) : own
     }
 
     /// `tccutil reset <service> <client>`: clears the entry so the next request prompts again.
@@ -180,7 +184,7 @@ public enum PermissionCheck {
     }
 
     public static func current() -> DesktopPermissions {
-        DesktopPermissions(accessibility: accessibility(), screenRecording: screenRecording(), automation: automation(), inputMonitoring: inputMonitoring(), automationTargets: automationStates(), grantee: grantee())
+        DesktopPermissions(accessibility: accessibility(), screenRecording: screenRecording(), automation: automation(), inputMonitoring: inputMonitoring(), automationTargets: automationStates(), grantee: grantee(), folders: FolderAccess.states)
     }
 
     /// Request the listed permissions ("accessibility", "screenRecording", "inputMonitoring", "automation", or a
@@ -193,6 +197,11 @@ public enum PermissionCheck {
         if wants("accessibility"), !accessibility() { _ = accessibility(prompt: true) }
         if wants("screenRecording"), !screenRecording() { requestScreenRecording() }
         if wants("inputMonitoring"), !inputMonitoring() { requestInputMonitoring() }
+        // Folders: an earlier "Don't Allow" is cleared and macOS asks again; with "all", only the ones it isn't allowed.
+        let folders = FolderAccess.keys.filter { wanted.contains($0) || (wanted.isEmpty && FolderAccess.states[$0] != .granted) }
+        await withTaskGroup(of: Void.self) { group in
+            for key in folders { group.addTask { _ = await FolderAccess.ask(key) } }
+        }
 
         // Messages is asked for only by name (the iMessage channel's setup), never with "all".
         let automationTargetsToAsk = automationTargets.filter { wants("automation") || wants($0) }
