@@ -56,6 +56,16 @@ public struct ApprovalRequest: Hashable, Codable, Sendable, Identifiable {
     /// A newer card from the same agent took this one's place (its id). The card reads as rejected on clients that
     /// don't know about replacing.
     public var replacedBy: String?
+    /// The call this card holds for work that went on without waiting (a thread): it runs, exactly so, on approval.
+    public var heldCall: ToolCall?
+    /// The owner dismissed it: the card goes away and the agent isn't told (no model call). It reads as rejected on
+    /// clients that don't know about dismissing.
+    public var dismissed: Bool?
+    public var isDismissed: Bool { dismissed == true }
+    /// Pennant went ahead without showing it: the owner doesn't ask for this kind of thing (Settings › Ask me before…).
+    /// It's kept, approved, so the work can use what it says (`approval_id`), but it isn't a card in the chat.
+    public var unasked: Bool?
+    public var isUnasked: Bool { unasked == true }
 
     /// The approve button of the gate's card before a command that publishes, deletes or spends.
     public static let signOffLabel = "Approve & run"
@@ -106,7 +116,7 @@ public struct ApprovalRequest: Hashable, Codable, Sendable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, taskID, title, destination, text, images, video, headline, tags, details, notes, state, approvedText, comment, createdAt, decidedAt, decidedBy, publishedURL, action, actionResult, actionFailed, approveLabel, allowRestLabel, approvedForRest, replacedBy
+        case id, taskID, title, destination, text, images, video, headline, tags, details, notes, state, approvedText, comment, createdAt, decidedAt, decidedBy, publishedURL, action, actionResult, actionFailed, approveLabel, allowRestLabel, approvedForRest, replacedBy, dismissed, unasked, heldCall
     }
 
     public init(from decoder: Decoder) throws {
@@ -137,6 +147,9 @@ public struct ApprovalRequest: Hashable, Codable, Sendable, Identifiable {
         allowRestLabel = try c.decodeIfPresent(String.self, forKey: .allowRestLabel)
         approvedForRest = try c.decodeIfPresent(Bool.self, forKey: .approvedForRest)
         replacedBy = try c.decodeIfPresent(String.self, forKey: .replacedBy)
+        dismissed = try c.decodeIfPresent(Bool.self, forKey: .dismissed)
+        unasked = try c.decodeIfPresent(Bool.self, forKey: .unasked)
+        heldCall = try c.decodeIfPresent(ToolCall.self, forKey: .heldCall)
     }
 }
 
@@ -193,7 +206,8 @@ public struct ApprovalAction: Hashable, Codable, Sendable {
 /// The user's answer to an approval card.
 public struct ApprovalDecision: Hashable, Codable, Sendable {
     /// `approveRest`: approve, and what comes next of the same kind too (the card's `allowRestLabel` button).
-    public enum Verdict: String, Codable, Sendable { case approve, approveRest, requestChanges, reject }
+    /// `dismiss`: the card goes away without a word to the agent; work waiting on it stops.
+    public enum Verdict: String, Codable, Sendable { case approve, approveRest, requestChanges, reject, dismiss }
     public var approvalID: String
     public var verdict: Verdict
     /// Edited text when approving a changed version.

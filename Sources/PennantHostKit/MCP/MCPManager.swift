@@ -26,6 +26,9 @@ public actor MCPManager {
     var pendingAuths: [MCPServerID: PendingAuth] = [:]
     /// In-flight token refreshes, so concurrent 401s share one refresh.
     var refreshTasks: [MCPServerID: Task<AccessToken?, Never>] = [:]
+    /// After a refresh that failed for want of a network (offline, a timeout), when the next may be tried and how many
+    /// failed in a row: the connection asks every few seconds, and asking that often offline only fills the log.
+    var refreshBackoff: [MCPServerID: (until: Date, failures: Int)] = [:]
     /// Connections that failed for a moment (offline, a provider's bad minute), waiting to try again by themselves.
     var retries: [MCPServerID: Task<Void, Never>] = [:]
     var retryCounts: [MCPServerID: Int] = [:]

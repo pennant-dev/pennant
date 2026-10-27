@@ -17,7 +17,7 @@ Scripts/generate-project.sh                  # Pennant.xcodeproj for the Mac and
 swift run pennant-host --root /tmp/pennant-dev --port 7400   # a host of its own, beside the one the app runs
 ```
 
-`LiveInferenceTests` talk to a real model; run them against a local Ollama when you change inference code.
+`LiveInferenceTests` talk to a real model; run them against one (`PENNANT_LIVE_INFERENCE=1` with `PENNANT_LIVE_BASE_URL` and `PENNANT_LIVE_MODEL`) when you change inference code.
 
 ## What a good change looks like
 

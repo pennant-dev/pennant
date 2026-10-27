@@ -3,9 +3,11 @@ import Foundation
 
 /// The only things the owner signs off on before they happen; everything else an agent may simply do.
 ///   1. Publishing to a public page (LinkedIn, Reddit, YouTube, X…) or sending an email.
-///   2. Deleting anything: files, branches, cloud resources, records, emails, posts.
+///   2. Deleting what can't be put back: branches, cloud resources, records, emails, posts. Files deleted with Pennant's
+///      own `rm` go to the Trash (`ShellTrash`), so they don't ask.
 ///   3. Spending money: buying, subscribing, paying.
-/// Pennant's own bookkeeping (memories, schedules, goal boards, tasks) isn't covered: agents tidy those freely.
+/// Pennant's own bookkeeping (memories, schedules, goal boards, tasks) isn't covered: agents tidy those freely. The
+/// owner can turn each of the three off (`HostConfig.AskFirst`).
 public enum SignOff {
     public enum Reason: String, Sendable {
         case publishes, deletes, spends
@@ -40,6 +42,17 @@ public enum SignOff {
     static let exempt: Set<String> = ["request_approval", "ask_user", "post_report", "memory_forget", "forget_instruction", "cancel_schedule", "goal_update",
                                       "update_goal", "channel_send", "send_message", "list_contacts", "request_reviews", "link_reviewer", "approve_review_batch"]
 
+    /// Whether the owner still wants to be asked for this (Settings › Ask me before…). A tool its maker marked
+    /// `asksFirst` always asks.
+    public static func asks(_ reason: Reason, _ askFirst: HostConfig.AskFirst) -> Bool {
+        switch reason {
+        case .publishes: return askFirst.publishes
+        case .spends: return askFirst.spends
+        case .deletes: return askFirst.deletes
+        case .changes: return true
+        }
+    }
+
     /// A tool marked `asksFirst` waits on a card every time. An `approval_id` doesn't excuse it: no such tool checks one,
     /// and an approved card that runs it (on_approve) doesn't come through here.
     public static func asksFirst(_ spec: ToolSpec) -> Reason? {
@@ -57,7 +70,7 @@ public enum SignOff {
     /// Why a call needs the owner's sign-off, by the tool's name and what it's given.
     public static func reason(tool name: String, arguments: JSONValue) -> Reason? {
         if exempt.contains(name) { return nil }
-        if name == "shell" { return reason(command: arguments["command"]?.stringValue ?? "") }
+        if name == "shell" { return reason(command: arguments["command"]?.stringValue ?? "", rmGoesToTrash: ShellTrash.isAvailable) }
         let lower = name.lowercased()
         let words = Set(lower.split(whereSeparator: { $0 == "_" || $0 == "-" || $0 == "." }).map(String.init))
         if !words.isDisjoint(with: spendWords) { return .spends }
@@ -74,13 +87,15 @@ public enum SignOff {
 
     /// Why a shell command needs the owner's sign-off, or nil: judged by every command in it (`&&`, `;`, pipes, `$(…)`).
     /// Deleting inside a temporary folder isn't deleting anything of anyone's, including a folder a variable or `cd`
-    /// points at (`DEST=/tmp/x; rm -rf "$DEST"`, `D=$(mktemp -d)`, `cd "$D" && git clean -fd`).
-    public static func reason(command: String) -> Reason? {
+    /// points at (`DEST=/tmp/x; rm -rf "$DEST"`, `D=$(mktemp -d)`, `cd "$D" && git clean -fd`). With `rmGoesToTrash`
+    /// (Pennant's own shell, where `rm` moves to the Trash), a plain `rm` doesn't ask either.
+    public static func reason(command: String, rmGoesToTrash: Bool = false) -> Reason? {
         if let reason = reasonByPattern(command) { return reason }
         var shell = ShellState(command: command)
         for words in ShellWords.commands(command) {
             let stripped = shell.read(words)
             guard let reason = reason(words: stripped) else { continue }
+            if reason == .deletes, rmGoesToTrash, ShellTrash.catches(stripped) { continue }
             if reason == .deletes, let deleted = shell.deletions(stripped), deleted.allSatisfy(\.isTemporary) { continue }
             return reason
         }
@@ -138,7 +153,8 @@ public enum SignOff {
         func has(_ flags: String...) -> Bool { args.contains { a in flags.contains { a == $0 || a.hasPrefix($0 + "=") } } }
         let rest = Set(args.map { $0.lowercased() })
         switch program {
-        case "rm", "rmdir", "unlink", "shred", "srm", "trash":
+        // rmdir only removes empty folders and trash moves to the Trash: nothing is lost.
+        case "rm", "unlink", "shred", "srm":
             return .deletes
         case "mail", "mailx", "sendmail", "mutt", "msmtp": return .publishes
         case "find":

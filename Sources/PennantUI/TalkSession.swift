@@ -63,6 +63,8 @@ public final class TalkSession {
     /// The recognition in progress: results from an earlier one are ignored.
     private var listening = UUID()
     private var lastHeardAt = Date()
+    /// What the host was last asked to get a reply ready for (`HostSession.composing`), once per pause.
+    private var warmedFor = ""
 
     private var loop: Task<Void, Never>?
     /// Messages not to read: already in the chat when Talk mode started, read to the end, or talked over.
@@ -474,6 +476,12 @@ public final class TalkSession {
             if quiet >= pause {
                 send()
             } else {
+                // Half a second into a pause, the host gets the reply ready (memory on what was said, the model's
+                // sign-in), so sending at the end of the pause goes straight to the model.
+                if quiet >= 0.5, heard != warmedFor, let session, let chatID {
+                    warmedFor = heard
+                    session.composing(conversationID: chatID, draft: heard)
+                }
                 let left = quiet >= 1 && pause - quiet >= 1 ? Int((pause - quiet).rounded(.up)) : nil
                 if left != sendingIn { sendingIn = left }
             }

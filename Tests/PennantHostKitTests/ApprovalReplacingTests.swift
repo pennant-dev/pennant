@@ -16,7 +16,7 @@ final class ApprovalReplacingTests: XCTestCase {
     override func tearDown() async throws { try? FileManager.default.removeItem(at: paths.root) }
 
     private func service(_ provider: ScriptedProvider) async throws -> HostService {
-        var config = HostConfig()
+        var config = HostConfig.asking
         config.workingDirectory = paths.root.path
         config.desktop.pauseOnHumanInput = false
         let s = try HostService(paths: paths, config: config, desktop: FakeDesktop(), humanInput: NullHumanInput(), provider: provider)

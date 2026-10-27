@@ -44,7 +44,7 @@ public struct ChannelContact: Hashable, Codable, Sendable, Identifiable {
     }
 }
 
-/// One channel's setup and health, for Settings › Channels.
+/// One channel's setup and health, for Settings › Connections › Channels.
 public struct ChannelStatus: Hashable, Codable, Sendable, Identifiable {
     public var kind: ChannelKind
     public var enabled: Bool

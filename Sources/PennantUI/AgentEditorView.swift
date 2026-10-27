@@ -115,6 +115,7 @@ public struct AgentEditorView: View {
     /// "low", "medium", "high"; nil is the model's own setting.
     @State private var effort: String?
     @State private var chatEffort: String?
+    @State private var chatModelProfileID: String?
     @State private var alwaysLoaded: Set<MCPServerID>
     @State private var profiles: [InferenceProfile] = []
 
@@ -137,6 +138,7 @@ public struct AgentEditorView: View {
         _modelProfileID = State(initialValue: agent.modelProfileID)
         _effort = State(initialValue: agent.reasoningEffort)
         _chatEffort = State(initialValue: agent.chatReasoningEffort)
+        _chatModelProfileID = State(initialValue: agent.chatModelProfileID)
         _alwaysLoaded = State(initialValue: Set(agent.alwaysLoadedServers ?? []))
     }
 
@@ -261,6 +263,11 @@ public struct AgentEditorView: View {
 
     private var hostModel: String { session.state.host?.inferenceModel ?? "the host's model" }
 
+    private var chatModelOptions: [ChoiceOption<String?>] {
+        [ChoiceOption<String?>(nil, title: "Same as above", symbol: "equal")]
+            + profiles.map { ChoiceOption<String?>($0.id, title: $0.name, subtitle: InferenceProfile.suggestedName(for: $0.inference), symbol: InferenceProviderLabel.symbol(for: $0.inference.provider)) }
+    }
+
     private var modelOptions: [ChoiceOption<String?>] {
         [ChoiceOption<String?>(nil, title: "Default model", subtitle: defaultName ?? hostModel, symbol: "star")]
             + profiles.map { ChoiceOption<String?>($0.id, title: $0.name, subtitle: InferenceProfile.suggestedName(for: $0.inference), symbol: InferenceProviderLabel.symbol(for: $0.inference.provider)) }
@@ -300,6 +307,13 @@ public struct AgentEditorView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if existing.kind == .persistent {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Model in the chat").font(.zoomed(.subheadline)).foregroundStyle(PennantTheme.inkSecondary)
+                    ChoiceMenu(selection: $chatModelProfileID, options: chatModelOptions, placeholder: "Same as above")
+                    Text("A fast model makes the chat answer in a few seconds. Threads keep the model above, and the chat falls back to it when this one doesn't answer.")
+                        .font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Reasoning effort in the chat").font(.zoomed(.subheadline)).foregroundStyle(PennantTheme.inkSecondary)
                     ChipRow(selection: $chatEffort, options: Self.chatEffortOptions)
@@ -420,6 +434,7 @@ public struct AgentEditorView: View {
         agent.modelProfileID = modelProfileID
         agent.reasoningEffort = effort
         agent.chatReasoningEffort = chatEffort
+        agent.chatModelProfileID = chatModelProfileID
         let known = Set(connectedServers.map(\.id))
         // Keep choices for servers that are offline right now; drop none silently.
         let kept = (agent.alwaysLoadedServers ?? []).filter { !known.contains($0) }

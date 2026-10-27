@@ -34,7 +34,7 @@ final class SignOffTests: XCTestCase {
         XCTAssertEqual(SignOff.reason(tool: "linkedin__delete_post", arguments: [:]), .deletes)
         XCTAssertEqual(SignOff.reason(tool: "platform__delete_deployment", arguments: [:]), .deletes)
         XCTAssertEqual(SignOff.reason(tool: "shop__create_order", arguments: [:]), .spends)
-        XCTAssertEqual(SignOff.reason(tool: "shell", arguments: ["command": "rm -rf x"]), .deletes)
+        XCTAssertEqual(SignOff.reason(tool: "shell", arguments: ["command": "command rm -rf x"]), .deletes)
         for name in ["microsoft_365__mail_draft", "microsoft_365__mail_search", "microsoft_365__teams_send_chat", "send_message", "linkedin__list_posts",
                      "platform__deploy_catalog_item", "calendar_create_event", "post_report", "memory_forget", "cancel_schedule", "get_billing_account",
                      "hubspot__get_invoice_list"] {

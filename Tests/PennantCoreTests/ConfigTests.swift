@@ -155,3 +155,30 @@ final class ModelProfileRulesTests: XCTestCase {
         XCTAssertEqual(back.coding?.engine, .pennant)
     }
 }
+
+final class EmbeddingsConfigTests: XCTestCase {
+    /// Meaning search used to point at a local Ollama by default; Pennant runs its own model now.
+    func testAnOllamaAddressMovesToPennantsOwnModel() throws {
+        let old = #"{"enabled":true,"baseURL":"http://localhost:11434/v1","model":"embeddinggemma"}"#
+        let e = try JSONDecoder().decode(HostConfig.Embeddings.self, from: Data(old.utf8))
+        XCTAssertTrue(e.enabled)
+        XCTAssertTrue(e.isBuiltIn)
+        XCTAssertEqual(e.model, HostConfig.Embeddings.builtInModel)
+    }
+
+    func testAnotherEndpointIsKept() throws {
+        let other = #"{"enabled":true,"baseURL":"http://gpu-box.local:8000/v1","model":"bge-m3"}"#
+        let e = try JSONDecoder().decode(HostConfig.Embeddings.self, from: Data(other.utf8))
+        XCTAssertFalse(e.isBuiltIn)
+        XCTAssertEqual(e.model, "bge-m3")
+    }
+
+    func testDefaultsAreOffAndBuiltIn() throws {
+        let e = HostConfig.Embeddings()
+        XCTAssertFalse(e.enabled)
+        XCTAssertTrue(e.isBuiltIn)
+        let decoded = try JSONDecoder().decode(HostConfig.Embeddings.self, from: Data("{}".utf8))
+        XCTAssertEqual(decoded, e)
+        XCTAssertEqual(InferenceProfile.suggestedName(for: HostConfig.Inference()), "Not set up yet")
+    }
+}

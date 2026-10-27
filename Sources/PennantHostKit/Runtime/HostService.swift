@@ -26,11 +26,11 @@ public actor HostService: HostAPIDelegate {
                     switch part {
                     case .approval(let a) where a.state == .pending:
                         let who = await pushRecipients(conversationID: m.conversationID, taskID: m.taskID)
-                        await push.notify(title: "\(name) needs your approval", body: a.title, to: who, key: "approval:\(a.id)",
-                                          info: ["agentID": m.agentID.rawValue, "conversationID": opens], thread: opens)
+                        await notifyPhone(title: "\(name) needs your approval", body: a.title, to: who, key: "approval:\(a.id)",
+                                          info: ["agentID": m.agentID.rawValue, "conversationID": opens], thread: opens, approvalID: a.id)
                     case .choices(let q) where q.answers == nil:
                         let who = await pushRecipients(conversationID: m.conversationID, taskID: m.taskID)
-                        await push.notify(title: "\(name) asks", body: q.items.first?.question ?? "A question for you", to: who, key: "choices:\(q.id)",
+                        await notifyPhone(title: "\(name) asks", body: q.items.first?.question ?? "A question for you", to: who, key: "choices:\(q.id)",
                                           info: ["agentID": m.agentID.rawValue, "conversationID": opens], thread: opens)
                     case .update(let u) where m.conversationID == chat:
                         let thread = (try? await store.conversation(u.threadID)) ?? nil
@@ -41,15 +41,15 @@ public actor HostService: HostAPIDelegate {
                             let who = await pushRecipients(conversationID: u.threadID, taskID: u.taskID)
                             // Pennant's own words when it asked, else the thread's.
                             let asked = m.text.isEmpty ? u.text : m.text
-                            await push.notify(title: "\(name) asks", body: Conversation.previewLine(asked, limit: 240), to: who, key: "update:\(u.id)",
+                            await notifyPhone(title: "\(name) asks", body: Conversation.previewLine(asked, limit: 240), to: who, key: "update:\(u.id)",
                                               info: ["agentID": m.agentID.rawValue, "conversationID": opens], thread: opens)
-                        case .finished, .failed:
+                        case .finished, .failed, .unfinished:
                             // What Pennant chose to tell them, in its words; nothing when it kept it to itself. Without
                             // its words, only a failure of work the chat asked for.
                             if u.silent == true { continue }
                             if m.text.isEmpty, u.kind == .finished || thread?.parentID != chat { continue }
                             let who = await pushRecipients(conversationID: u.threadID, taskID: u.taskID)
-                            await push.notify(title: name, body: Conversation.previewLine(m.text.isEmpty ? u.text : m.text, limit: 240),
+                            await notifyPhone(title: name, body: Conversation.previewLine(m.text.isEmpty ? u.text : m.text, limit: 240),
                                               to: who, key: "update:\(u.id)", info: ["agentID": m.agentID.rawValue, "conversationID": opens], thread: opens)
                         case .approval:
                             continue
@@ -63,7 +63,7 @@ public actor HostService: HostAPIDelegate {
                       let said = task.resultSummary?.trimmingCharacters(in: .whitespacesAndNewlines), !said.isEmpty, !TaskRuntime.saysNothing(said) else { continue }
                 let name = (try? await store.agent(task.agentID))?.name ?? "Pennant"
                 let who = await pushRecipients(conversationID: task.conversationID, taskID: task.id)
-                await push.notify(title: name, body: Conversation.previewLine(said, limit: 240), to: who, key: "heartbeat:\(task.id.rawValue)",
+                await notifyPhone(title: name, body: Conversation.previewLine(said, limit: 240), to: who, key: "heartbeat:\(task.id.rawValue)",
                                   info: ["agentID": task.agentID.rawValue, "conversationID": task.conversationID.rawValue], thread: task.conversationID.rawValue)
             case .taskTransition(let t) where t.to == .waitingForUser:
                 guard let task = try? await store.task(t.taskID) else { continue }
@@ -74,11 +74,60 @@ public actor HostService: HostAPIDelegate {
                 if chat != nil, task.conversationID != chat { continue }
                 let name = (try? await store.agent(task.agentID))?.name ?? "An agent"
                 let who = await pushRecipients(conversationID: task.conversationID, taskID: task.id)
-                await push.notify(title: "\(name) needs you", body: String(reason.prefix(240)), to: who, key: "ask:\(task.id.rawValue):\(reason.hashValue)",
+                await notifyPhone(title: "\(name) needs you", body: String(reason.prefix(240)), to: who, key: "ask:\(task.id.rawValue):\(reason.hashValue)",
                                   info: ["agentID": task.agentID.rawValue, "conversationID": task.conversationID.rawValue], thread: task.conversationID.rawValue)
             default:
                 continue
             }
+        }
+    }
+
+    // MARK: Phone notifications while the owner is at the Mac
+
+    /// The owner is at this Mac: Pennant's app is open here and they used the keyboard or mouse in the last two
+    /// minutes, so what Pennant has for them shows on the Mac and the phone can wait.
+    func ownerAtMac(now: Date = Date()) async -> Bool {
+        guard clients.contains(where: { $0.isLocal && $0.platform == "macOS" }), let last = await humanInput.lastHumanInputAt() else { return false }
+        return now.timeIntervalSince(last) < Self.atMacFor
+    }
+
+    /// Input this recent means the owner is at the Mac; once they've been away this long, held notifications go.
+    nonisolated(unsafe) static var atMacFor: TimeInterval = 120
+    nonisolated(unsafe) static var awayAfter: TimeInterval = 300
+
+    /// A notification for the phone. The owner's wait while they're at the Mac and go once they've been away a while,
+    /// unless the card they were about has been answered by then; anyone else's go now.
+    func notifyPhone(title: String, body: String, to who: [PersonID], key: String?, info: [String: String], thread: String?, approvalID: String? = nil) async {
+        let owners = Set(await people.snapshot().people.filter { $0.role == .owner }.map(\.id))
+        let ownersBound = who.isEmpty ? [] : who.filter { owners.contains($0) }
+        guard (who.isEmpty || !ownersBound.isEmpty), await ownerAtMac() else {
+            _ = await push.notify(title: title, body: body, to: who, key: key, info: info, thread: thread)
+            return
+        }
+        let others = who.filter { !owners.contains($0) }
+        if !others.isEmpty { _ = await push.notify(title: title, body: body, to: others, key: key.map { $0 + ":others" }, info: info, thread: thread) }
+        heldPushes.append(HeldPush(title: title, body: body, to: ownersBound, key: key, info: info, thread: thread, approvalID: approvalID))
+        if pushHoldWatch == nil {
+            pushHoldWatch = Task { [weak self] in await self?.sendHeldPushesWhenAway() }
+        }
+    }
+
+    /// Waits until the owner has been away from the Mac a while (or Pennant's app there closed), then sends what was
+    /// held, leaving out cards already answered.
+    private func sendHeldPushesWhenAway() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(min(30, Self.awayAfter / 4)))
+            let last = await humanInput.lastHumanInputAt()
+            let appHere = clients.contains { $0.isLocal && $0.platform == "macOS" }
+            if appHere, let last, Date().timeIntervalSince(last) < Self.awayAfter { continue }
+            let held = heldPushes
+            heldPushes = []
+            pushHoldWatch = nil
+            let waiting = Set(((try? await runtime.pendingApprovals()) ?? []).map(\.request.id))
+            for p in held where p.approvalID.map(waiting.contains) ?? true {
+                _ = await push.notify(title: p.title, body: p.body, to: p.to, key: p.key, info: p.info, thread: p.thread)
+            }
+            return
         }
     }
 
@@ -101,7 +150,10 @@ public actor HostService: HostAPIDelegate {
     /// Brings the skills linked from Claude Code in line with its files (or removes them, with the link off).
     func syncClaudeCodeSkills() async {
         let result = await ClaudeCodeSkills.sync(enabled: config.claudeCodeSkills, store: store, eventBus: eventBus)
-        guard result.changed || !result.skipped.isEmpty else { return }
+        // The same names skipped every five minutes are said once.
+        let skippedBefore = lastSkippedSkills
+        lastSkippedSkills = result.skipped
+        guard result.changed || result.skipped != skippedBefore else { return }
         let counts = "\(result.added.count) added, \(result.updated.count) updated, \(result.removed.count) removed"
         log.info("Claude Code skills: \(counts)\(result.skipped.isEmpty ? "" : "; skipped " + result.skipped.joined(separator: "; "))", category: "skills")
     }
@@ -170,6 +222,13 @@ public actor HostService: HostAPIDelegate {
     private let startedAt = Date()
     var clients: [ConnectedClient] = []
     var streamingClients = 0
+    /// Phone notifications for the owner held while they're at the Mac (see `notifyPhone`).
+    struct HeldPush: Sendable {
+        var title: String, body: String, to: [PersonID], key: String?, info: [String: String], thread: String?, approvalID: String?
+    }
+    var heldPushes: [HeldPush] = []
+    private var lastSkippedSkills: [String] = []
+    var pushHoldWatch: Task<Void, Never>?
     private var inferenceReachable = false
     private var monitors: [Task<Void, Never>] = []
     private var desktopWasBlocked = false
@@ -201,8 +260,7 @@ public actor HostService: HostAPIDelegate {
         let relay = statusRelay
         self.lease = DesktopLease(pauseOnHumanInput: config.desktop.pauseOnHumanInput, desktop: desktopImpl, onChange: { _ in await relay.fire() })
         self.broker = ToolBroker()
-        let embeddings: (any EmbeddingProvider)? = config.embeddings.enabled ? OpenAIEmbeddingProvider(config: config.embeddings) : nil
-        self.memory = MemoryService(store: store, eventBus: eventBus, embeddings: embeddings)
+        self.memory = MemoryService(store: store, eventBus: eventBus, embeddings: Self.embeddings(config.embeddings, paths: paths))
         self.skillTracker = SkillUsageTracker()
         self.browserRunner = BrowserRunner(root: paths.root.appendingPathComponent("browser", isDirectory: true))
         self.library = LibraryService(root: paths.root.appendingPathComponent("library", isDirectory: true), store: store)
@@ -230,6 +288,9 @@ public actor HostService: HostAPIDelegate {
         }
         runtimeDeps.goalFreedom = { taskID in await goalBox.get()?.freedom(forTask: taskID) }
         runtimeDeps.goals = { (try? await goalBox.get()?.list()) ?? [] }
+        // People are loaded after the runtime is made: filled in then.
+        let peopleBox = Locked<PeopleService?>(nil)
+        runtimeDeps.isPerson = { id in await peopleBox.get()?.person(id) != nil }
         let vaultForGitHub = vault
         runtimeDeps.gitHubEnvironment = { identity in try await HostService.gitHubEnvironment(for: identity, vault: vaultForGitHub) }
         let lookupBroker = broker
@@ -263,6 +324,7 @@ public actor HostService: HostAPIDelegate {
         // Only the host's own data folder uses the Keychain (see KeychainStore.host).
         self.devices = DeviceTokens(paths: paths, useFileFallback: !KeychainStore.isHostDataFolder(paths.root))
         self.people = PeopleService(paths: paths)
+        peopleBox.set(people)
         self.push = PushService(paths: paths, keychain: KeychainStore.host(service: "dev.pennant.host.push", fallbackFileURL: paths.root.appendingPathComponent("push-credentials.json")))
         let keychain = KeychainStore.host(service: "dev.pennant.host.mcp", fallbackFileURL: paths.root.appendingPathComponent("mcp-credentials.json"))
         self.mcp = MCPManager(store: store, eventBus: eventBus, broker: broker, credentials: KeychainCredentialStore(keychain: keychain))
@@ -423,6 +485,7 @@ public actor HostService: HostAPIDelegate {
     public func stop() async {
         tidyTask?.cancel()
         pushWatch?.cancel()
+        pushHoldWatch?.cancel()
         claudeCodeSkillsWatch?.cancel()
         for m in monitors { m.cancel() }
         monitors = []
@@ -600,14 +663,19 @@ public actor HostService: HostAPIDelegate {
         return await lease.snapshot(permissions: await currentPermissions(forceFresh: freshPermissions), frontmostApp: await desktop.frontmostApp()?.name, displayWidth: size.width, displayHeight: size.height, streamingClients: streamingClients)
     }
 
-    /// Permissions as a fresh process would see them, cached briefly. Falls back to the in-process check.
+    /// Permissions as a fresh process would see them. Without `forceFresh`, the last answer, however old: the
+    /// background re-check (every 30 s, or 4 s while something's missing) and the permission commands keep it current,
+    /// so a status update between a task's steps never waits on a check. Falls back to the in-process check.
     public func currentPermissions(forceFresh: Bool) async -> DesktopPermissions {
-        if !forceFresh, let cached = permissionsCache, Date().timeIntervalSince(cached.at) < 3 { return cached.value }
+        if !forceFresh, let cached = permissionsCache { return cached.value }
         let inProcess = await desktop.permissions()
         var value = inProcess
         if useFreshPermissionChecks, var fresh = await PermissionCheck.fresh() {
-            // Folders are checked in this process (opening one can bring up macOS's prompt, which belongs here).
+            // Folders and per-app automation are checked in this process (opening a folder can bring up macOS's
+            // prompt, which belongs here; automation isn't cached per process, and the helper leaves it out).
             fresh.folders = inProcess.folders
+            fresh.automation = inProcess.automation
+            fresh.automationTargets = inProcess.automationTargets
             value = fresh
             if PermissionCheck.restartNeeded(fresh: fresh, inProcess: inProcess) { await scheduleRestartForPermissions() }
         }
@@ -634,7 +702,7 @@ public actor HostService: HostAPIDelegate {
                 await handler()
             }
         } else {
-            await publish(.notice(level: .warning, agentID: nil, text: "Permission granted, but a task is running. Restart the host (Settings › Host) when it finishes to apply it."))
+            await publish(.notice(level: .warning, agentID: nil, text: "Permission granted, but a task is running. Restart the host (Settings › Advanced › Host) when it finishes to apply it."))
             restartScheduled = false
         }
     }
@@ -651,6 +719,21 @@ public actor HostService: HostAPIDelegate {
         if let event = try? await store.appendEvent(payload) { await eventBus.publish(event) }
     }
 
+}
+
+extension HostService {
+    /// Meaning search: Pennant's own model (Pennant Voice, beside this host in the app) unless an endpoint is set. None
+    /// when it's off, or where the helper isn't (an Intel Mac, a plain `swift run`): memory search then uses keywords.
+    static func embeddings(_ config: HostConfig.Embeddings, paths: HostPaths) -> (any EmbeddingProvider)? {
+        guard config.enabled else { return nil }
+        guard config.isBuiltIn else { return OpenAIEmbeddingProvider(config: config) }
+        guard let helper = VoiceService.bundledExecutable else {
+            log.warn("Meaning search is on, but Pennant Voice isn't here to run its model: memory search uses keywords", category: "memory")
+            return nil
+        }
+        return PennantEmbeddingProvider(executable: helper, model: config.model, modelsDirectory: paths.root.appendingPathComponent("Models", isDirectory: true),
+                                        logURL: paths.logURL.deletingLastPathComponent().appendingPathComponent("embeddings.log"))
+    }
 }
 
 /// Lets the lease notify the service without an initialisation cycle.

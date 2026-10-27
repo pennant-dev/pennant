@@ -283,7 +283,7 @@ public struct PermissionsSheet: View {
             InspectorHairline(inset: 0)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Pennant needs a few macOS permissions before agents can use this Mac. Grant them now or come back later in Settings › Permissions.")
+                    Text("Pennant needs a few macOS permissions before agents can use this Mac. Grant them now or come back later in Settings › Advanced › Permissions.")
                         .font(.zoomed(.callout))
                         .foregroundStyle(PennantTheme.inkSecondary)
                     PermissionsView(onRestartHost: onRestartHost)

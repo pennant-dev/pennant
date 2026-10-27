@@ -223,7 +223,7 @@ private struct OpenSettingsAtLaunch: ViewModifier {
     func body(content: Content) -> some View {
         content.task {
             guard let pane = ProcessInfo.processInfo.environment["PENNANT_OPEN_SETTINGS"] else { return }
-            if SettingsView.Pane(rawValue: pane) != nil { UserDefaults.standard.set(pane, forKey: "pennant.settings.pane") }
+            SettingsView.choose(pane)
             openSettings()
         }
     }

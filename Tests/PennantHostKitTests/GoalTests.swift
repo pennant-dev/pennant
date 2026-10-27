@@ -14,8 +14,8 @@ final class GoalTests: XCTestCase {
 
     override func tearDown() async throws { try? FileManager.default.removeItem(at: paths.root) }
 
-    private func service(_ provider: ScriptedProvider) async throws -> HostService {
-        var config = HostConfig()
+    private func service(_ provider: ScriptedProvider, asking: Bool = true) async throws -> HostService {
+        var config = asking ? HostConfig.asking : HostConfig()
         config.workingDirectory = paths.root.path
         config.desktop.pauseOnHumanInput = false
         let s = try HostService(paths: paths, config: config, desktop: FakeDesktop(), humanInput: NullHumanInput(), provider: provider)
@@ -115,12 +115,13 @@ final class GoalTests: XCTestCase {
         let send = ToolCall(id: ToolCallID("m1"), name: "mail__mail_send", arguments: [:])
         let shell = ToolCall(id: ToolCallID("s1"), name: "shell", arguments: ["command": "echo drafting"])
         let outside = ToolCall(id: ToolCallID("p1"), name: "shell", arguments: ["command": "echo pushed"])
-        let provider = ScriptedProvider([.init(toolCalls: [shell, outside, send]), .init(text: "Done."), .init(toolCalls: [shell]), .init(text: "Done.")])
+        let write = ToolCall(id: ToolCallID("w1"), name: "shell", arguments: ["command": "echo idea >> ideas.md"])
+        let provider = ScriptedProvider([.init(toolCalls: [shell, outside, send]), .init(text: "Done."), .init(toolCalls: [shell, write]), .init(text: "Done.")])
         let s = try await service(provider)
         await s.broker.register([FakeConnectorTool()])
         let agent = try await pennant(s)
         var goal = try await s.goals.save(Goal(title: "Ideas", outcome: "Ideas", ownerAgentID: agent.id, freedom: .workFreely, status: .active))
-        let (_, _, task) = try await s.runtime.submitUserMessage(agentID: agent.id, conversationID: goal.conversationID, text: "work", attachments: [])
+        let (_, _, task) = try await s.runtime.submitUserMessage(agentID: agent.id, conversationID: goal.conversationID, text: "🎯 Work session.\n\nwork", attachments: [])
         // Sending an email waits on the owner: decline it.
         var card: PendingApproval?
         let deadline = Date().addingTimeInterval(10)
@@ -139,10 +140,33 @@ final class GoalTests: XCTestCase {
 
         goal.freedom = .proposeOnly
         goal = try await s.goals.save(goal)
-        let (_, _, second) = try await s.runtime.submitUserMessage(agentID: agent.id, conversationID: goal.conversationID, text: "work", attachments: [])
+        let (_, _, second) = try await s.runtime.submitUserMessage(agentID: agent.id, conversationID: goal.conversationID, text: "🎯 Work session.\n\nwork", attachments: [])
         try await wait(s, second, .completed)
         let again = try await s.store.toolRecords(taskID: second)
-        XCTAssertEqual(again.first?.status, .denied, "propose-only holds back even local changes")
+        XCTAssertEqual(again.first { $0.call.id == ToolCallID("s1") }?.status, .succeeded, "propose-only still looks: a command that only reads runs")
+        XCTAssertEqual(again.first { $0.call.id == ToolCallID("w1") }?.status, .denied, "propose-only holds back even local changes")
+        await s.stop()
+    }
+
+    func testAProposeOnlySessionProposesInItsThreadWithoutACardAndTheOwnersGoActs() async throws {
+        let propose = ToolCall(id: ToolCallID("r1"), name: "request_approval", arguments: ["title": "Harbor pricing page", "destination": "harbor.example", "text": "Publish the new pricing page."])
+        let write = ToolCall(id: ToolCallID("w1"), name: "shell", arguments: ["command": "echo pricing >> ideas.md"])
+        let provider = ScriptedProvider([.init(toolCalls: [propose]), .init(text: "Proposed."), .init(toolCalls: [write]), .init(text: "Done.")])
+        let s = try await service(provider)
+        let agent = try await pennant(s)
+        let goal = try await s.goals.save(Goal(title: "Pricing", outcome: "A clearer pricing page", ownerAgentID: agent.id, freedom: .proposeOnly, status: .active))
+        let thread = try XCTUnwrap(goal.conversationID)
+        let (_, _, session) = try await s.runtime.submitUserMessage(agentID: agent.id, conversationID: thread, text: "🎯 Work session.\n\nwork", attachments: [])
+        try await wait(s, session, .completed)
+        let cards = try await s.runtime.pendingApprovals()
+        XCTAssertTrue(cards.isEmpty, "no card waits")
+        let messages = try await s.store.messagesAfter(conversationID: thread, after: nil, limit: 50)
+        XCTAssertTrue(messages.contains { $0.role == .assistant && $0.text.contains("Publish the new pricing page.") && $0.text.contains("Say go") }, "the proposal is a message in the goal's thread")
+        // The owner's go, in the thread, is theirs: the goal's Only propose doesn't hold it back.
+        let (_, _, reply) = try await s.runtime.submitUserMessage(agentID: agent.id, conversationID: thread, text: "go", attachments: [])
+        try await wait(s, reply, .completed)
+        let records = try await s.store.toolRecords(taskID: reply)
+        XCTAssertEqual(records.first { $0.call.id == ToolCallID("w1") }?.status, .succeeded)
         await s.stop()
     }
 

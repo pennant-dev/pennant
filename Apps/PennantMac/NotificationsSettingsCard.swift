@@ -4,7 +4,7 @@ import PennantUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Settings › Channels › iPhone notifications: the APNs key (from the Apple Developer account), the iPhones that
+/// Settings › Connections › Channels › iPhone notifications: the APNs key (from the Apple Developer account), the iPhones that
 /// asked for notifications, and a test.
 struct NotificationsSettingsCard: View {
     @Environment(\.hostSession) private var session

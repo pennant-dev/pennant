@@ -23,7 +23,7 @@ struct ChromeSetup: Sendable {
     }
 
     func run() async throws {
-        guard AXIsProcessTrusted() else { throw Failure("Pennant needs Accessibility for this; turn it on in Settings › Permissions.") }
+        guard AXIsProcessTrusted() else { throw Failure("Pennant needs Accessibility for this; turn it on in Settings › Advanced › Permissions.") }
         // The Chrome that's open, when it is: another copy on the Mac would start beside it.
         guard let appURL = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.bundleURL
             ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {

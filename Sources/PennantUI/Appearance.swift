@@ -52,7 +52,7 @@ struct PennantAppearanceModifier: ViewModifier {
 }
 
 public extension View {
-    /// Light, dark, or the system's, as chosen in Settings › Appearance.
+    /// Light, dark, or the system's, as chosen in Settings › General.
     func pennantAppearance() -> some View { modifier(PennantAppearanceModifier()) }
 }
 

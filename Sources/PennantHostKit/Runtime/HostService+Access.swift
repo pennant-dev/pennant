@@ -67,7 +67,7 @@ extension HostService {
         guard let edge = config.api.edge else { throw EdgeError("Cloudflare access isn't set up on this host.") }
         let email = try await accessVerifier.verify(accessToken, edge: edge)
         guard let person = await people.snapshot().people.first(where: { $0.email.lowercased() == email }) else {
-            throw EdgeError("There's no Pennant account for \(email). Ask the owner to add you (Settings › People).")
+            throw EdgeError("There's no Pennant account for \(email). Ask the owner to add you (Settings › Connections › People).")
         }
         await people.touch(person.id)
         return person

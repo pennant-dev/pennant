@@ -10,7 +10,7 @@ final class CodingPermissionTests: XCTestCase {
         let paths = HostPaths.temporary()
         try paths.ensureDirectories()
         defer { try? FileManager.default.removeItem(at: paths.root) }
-        var config = HostConfig()
+        var config = HostConfig.asking
         config.workingDirectory = paths.root.path
         config.desktop.pauseOnHumanInput = false
         let provider = ScriptedProvider([.init(text: "Working…", blockUntilReleased: true), .init(text: "Working…", blockUntilReleased: true)])
@@ -72,7 +72,7 @@ final class CodingPermissionTests: XCTestCase {
         let paths = HostPaths.temporary()
         try paths.ensureDirectories()
         defer { try? FileManager.default.removeItem(at: paths.root) }
-        var config = HostConfig()
+        var config = HostConfig.asking
         config.workingDirectory = paths.root.path
         config.desktop.pauseOnHumanInput = false
         let provider = ScriptedProvider([.init(text: "Working…", blockUntilReleased: true)])

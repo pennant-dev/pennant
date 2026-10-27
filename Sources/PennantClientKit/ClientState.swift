@@ -11,7 +11,8 @@ public final class ClientState {
     public internal(set) var agents: [AgentProfile] = []
     public internal(set) var tasks: [TaskRecord] = []
     public internal(set) var conversations: [Conversation] = []
-    public internal(set) var messages: [ConversationID: [Message]] = [:]
+    /// Loaded messages by conversation, each conversation's list watched on its own (see `MessageStore`).
+    @ObservationIgnored public let messages = MessageStore()
     public internal(set) var toolRecords: [TaskID: [ToolRecord]] = [:]
     public internal(set) var checkpoints: [TaskID: [Checkpoint]] = [:]
     public internal(set) var desktop = DesktopStatus()
@@ -27,7 +28,7 @@ public final class ClientState {
     public internal(set) var reports: [PostedReport] = []
     /// Who this app is signed in as; nil for the owner's own devices and older hosts.
     public internal(set) var me: Person?
-    /// The people on this host (Settings › People).
+    /// The people on this host (Settings › Connections › People).
     public internal(set) var people: PeopleDirectory?
     public func setPeople(_ directory: PeopleDirectory) { people = directory }
     public internal(set) var schedules: [ScheduledJob] = []
@@ -39,6 +40,12 @@ public final class ClientState {
     public internal(set) var preferences: [Preference] = []
     public internal(set) var notices: [Notice] = []
     public internal(set) var lastEventSeq: EventSeq = 0
+    /// What's shown came from this device's copy (`restore`), not the host yet.
+    public internal(set) var restoredFromDisk = false
+    /// Messages the owner just sent, shown at once while the host takes them; each goes when the host's copy arrives.
+    public internal(set) var sending: [ConversationID: [Message]] = [:]
+    func addSending(_ m: Message) { sending[m.conversationID, default: []].append(m) }
+    func removeSending(_ id: MessageID, in conversationID: ConversationID) { sending[conversationID]?.removeAll { $0.id == id } }
     /// Most recent screen frame (JPEG) and its header.
     public internal(set) var screenFrame: (header: ScreenFrameHeader, jpeg: Data)?
     /// Set when the last snapshot or event is older than the staleness threshold.
@@ -160,6 +167,17 @@ public final class ClientState {
         lastUpdateAt = Date()
     }
 
+    /// The latest page again after being away: new messages added, and ones that changed meanwhile (finished
+    /// streaming, a card answered) replaced.
+    public func refreshMessages(_ page: [Message], for conversationID: ConversationID) {
+        var list = messages[conversationID] ?? []
+        for m in page {
+            if let i = list.firstIndex(where: { $0.id == m.id }) { list[i] = m } else { list.append(m) }
+        }
+        list.sort { $0.createdAt < $1.createdAt }
+        messages[conversationID] = list
+    }
+
     public func setMessages(_ page: [Message], for conversationID: ConversationID, prepend: Bool) {
         var existing = messages[conversationID] ?? []
         let known = Set(existing.map(\.id))
@@ -227,6 +245,7 @@ public final class ClientState {
             let gone = Set(ids)
             messages[conversationID]?.removeAll { gone.contains($0.id) }
         case .messageAppended(let m), .messageFinalized(let m):
+            if m.role == .user, let i = sending[m.conversationID]?.firstIndex(where: { $0.text == m.text }) { sending[m.conversationID]?.remove(at: i) }
             var list = messages[m.conversationID] ?? []
             if let i = list.firstIndex(where: { $0.id == m.id }) { list[i] = m } else { list.append(m) }
             messages[m.conversationID] = list
@@ -313,5 +332,85 @@ public final class ClientState {
             }
         }
         m.parts.append(reasoning ? .reasoning(delta) : .text(delta))
+    }
+}
+
+/// Loaded messages by conversation. Each conversation's list is watched on its own, so a word streaming into one
+/// thread redraws only what shows that thread, never the conversation on screen.
+@MainActor
+@Observable
+public final class MessageStore {
+    @ObservationIgnored private var lists: [ConversationID: MessageList] = [:]
+    /// Changes when a conversation's list is added or removed: a view waiting for one that isn't loaded yet hears of it.
+    private var shape = 0
+
+    /// The conversations with messages loaded.
+    public var loadedIDs: [ConversationID] { Array(lists.keys) }
+
+    public subscript(id: ConversationID) -> [Message]? {
+        get {
+            if let list = lists[id] { return list.items }
+            _ = shape
+            return nil
+        }
+        set {
+            if let newValue {
+                if let list = lists[id] {
+                    list.items = newValue
+                } else {
+                    lists[id] = MessageList(newValue)
+                    shape += 1
+                }
+            } else if lists.removeValue(forKey: id) != nil {
+                shape += 1
+            }
+        }
+    }
+}
+
+/// One conversation's loaded messages.
+@MainActor
+@Observable
+final class MessageList {
+    var items: [Message]
+    init(_ items: [Message]) { self.items = items }
+}
+
+// MARK: Opening straight away
+
+extension ClientState {
+    /// What the app showed last time, kept on this device so it opens showing it while it connects: the state
+    /// snapshot, and the latest messages of the chat and of the conversations open lately.
+    struct Saved: Codable {
+        var snapshot: StateSnapshot
+        var messages: [ConversationID: [Message]]
+    }
+
+    /// Keeps what's on screen now (see `restore`).
+    public func save(to url: URL) {
+        guard let host else { return }
+        let snapshot = StateSnapshot(host: host, agents: agents, tasks: tasks, conversations: conversations, desktop: desktop, mcpServers: mcpServers,
+                                     latestEventSeq: 0, schedules: schedules, me: me, goals: goals)
+        let main = Set(conversations.filter(\.isMain).map(\.id))
+        let loaded = messages.loadedIDs.compactMap { id in messages[id].flatMap { $0.isEmpty ? nil : (id, $0) } }
+        let recent = loaded
+            .sorted { (main.contains($0.0) ? 1 : 0, $0.1.last?.createdAt ?? .distantPast) > (main.contains($1.0) ? 1 : 0, $1.1.last?.createdAt ?? .distantPast) }
+            .prefix(6)
+        var kept: [ConversationID: [Message]] = [:]
+        for (id, list) in recent { kept[id] = Array(list.filter { !$0.isStreaming }.suffix(60)) }
+        guard let data = try? JSONCodec.encode(Saved(snapshot: snapshot, messages: kept)) else { return }
+        try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+
+    /// Shows what `save` kept, before the host answers. The host's own snapshot replaces it on connecting, and the
+    /// conversations shown are brought up to date then. False when nothing was kept, or the host already answered.
+    @discardableResult
+    public func restore(from url: URL) -> Bool {
+        guard host == nil, let data = try? Data(contentsOf: url), let saved = try? JSONCodec.decode(Saved.self, from: data) else { return false }
+        apply(snapshot: saved.snapshot)
+        for (id, list) in saved.messages { messages[id] = list }
+        lastEventSeq = 0
+        restoredFromDisk = true
+        return true
     }
 }

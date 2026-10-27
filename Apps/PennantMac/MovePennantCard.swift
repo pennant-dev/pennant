@@ -4,7 +4,7 @@ import PennantCore
 import PennantUI
 import SwiftUI
 
-/// Settings › Host settings › Move to another Mac: export this host's Pennant into a folder, or import one.
+/// Settings › Advanced › Host settings › Move to another Mac: export this host's Pennant into a folder, or import one.
 struct MovePennantCard: View {
     @Environment(\.hostSession) private var session
     @State private var passphrase = ""

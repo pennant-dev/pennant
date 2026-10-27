@@ -219,17 +219,30 @@ public final class HostSession {
             throw HostSessionError.hostError(code: code, message: message)
         }
         guard case .welcome(let snapshot) = reply else { throw HostSessionError.unexpectedReply }
+        // Where this session had got to before (taken before the snapshot moves it on).
+        let before = state.lastEventSeq
+        let restored = state.restoredFromDisk
         state.apply(snapshot: snapshot)
+        state.restoredFromDisk = false
         learnAddresses(snapshot.host.addresses)
-        // Replay anything missed while disconnected.
-        var after = min(state.lastEventSeq, snapshot.latestEventSeq)
-        if after < snapshot.latestEventSeq {
+        // Replay what was missed while disconnected; after a long time away (or a copy kept on this device), bring
+        // the conversations on screen up to date instead.
+        var after = before
+        if before > 0, before < snapshot.latestEventSeq, snapshot.latestEventSeq - before <= Self.replayLimit {
             while true {
                 let r = try await send(.listEvents(afterSeq: after, limit: 500))
                 guard case .events(let events) = r, !events.isEmpty else { break }
                 for e in events { state.apply(event: e) }
                 after = events.last!.seq
                 if events.count < 500 { break }
+            }
+        } else if restored || (before > 0 && before < snapshot.latestEventSeq) {
+            let shown = state.messages.loadedIDs
+            Task {
+                for id in shown {
+                    let r = try? await send(.listMessages(conversationID: id, beforeMessageID: nil, limit: 50))
+                    if case .messages(let page) = r { state.refreshMessages(page.items, for: id) }
+                }
             }
         }
         // Cards waiting anywhere, for the approvals bubble (a host without the command just has none).
@@ -339,6 +352,14 @@ public final class HostSession {
         _ = try? await send(.stopSpeaking, timeout: 10)
     }
 
+    /// The owner is writing in a conversation: the host gets the reply ready (memory on the draft, the model's
+    /// sign-in). No reply, and nothing when not connected; a host from before it drops the message.
+    public func composing(conversationID: ConversationID, draft: String) {
+        guard connection.isConnected else { return }
+        let command = ClientCommand(body: .composing(conversationID: conversationID, draft: String(draft.prefix(2000))))
+        Task { try? await transport.send(.command(command)) }
+    }
+
     public func send(_ body: CommandBody, timeout: TimeInterval = 60) async throws -> ReplyBody {
         let command = ClientCommand(body: body)
         let result: ReplyBody = try await withCheckedThrowingContinuation { continuation in
@@ -361,10 +382,33 @@ public final class HostSession {
     // MARK: Convenience
 
     /// `spoken`: said out loud in Talk mode, so Pennant answers in a way that reads well aloud.
+    /// Events missed while away that are worth replaying one by one; past it, the conversations on screen are
+    /// reloaded instead.
+    static let replayLimit: EventSeq = 2000
+
     public func sendMessage(to agentID: AgentID, conversationID: ConversationID? = nil, text: String, attachments: [Attachment] = [], spoken: Bool = false) async throws -> (MessageID, ConversationID, TaskID) {
-        let r = try await send(.sendMessage(agentID: agentID, conversationID: conversationID, text: text, attachments: attachments, spoken: spoken ? true : nil))
-        guard case .messageAccepted(let m, let c, let t) = r else { throw HostSessionError.unexpectedReply }
-        return (m, c, t)
+        // Shown in the conversation at once; the host's copy takes its place when it arrives.
+        var local: Message?
+        if let conversationID, !text.isEmpty {
+            let m = Message(conversationID: conversationID, agentID: agentID, role: .user, parts: [.text(text)], author: state.me.map { MessageAuthor(id: $0.id, name: $0.name) })
+            state.addSending(m)
+            local = m
+        }
+        do {
+            let r = try await send(.sendMessage(agentID: agentID, conversationID: conversationID, text: text, attachments: attachments, spoken: spoken ? true : nil))
+            guard case .messageAccepted(let m, let c, let t) = r else { throw HostSessionError.unexpectedReply }
+            if let local {
+                // The host's copy normally arrives first; one that never does (an older host) doesn't stay.
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(5))
+                    self?.state.removeSending(local.id, in: local.conversationID)
+                }
+            }
+            return (m, c, t)
+        } catch {
+            if let local { state.removeSending(local.id, in: local.conversationID) }
+            throw error
+        }
     }
 
     public func loadMessages(conversationID: ConversationID, before: MessageID? = nil, limit: Int = 50) async throws -> Bool {

@@ -167,7 +167,7 @@ public actor GoalService {
         1. Pick the most valuable thing you can move forward now: something in Doing, else the top of Next. If Next is empty, turn the best idea into a next step, or add new ones. Skip what's waiting on the owner.
         2. Work it for real: research, analysis, a draft, a plan, a branch through the coding agent. Prefer finishing one thing to touching many.
         3. Keep the board true with goal_update: move what you worked on, add a note with what you did and found (with sources or numbers), add new ideas you came across, mark done what's done, drop what no longer makes sense. Keep open items under about 25.
-        4. Anything for the owner to decide goes on a card (request_approval) and its item to "waiting".
+        4. Anything for the owner to decide goes to them with request_approval, and its item to "waiting".
         5. End with three short lines: what you did, what's next, what you need from the owner (or "nothing").
         """
     }
@@ -190,17 +190,25 @@ public actor GoalService {
 
     // MARK: Freedom
 
-    /// The freedom of the goal a task works for: its own conversation, or that of the task that asked for it.
+    /// The freedom of the goal a task works for: a goal session, or work it asked for. What the owner asks for
+    /// themselves in a goal's thread ("go") is theirs, whatever the goal's freedom.
     public func freedom(forTask taskID: TaskID) async -> Goal.Freedom? {
         guard let goals = try? await store.listGoals().filter({ $0.conversationID != nil }), !goals.isEmpty else { return nil }
         var next: TaskID? = taskID
         var hops = 0
+        var goal: Goal?
         while let id = next, hops < 6, let task = try? await store.task(id) {
-            if let goal = goals.first(where: { $0.conversationID == task.conversationID }) { return goal.freedom }
+            if goal == nil { goal = goals.first(where: { $0.conversationID == task.conversationID }) }
+            if goal != nil, Self.isSession(task.objective) { return goal?.freedom }
             next = task.requestedByTaskID ?? task.parentTaskID
             hops += 1
         }
         return nil
+    }
+
+    /// A goal's work session or weekly review, by its prompt.
+    static func isSession(_ objective: String) -> Bool {
+        objective.hasPrefix("🎯 Work session.") || objective.hasPrefix("🎯 Weekly review.")
     }
 }
 

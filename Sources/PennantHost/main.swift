@@ -49,7 +49,7 @@ if CommandLine.arguments.dropFirst().first == "coder-permission" {
 // Helper mode: evaluate the privacy permissions in a fresh process and print them as JSON.
 // The running host uses this because macOS caches some grants (Screen Recording) per process.
 if flag("--check-permissions") {
-    let permissions = PermissionCheck.current()
+    let permissions = PermissionCheck.current(includingAutomation: false)
     if let data = try? JSONCodec.encode(permissions) { FileHandle.standardOutput.write(data) }
     exit(0)
 }
@@ -81,7 +81,7 @@ if hostLockFD < 0 || flock(hostLockFD, LOCK_EX | LOCK_NB) != 0 {
     print("Another pennant-host is already running for \(paths.root.path); leaving.")
     exit(0)
 }
-// A staged import (Settings › Move to another Mac) is swapped in before anything reads the data.
+// A staged import (Settings › Advanced › Host settings › Move to another Mac) is swapped in before anything reads the data.
 PennantTransfer.applyPendingImport(paths: paths)
 // Keychain secrets saved under the old service names move lazily, the first time each is needed (KeychainStore.host).
 if let folderMigration { print(folderMigration) }

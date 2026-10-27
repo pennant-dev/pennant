@@ -34,6 +34,29 @@ extension SQLiteStore {
         return try db.query("SELECT json FROM tasks" + whereSQL + " ORDER BY updated_at DESC", params) { Self.decode(TaskRecord.self, $0.string(0), context: "task") }.compactMap { $0 }
     }
 
+    public func tasks(conversationID: ConversationID) throws -> [TaskRecord] {
+        try db.query("SELECT json FROM tasks WHERE conversation_id = ? ORDER BY updated_at DESC", [.text(conversationID.rawValue)]) {
+            Self.decode(TaskRecord.self, $0.string(0), context: "task")
+        }.compactMap { $0 }
+    }
+
+    public func latestTopLevelTasks(in conversations: Set<ConversationID>) throws -> [ConversationID: TaskRecord] {
+        guard !conversations.isEmpty else { return [:] }
+        let marks = Array(repeating: "?", count: conversations.count).joined(separator: ",")
+        let latest = try db.query(
+            """
+            SELECT json FROM (SELECT json, ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY created_at DESC, updated_at DESC) AS n
+                FROM tasks WHERE parent_task_id IS NULL AND conversation_id IN (\(marks))) WHERE n = 1
+            """,
+            conversations.map { .text($0.rawValue) }
+        ) { Self.decode(TaskRecord.self, $0.string(0), context: "task") }.compactMap { $0 }
+        return Dictionary(latest.map { ($0.conversationID, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    public func conversationsWithTasks(updatedSince date: Date) throws -> Set<ConversationID> {
+        Set(try db.query("SELECT DISTINCT conversation_id FROM tasks WHERE updated_at >= ?", [.date(date)]) { $0.string(0) }.compactMap { $0.map { ConversationID($0) } })
+    }
+
     public func recordTransition(_ transition: TaskTransition) throws {
         try db.execute(
             "INSERT INTO task_transitions(task_id, from_state, to_state, reason, at) VALUES (?, ?, ?, ?, ?)",

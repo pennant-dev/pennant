@@ -1,7 +1,7 @@
 import PennantCore
 import Foundation
 
-/// Embeddings over an OpenAI-compatible `/embeddings` endpoint (Ollama's `embeddinggemma`, vLLM, etc.).
+/// Embeddings over an OpenAI-compatible `/embeddings` endpoint (vLLM, LM Studio, a hosted provider).
 public final class OpenAIEmbeddingProvider: EmbeddingProvider {
     public static let batchSize = 32
 

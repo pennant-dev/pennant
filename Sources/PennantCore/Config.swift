@@ -3,7 +3,7 @@ import Foundation
 /// Host configuration stored at `~/Library/Application Support/Pennant/config.json`.
 public struct HostConfig: Hashable, Codable, Sendable {
     public struct Inference: Hashable, Codable, Sendable {
-        /// OpenAI-compatible base URL, e.g. `http://gpu-box.local:8000/v1` (vLLM/SGLang) or `http://localhost:11434/v1` (Ollama).
+        /// OpenAI-compatible base URL, e.g. `http://gpu-box.local:8000/v1` (vLLM/SGLang) or `http://localhost:1234/v1` (LM Studio).
         public var baseURL: String
         public var model: String
         public var apiKey: String?
@@ -70,7 +70,7 @@ public struct HostConfig: Hashable, Codable, Sendable {
             }
         }
 
-        public init(baseURL: String = "http://localhost:11434/v1", model: String = "gemma4:e2b-it-qat", apiKey: String? = nil, contextWindowTokens: Int = 128_000, maxOutputTokens: Int = 4096, temperature: Double = 0.2, supportsVision: Bool = true, supportsTools: Bool = true, imageFormat: String = "jpeg", imageMaxWidth: Int = 1440, requestTimeout: TimeInterval = 300, provider: String = Inference.openAIProvider) {
+        public init(baseURL: String = "", model: String = "", apiKey: String? = nil, contextWindowTokens: Int = 128_000, maxOutputTokens: Int = 4096, temperature: Double = 0.2, supportsVision: Bool = true, supportsTools: Bool = true, imageFormat: String = "jpeg", imageMaxWidth: Int = 1440, requestTimeout: TimeInterval = 300, provider: String = Inference.openAIProvider) {
             self.provider = provider
             self.preset = nil
             self.baseURL = baseURL
@@ -112,14 +112,34 @@ public struct HostConfig: Hashable, Codable, Sendable {
         }
     }
 
+    /// Meaning search for memory. With no base URL the model runs in Pennant itself (Pennant Voice, on the Mac's GPU);
+    /// with one, it's any OpenAI-compatible `/embeddings` endpoint.
     public struct Embeddings: Hashable, Codable, Sendable {
         public var enabled: Bool
         public var baseURL: String
         public var model: String
-        public init(enabled: Bool = false, baseURL: String = "http://localhost:11434/v1", model: String = "embeddinggemma") {
+        /// Pennant's own embedding model, downloaded the first time meaning search runs.
+        public static let builtInModel = "mlx-community/Qwen3-Embedding-0.6B-8bit"
+        public var isBuiltIn: Bool { baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        public init(enabled: Bool = false, baseURL: String = "", model: String = Embeddings.builtInModel) {
             self.enabled = enabled
             self.baseURL = baseURL
             self.model = model
+        }
+
+        private enum CodingKeys: String, CodingKey { case enabled, baseURL, model }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+            baseURL = try c.decodeIfPresent(String.self, forKey: .baseURL) ?? ""
+            model = try c.decodeIfPresent(String.self, forKey: .model) ?? Self.builtInModel
+            // The old default was a local Ollama server: Pennant runs the model itself now.
+            if let url = URL(string: baseURL), ["localhost", "127.0.0.1", "::1"].contains(url.host ?? ""), url.port == 11434 {
+                baseURL = ""
+                model = Self.builtInModel
+            }
+            if isBuiltIn, model.trimmingCharacters(in: .whitespaces).isEmpty { model = Self.builtInModel }
         }
     }
 
@@ -260,6 +280,29 @@ public struct HostConfig: Hashable, Codable, Sendable {
     /// Claude Code's skills (the owner's own and their enabled plugins') linked into Pennant and kept in step with
     /// the files. Off: Pennant has only its own skills.
     public var claudeCodeSkills = false
+    /// What Pennant asks the owner before doing (Settings › Ask me before…). Each is off unless they turn it on.
+    public var askFirst = AskFirst()
+
+    /// The owner's sign-offs, each one they can turn on: sending and posting, spending money, and deletes that can't be
+    /// undone. Off, Pennant just does it and says what it did. Files Pennant deletes on this Mac go to the Trash.
+    public struct AskFirst: Hashable, Codable, Sendable {
+        public var publishes: Bool
+        public var spends: Bool
+        public var deletes: Bool
+
+        public init(publishes: Bool = false, spends: Bool = false, deletes: Bool = false) {
+            self.publishes = publishes; self.spends = spends; self.deletes = deletes
+        }
+
+        private enum CodingKeys: String, CodingKey { case publishes, spends, deletes }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            publishes = try c.decodeIfPresent(Bool.self, forKey: .publishes) ?? false
+            spends = try c.decodeIfPresent(Bool.self, forKey: .spends) ?? false
+            deletes = try c.decodeIfPresent(Bool.self, forKey: .deletes) ?? false
+        }
+    }
 
     /// Every so often the host looks over Pennant's work without the model: it starts the goal sessions that are due
     /// (goals need no schedules of their own) and, when something needs a look (work that stopped moving, a question
@@ -383,7 +426,7 @@ public struct HostConfig: Hashable, Codable, Sendable {
         self.workingDirectory = workingDirectory
     }
 
-    private enum CodingKeys: String, CodingKey { case mode, inference, inferenceProfiles, defaultProfileID, fallbackProfileIDs, fallbackProfileID, workerProfileID, houseRules, embeddings, api, desktop, compaction, mcpServers, defaultBudget, workingDirectory, autoCloseIdleDays, coding, heartbeat, chromeAsksForNewSites, claudeCodeSkills }
+    private enum CodingKeys: String, CodingKey { case mode, inference, inferenceProfiles, defaultProfileID, fallbackProfileIDs, fallbackProfileID, workerProfileID, houseRules, embeddings, api, desktop, compaction, mcpServers, defaultBudget, workingDirectory, autoCloseIdleDays, coding, heartbeat, chromeAsksForNewSites, claudeCodeSkills, askFirst }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -408,6 +451,7 @@ public struct HostConfig: Hashable, Codable, Sendable {
         heartbeat = try c.decodeIfPresent(Heartbeat.self, forKey: .heartbeat) ?? Heartbeat()
         chromeAsksForNewSites = try c.decodeIfPresent(Bool.self, forKey: .chromeAsksForNewSites) ?? false
         claudeCodeSkills = try c.decodeIfPresent(Bool.self, forKey: .claudeCodeSkills) ?? false
+        askFirst = try c.decodeIfPresent(AskFirst.self, forKey: .askFirst) ?? AskFirst()
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -431,6 +475,7 @@ public struct HostConfig: Hashable, Codable, Sendable {
         try c.encode(heartbeat, forKey: .heartbeat)
         try c.encode(chromeAsksForNewSites, forKey: .chromeAsksForNewSites)
         try c.encode(claudeCodeSkills, forKey: .claudeCodeSkills)
+        try c.encode(askFirst, forKey: .askFirst)
     }
 
     // MARK: Models
@@ -572,6 +617,7 @@ public struct InferenceProfile: Hashable, Codable, Sendable, Identifiable {
         default:
             let url = inference.baseURL.trimmingCharacters(in: .whitespaces)
             let place = InferencePresets.preset(for: url)?.name ?? URL(string: url)?.host ?? url
+            if place.isEmpty, inference.model.isEmpty { return "Not set up yet" }
             return place.isEmpty ? inference.model : "\(inference.model) · \(place)"
         }
     }

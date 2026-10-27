@@ -65,6 +65,9 @@ public struct AgentProfile: Hashable, Codable, Sendable, Identifiable {
     /// Reasoning effort for its replies in the Pennant chat, which answers quickly and leaves long work to threads;
     /// nil: low.
     public var chatReasoningEffort: String?
+    /// The saved inference profile its replies in the Pennant chat run on (check-ins and the chat's own short calls
+    /// too), so the chat can answer on a fast model while its threads use a stronger one; nil: its own.
+    public var chatModelProfileID: String?
     /// MCP servers whose tools this agent always sees. Others load when it calls `find_tools`.
     public var alwaysLoadedServers: [MCPServerID]?
 

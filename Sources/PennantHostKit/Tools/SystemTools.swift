@@ -141,7 +141,10 @@ public struct ShellTool: Tool {
             secrets += resolved.secrets
             missing = resolved.missing
         }
-        let result = try await ShellRunner.run(command, workingDirectory: cwd, environment: environment, timeout: timeout)
+        // `rm` moves to the Trash here, which is why a plain `rm` doesn't ask (`SignOff`, `ShellTrash`).
+        let wrapped = ShellTrash.wrap(command)
+        environment.merge(wrapped.environment) { _, new in new }
+        let result = try await ShellRunner.run(wrapped.command, workingDirectory: cwd, environment: environment, timeout: timeout)
         var text = ""
         if !result.stdout.isEmpty { text += result.stdout }
         if !result.stderr.isEmpty { text += (text.isEmpty ? "" : "\n") + "[stderr]\n" + result.stderr }

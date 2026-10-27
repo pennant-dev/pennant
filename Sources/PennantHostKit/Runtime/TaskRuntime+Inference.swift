@@ -9,16 +9,21 @@ extension TaskRuntime {
         var message = Message(conversationID: task.conversationID, agentID: agent.id, taskID: task.id, role: .assistant, parts: [], isStreaming: true)
         try await deps.store.appendMessage(message)
         await publish(.messageAppended(message))
+        let inChat = await inMainChat(task)
         var model = await currentModel(task: task, agent: agent)
         let skillEffort = await skillEffort(task: task)
-        let inChat = await inMainChat(task)
         func request(for model: ModelChoice) -> InferenceRequest {
-            InferenceRequest(messages: context.messages, tools: specs, maxOutputTokens: model.maxOutputTokens, temperature: deps.config.inference.temperature,
-                             reasoningEffort: inChat ? Self.chatEffort(agent: agent, model: model) : Self.raise(agent.reasoningEffort ?? model.reasoningEffort, to: skillEffort))
+            var r = InferenceRequest(messages: context.messages, tools: specs, maxOutputTokens: model.maxOutputTokens, temperature: deps.config.inference.temperature,
+                                     reasoningEffort: inChat ? Self.chatEffort(agent: agent, model: model) : Self.raise(agent.reasoningEffort ?? model.reasoningEffort, to: skillEffort))
+            r.cacheKey = task.conversationID.rawValue
+            return r
         }
         var response = InferenceResponse()
         var attempt = 0
         var rateLimited = 0
+        // Moves to another model within this call (four at most), so models that keep failing in turn can't bounce
+        // the call between them for ever.
+        var switches = 0
         var sentAt = Date()
         var firstTokenAt: Date?
         while true {
@@ -52,20 +57,26 @@ extension TaskRuntime {
             } catch let error as InferenceError {
                 attempt += 1
                 if case .contextTooLarge = error { throw error }
-                if attempt <= Self.serverErrorWaits.count, !Task.isCancelled, Self.isServerError(error) {
+                // An endpoint that can't be reached at all (no route, a connect timeout) costs a minute or more a
+                // try: go straight to another model when there is one. Server errors and garbled replies get the same
+                // model's retries first.
+                let unreachable: Bool = { if case .unreachable = error { return true }; return false }()
+                let others = await modelChoices(for: agent, inChat: inChat).contains { $0.label != model.label }
+                if attempt <= Self.serverErrorWaits.count, !Task.isCancelled, Self.isServerError(error), !(unreachable && others && switches < 4) {
                     log.warn("Inference attempt \(attempt) failed: \(error). Retrying.", category: "runtime")
                     try await Task.sleep(for: .seconds(Self.serverErrorWaits[attempt - 1]))
                     continue
                 }
-                // Still failing on the server side: rest this model for a few minutes and carry on with the next one
+                // Still failing on the server side: rest this model for a while and carry on with the next one
                 // instead of pausing the task. It comes back first in line once the cooldown ends.
                 if Self.isServerError(error), !Task.isCancelled {
                     downUntil[model.label] = Date().addingTimeInterval(Self.outageCooldown)
                     let from = model.label
-                    let choices = await modelChoices(for: agent)
-                    if let first = choices.first, first.label != from {
-                        modelIndex[task.id] = 0
-                        model = first
+                    let choices = await modelChoices(for: agent, inChat: inChat)
+                    if switches < 4, let next = choices.firstIndex(where: { $0.label != from }) {
+                        switches += 1
+                        modelIndex[task.id] = next
+                        model = choices[next]
                         attempt = 0
                         rateLimited = 0
                         log.warn("Task \(task.id): \(from) is failing (\(error.description.prefix(160))); switching to \(model.label)", category: "runtime")
@@ -77,7 +88,7 @@ extension TaskRuntime {
                 if let until = Self.quotaExhausted(error), !Task.isCancelled {
                     exhaustedUntil[model.label] = until
                     let from = model.label
-                    let choices = await modelChoices(for: agent)
+                    let choices = await modelChoices(for: agent, inChat: inChat)
                     if let first = choices.first, first.label != from {
                         modelIndex[task.id] = 0
                         model = first
@@ -100,7 +111,7 @@ extension TaskRuntime {
                 // A model that refuses the request (missing deployment, refused key, rejected parameters, rate
                 // limits that did not clear): move the task to the next model instead of failing it.
                 if Self.shouldFallBack(error), !Task.isCancelled {
-                    let choices = await modelChoices(for: agent)
+                    let choices = await modelChoices(for: agent, inChat: inChat)
                     let next = (modelIndex[task.id] ?? 0) + 1
                     if next < choices.count {
                         modelIndex[task.id] = next
@@ -114,7 +125,14 @@ extension TaskRuntime {
                     }
                 }
                 message.isStreaming = false
-                message.parts = [.text("[inference failed: \(error.description.prefix(200))]")]
+                // A model that's down or busy pauses the task until it's back (see `run`): say that, not that it failed.
+                let waits: Bool = {
+                    switch error {
+                    case .unreachable, .httpStatus(429, _), .httpStatus(500...599, _): return true
+                    default: return false
+                    }
+                }()
+                message.parts = [.text(waits ? "[The model isn't answering just now; this carries on when it's back]" : "[inference failed: \(error.description.prefix(200))]")]
                 try? await deps.store.updateMessage(message)
                 await publish(.messageFinalized(message))
                 await publishConversation(task.conversationID, after: message)

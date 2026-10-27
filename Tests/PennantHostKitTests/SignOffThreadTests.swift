@@ -169,11 +169,16 @@ final class SignOffThreadTests: XCTestCase {
         let agent = try XCTUnwrap(agents.first { $0.kind == .persistent })
         let (_, _, task) = try await s.runtime.submitUserMessage(agentID: agent.id, conversationID: nil, text: "Restart the web app", attachments: [])
 
-        let first = try await card(s)
+        // The thread doesn't wait at either card: each holds its call until the owner answers.
+        _ = try await card(s)
+        let deadline0 = Date().addingTimeInterval(8)
+        var cards: [PendingApproval] = []
+        while cards.count < 2, Date() < deadline0 { cards = try await s.runtime.pendingApprovals(); try await Task.sleep(for: .milliseconds(20)) }
+        let first = try XCTUnwrap(cards.first { $0.request.heldCall?.id == ToolCallID("a1") })
+        let second = try XCTUnwrap(cards.first { $0.request.heldCall?.id == ToolCallID("a2") })
         XCTAssertTrue(first.request.title.hasPrefix(SignOff.Reason.changes.title), first.request.title)
         XCTAssertEqual(first.request.destination, "dev.example.cloud")
         try await s.runtime.decideApproval(ApprovalDecision(approvalID: first.id, verdict: .approve), by: nil)
-        let second = try await card(s, excluding: [first.id])
         try await s.runtime.decideApproval(ApprovalDecision(approvalID: second.id, verdict: .reject), by: nil)
 
         let deadline = Date().addingTimeInterval(8)

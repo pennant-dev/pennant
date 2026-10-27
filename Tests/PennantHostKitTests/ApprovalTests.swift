@@ -14,7 +14,7 @@ final class ApprovalTests: XCTestCase {
     override func tearDown() async throws { try? FileManager.default.removeItem(at: paths.root) }
 
     private func service(_ provider: ScriptedProvider) async throws -> HostService {
-        var config = HostConfig()
+        var config = HostConfig.asking
         config.workingDirectory = paths.root.path
         config.desktop.pauseOnHumanInput = false
         let s = try HostService(paths: paths, config: config, desktop: FakeDesktop(), humanInput: NullHumanInput(), provider: provider)
@@ -241,7 +241,7 @@ final class ApprovalTests: XCTestCase {
         try await s.store.upsertSkill(v1)
         try await s.store.upsertSkill(v2)
         let store = await s.store
-        let context = ToolContext(agentID: AgentID(), taskID: TaskID(), conversationID: ConversationID(), store: store, desktop: FakeDesktop(), lease: DesktopLease(pauseOnHumanInput: false, desktop: FakeDesktop(), onChange: { _ in }), config: HostConfig())
+        let context = ToolContext(agentID: AgentID(), taskID: TaskID(), conversationID: ConversationID(), store: store, desktop: FakeDesktop(), lease: DesktopLease(pauseOnHumanInput: false, desktop: FakeDesktop(), onChange: { _ in }), config: HostConfig.asking)
         let result = try await UseSkillTool(tracker: SkillUsageTracker()).invoke(["skill_id": .string(v1.id.rawValue)], context: context)
         XCTAssertTrue(result.textContent.contains("v2"), result.textContent)
         XCTAssertTrue(result.textContent.contains("NEW STEPS"))
@@ -256,7 +256,7 @@ final class ApprovalTests: XCTestCase {
     func testAwaitTaskWaitsAtLeastAMinuteAndSaysStillRunning() async throws {
         let asked = Locked<Double?>(nil)
         let hooks = RuntimeHooks(delegate: { _, _, _, _, _, _, _ in TaskID() }, awaitTask: { _, timeout in asked.set(timeout); throw ToolError.timeout }, askUser: { _, _ in "" }, learnSkill: { _, s in s }, scheduleJob: { _, _, _, _ in throw ToolError.timeout }, deleteSchedule: { _ in }, importSkills: { _ in ([], []) })
-        let context = ToolContext(agentID: AgentID(), taskID: TaskID(), conversationID: ConversationID(), store: FakeStore(), desktop: FakeDesktop(), lease: DesktopLease(pauseOnHumanInput: false, desktop: FakeDesktop(), onChange: { _ in }), config: HostConfig(), runtimeHooks: hooks)
+        let context = ToolContext(agentID: AgentID(), taskID: TaskID(), conversationID: ConversationID(), store: FakeStore(), desktop: FakeDesktop(), lease: DesktopLease(pauseOnHumanInput: false, desktop: FakeDesktop(), onChange: { _ in }), config: HostConfig.asking, runtimeHooks: hooks)
         let result = try await AwaitTaskTool().invoke(["task_id": "t-1", "timeout_seconds": 1], context: context)
         XCTAssertEqual(asked.get(), 60)
         XCTAssertFalse(result.isError)
@@ -288,7 +288,7 @@ final class ApprovalTests: XCTestCase {
         var withApproval = hooks
         withApproval.approval = { _ in request }
         let tool = BrowserScriptTool(browser: BrowserRunner(root: paths.root.appendingPathComponent("browser")), screenshots: paths.root)
-        let context = ToolContext(agentID: AgentID(), taskID: request.taskID, conversationID: ConversationID(), store: FakeStore(), desktop: FakeDesktop(), lease: DesktopLease(pauseOnHumanInput: false, desktop: FakeDesktop(), onChange: { _ in }), config: HostConfig(), runtimeHooks: withApproval)
+        let context = ToolContext(agentID: AgentID(), taskID: request.taskID, conversationID: ConversationID(), store: FakeStore(), desktop: FakeDesktop(), lease: DesktopLease(pauseOnHumanInput: false, desktop: FakeDesktop(), onChange: { _ in }), config: HostConfig.asking, runtimeHooks: withApproval)
         do {
             _ = try await tool.invoke(["script": "/tmp/none.mjs", "approval_id": .string(request.id)], context: context)
             XCTFail("ran with a pending approval")
@@ -300,7 +300,7 @@ final class ApprovalTests: XCTestCase {
         published.publishedURL = "https://example.com/post"
         let done = published
         withApproval.approval = { _ in done }
-        let again = ToolContext(agentID: AgentID(), taskID: request.taskID, conversationID: ConversationID(), store: FakeStore(), desktop: FakeDesktop(), lease: DesktopLease(pauseOnHumanInput: false, desktop: FakeDesktop(), onChange: { _ in }), config: HostConfig(), runtimeHooks: withApproval)
+        let again = ToolContext(agentID: AgentID(), taskID: request.taskID, conversationID: ConversationID(), store: FakeStore(), desktop: FakeDesktop(), lease: DesktopLease(pauseOnHumanInput: false, desktop: FakeDesktop(), onChange: { _ in }), config: HostConfig.asking, runtimeHooks: withApproval)
         do {
             _ = try await tool.invoke(["script": "/tmp/none.mjs", "approval_id": .string(request.id)], context: again)
             XCTFail("published twice")

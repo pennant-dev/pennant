@@ -133,7 +133,7 @@ final class SchedulerTests: XCTestCase {
         while Date() < deadline { if let t = try await service.store.task(taskID), t.state.isTerminal { done = t; break }; try await Task.sleep(for: .milliseconds(30)) }
         XCTAssertEqual(done?.state, .completed)
         let convo = try await service.store.conversation(conversationID)
-        XCTAssertTrue(convo?.title.hasPrefix("⏰ Inbox check · ") ?? false, "each run has a thread of its own, named with when it ran: \(convo?.title ?? "nil")")
+        XCTAssertTrue(convo?.title.hasPrefix("Inbox check · ") ?? false, "each run has a thread of its own, named with when it ran: \(convo?.title ?? "nil")")
         let kickoff = try await service.store.messagesAfter(conversationID: conversationID, after: nil, limit: 5).first
         XCTAssertTrue(kickoff?.text.contains("Scheduled job \"Inbox check\"") ?? false)
         // The outcome is recorded from the task's result.

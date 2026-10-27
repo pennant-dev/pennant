@@ -9,7 +9,7 @@ public struct RequestApprovalTool: Tool {
     public var spec: ToolSpec {
         ToolSpec(
             name: "request_approval",
-            description: "Show the user something you want to publish (a post with its images, or a video with its title and description) as an approval card in the app, and wait for their decision: approve (possibly with their edits), request changes (with a comment), or reject. Call it with the FINAL text and images. On approval, publish with the returned approval_id; publishing tools use exactly the approved text and images. One card per decision: if a card of yours from the same goal, job or thread is still waiting and this one revises or replaces it, pass its id in `replaces` (fold what's still needed into this card); if they're about different things, pass `alongside: true`. Posting the same card again replaces the old one by itself.",
+            description: "Show the user something you want to publish (a post with its images, or a video with its title and description) as an approval card in the app, and wait for their decision: approve (possibly with their edits), request changes (with a comment), or reject. Call it with the FINAL text and images. On approval, publish with the returned approval_id; publishing tools use exactly the approved text and images. One card per decision: if a card of yours from the same goal, job or thread is still waiting and this one revises or replaces it, pass its id in `replaces` (fold what's still needed into this card); if they're about different things, pass `alongside: true`. Posting the same card again replaces the old one by itself. In a goal that only proposes, it goes to the owner as a message in the thread and nothing waits. When the owner doesn't review these first (their Ask me before… setting), no card is shown: it comes back approved at once.",
             inputSchema: JSONSchema.object([
                 "title": JSONSchema.string("What this is, e.g. \"LinkedIn post: why AI agents need approval gates\"."),
                 "destination": JSONSchema.string("Where it goes if approved, e.g. \"LinkedIn · Acme company page\"."),
@@ -90,8 +90,27 @@ public struct RequestApprovalTool: Tool {
             let tool = try await hooks.resolveTool(named)
             action = ApprovalAction(tool: tool, arguments: spec["arguments"] ?? .object([:]), textField: field, label: spec["label"]?.stringValue ?? "Approve & send")
         }
-        let replaced = try await hooks.makeRoom(context.taskID, labelled, arguments.stringArray("replaces") ?? [], arguments["alongside"]?.boolValue ?? false)
+        // A goal that only proposes puts it to the owner as a message in its thread, and nothing waits. Otherwise, when
+        // they don't review posts and sends first (Settings › Ask me before…), it goes ahead without a card.
+        var asks = context.config.askFirst.publishes
+        if !asks, let action { asks = await hooks.actionAsks(action) }
+        let proposes = await hooks.onlyProposes(context.taskID)
+        let replaced = try await hooks.makeRoom(context.taskID, labelled, arguments.stringArray("replaces") ?? [], proposes || !asks || (arguments["alongside"]?.boolValue ?? false))
         let replacedNote = replaced.isEmpty ? "" : " It replaces " + replaced.map { "“\($0)”" }.joined(separator: ", ") + ", now withdrawn."
+        if proposes {
+            try await hooks.proposeInThread(context.taskID, labelled)
+            return .text(ToolCallID("pending"), name: spec.name, "This went to the owner as a message in this thread, not a card. This goal only proposes: don't do it yourself. Move its item to \"waiting\" and carry on; if they say go, it happens then.\(replacedNote)")
+        }
+        if !asks {
+            var card = labelled
+            card.action = action
+            let done = try await hooks.goAhead(context.taskID, card)
+            if let action {
+                let result = done.actionResult.map { ": \($0)" } ?? "."
+                return .text(ToolCallID("pending"), name: spec.name, "The owner doesn't ask to see these first, so Pennant ran \(action.tool) with this text right away\(done.actionFailed == true ? ", and it failed" : "")\(result) Tell them what you did.\(replacedNote)")
+            }
+            return .text(ToolCallID("pending"), name: spec.name, "APPROVED (approval_id \(done.id)): the owner doesn't ask to see these first, so go ahead. Publish now with the approval_id; the publishing tool uses exactly this text and these \(done.images.count) image(s). Then tell them what you did.\(replacedNote)")
+        }
         if let action {
             var withAction = labelled
             withAction.action = action

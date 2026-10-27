@@ -158,6 +158,7 @@ extension TaskRuntime {
         wrappedUp.remove(id)
         nudged.remove(id)
         runtimeNotes[id] = nil
+        codingBaselines[id] = nil
         await recordSkillOutcomes(task: task, succeeded: task.state == .completed)
         await publish(.taskUpserted(task))
         await reportFinished(task)

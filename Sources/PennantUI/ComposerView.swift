@@ -34,6 +34,7 @@ public struct ComposerView: View {
     @State private var noteIsError = false
     @State private var showImporter = false
     @State private var dropTargeted = false
+    @State private var readying: Task<Void, Never>?
     #if os(iOS)
     @State private var showPhotos = false
     @State private var photoItems: [PhotosPickerItem] = []
@@ -132,6 +133,18 @@ public struct ComposerView: View {
             if new.hasPrefix("/") { ensureSkillsLoaded() }
             // Progress notes go away as soon as the user types again; an error stays until dismissed.
             if !noteIsError, !new.isEmpty { note = nil }
+            readyReply(new)
+        }
+    }
+
+    /// While they write, the host gets the reply ready: once they pause for a moment, not on every key.
+    private func readyReply(_ draft: String) {
+        readying?.cancel()
+        guard let conversationID, !draft.hasPrefix("/"), draft.trimmingCharacters(in: .whitespacesAndNewlines).count >= 3 else { return }
+        readying = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            session.composing(conversationID: conversationID, draft: draft)
         }
     }
 

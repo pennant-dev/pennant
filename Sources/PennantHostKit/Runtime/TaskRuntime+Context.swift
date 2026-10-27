@@ -15,8 +15,13 @@ extension TaskRuntime {
         let messages = try await deps.store.messagesAfter(conversationID: task.conversationID, after: checkpoint?.throughMessageID, limit: 4000)
         // Recall for what was just asked: the latest message from the person, else the task's objective.
         let latestAsk = messages.last(where: { $0.role == .user && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })?.text ?? task.objective
-        let hits = (try? await deps.memory.retrieve(MemoryQuery(text: String(latestAsk.prefix(500)), limit: 10), agent: agent, includeMessages: false,
-                                                     forContext: true, excludingConversation: task.conversationID, includeInstructions: false)) ?? []
+        let ask = String(latestAsk.trimmingCharacters(in: .whitespacesAndNewlines).prefix(500))
+        let hits: [MemoryHit]
+        if let ready = draftRecall.removeValue(forKey: task.conversationID), ready.text == ask, Date().timeIntervalSince(ready.at) < 120 {
+            hits = ready.hits
+        } else {
+            hits = (try? await recall(ask, agent: agent, conversationID: task.conversationID)) ?? []
+        }
         let skills = await relevantSkills(for: task, agent: agent)
         let specs = try await turnSpecs(task: task, agent: agent)
         let services = await connectedServices(agent: agent, visible: specs)
@@ -74,9 +79,31 @@ extension TaskRuntime {
         return (output, specs)
     }
 
+    /// What memory has on `text`, for the context of a reply in `conversationID`.
+    func recall(_ text: String, agent: AgentProfile, conversationID: ConversationID) async throws -> [MemoryHit] {
+        try await deps.memory.retrieve(MemoryQuery(text: text, limit: 10), agent: agent, includeMessages: false, forContext: true,
+                                       excludingConversation: conversationID, includeInstructions: false)
+    }
+
+    /// The owner is writing in a conversation: get its reply ready while they type, so sending goes straight to the
+    /// model. In the Pennant chat, the work board and what memory has on the draft; anywhere, the model's sign-in.
+    public func prewarm(conversationID: ConversationID, draft: String) async {
+        guard let conversation = try? await deps.store.conversation(conversationID), let agent = try? await deps.store.agent(conversation.agentID) else { return }
+        let text = String(draft.trimmingCharacters(in: .whitespacesAndNewlines).prefix(500))
+        if conversation.isMain {
+            _ = await currentWorkBoard()
+            if text.count >= 3, let hits = try? await recall(text, agent: agent, conversationID: conversationID) {
+                draftRecall[conversationID] = (text, hits, Date())
+            }
+        }
+        await modelChoices(for: agent, inChat: conversation.isMain).first?.provider.prewarm()
+    }
+
     /// The most the Pennant chat's prompt may take: it goes with every reply, so a long history slows every reply.
-    /// Past it, older turns fold into the chat's running summary; the threads keep the details. (Tests shorten both.)
-    nonisolated(unsafe) static var chatContextBudget = 20_000
+    /// Past it, older turns fold into the chat's running summary; the threads keep the details. The instructions and
+    /// tools alone take about 20k, so the budget leaves room for history: each fold rewrites the start of the chat,
+    /// and the reply after it can't come from the provider's prompt cache. (Tests shorten both.)
+    nonisolated(unsafe) static var chatContextBudget = 40_000
     /// Messages the chat keeps word for word when it folds the rest.
     nonisolated(unsafe) static var chatKeepsRecent = 8
 
@@ -100,7 +127,7 @@ extension TaskRuntime {
     /// threads are untouched.
     public func startOver(_ conversationID: ConversationID) async throws {
         guard let conversation = try await deps.store.conversation(conversationID) else { throw ToolError.failed("Conversation not found") }
-        let tasks = try await deps.store.listTasks(agentID: conversation.agentID, includeFinished: true).filter { $0.conversationID == conversationID }
+        let tasks = try await deps.store.tasks(conversationID: conversationID).filter { $0.agentID == conversation.agentID }
         for task in tasks where !task.state.isTerminal { try? await cancelTask(task.id, reason: "Started over") }
         let messages = try await deps.store.messagesAfter(conversationID: conversationID, after: nil, limit: 100_000)
         guard let last = messages.last, let task = tasks.max(by: { $0.updatedAt < $1.updatedAt }) else { return }
@@ -113,7 +140,7 @@ extension TaskRuntime {
 
     public func compactConversation(_ conversationID: ConversationID, keepingRecent: Int = 0, quietly: Bool = false) async throws -> TaskRecord {
         guard let conversation = try await deps.store.conversation(conversationID), let agent = try await deps.store.agent(conversation.agentID) else { throw ToolError.failed("Conversation not found") }
-        let tasks = try await deps.store.listTasks(agentID: conversation.agentID, includeFinished: true).filter { $0.conversationID == conversationID }
+        let tasks = try await deps.store.tasks(conversationID: conversationID).filter { $0.agentID == conversation.agentID }
         guard let task = tasks.first(where: { !$0.state.isTerminal }) ?? tasks.max(by: { $0.updatedAt < $1.updatedAt }) else { throw ToolError.failed("Nothing to compact yet") }
         let previous = try await deps.store.latestCheckpoint(conversationID: conversationID)
         let messages = try await deps.store.messagesAfter(conversationID: conversationID, after: previous?.throughMessageID, limit: 4000)
@@ -124,7 +151,8 @@ extension TaskRuntime {
         let specs = await deps.broker.specs(for: agent)
         let store = deps.store
         let loader: @Sendable (ArtifactID) async -> Data? = { id in try? await store.artifactData(id) }
-        let provider = deps.provider
+        // Folded by the conversation's own model (the chat's, when it has one), not the host's default.
+        let provider = await currentModel(task: task, agent: agent).provider
         let estimator: @Sendable ([ModelMessage], [ToolSpec]) -> Int = { provider.estimateTokens($0, tools: $1) }
         let builder = ContextBuilder()
         let config = deps.config
@@ -132,12 +160,12 @@ extension TaskRuntime {
             await builder.build(ContextBuilder.Input(agent: agent, task: task, config: config, preferences: preferences, memoryHits: [], skills: [], checkpoint: cp, messages: messages, toolSpecs: specs, desktopStatus: DesktopStatus(), runtimeNotes: [], artifactLoader: loader), estimator: estimator)
         }
         let before = await make(previous)
-        let compactor = Compactor(provider: deps.provider, store: deps.store)
+        let compactor = Compactor(provider: provider, store: deps.store)
         let cp = await compactor.makeCheckpoint(task: task, agent: agent, preferences: preferences, previous: previous, messages: messages, throughMessageID: last.id, contextForSummary: before.messages)
         try await deps.store.saveCheckpoint(cp)
         await publish(.checkpointSaved(cp))
         let after = await make(cp)
-        let window = deps.provider.capabilities.contextWindowTokens
+        let window = provider.capabilities.contextWindowTokens
         let updated = try await updateTask(task.id) {
             $0.usage.compactions += 1
             $0.usage.lastCompactedAt = Date()

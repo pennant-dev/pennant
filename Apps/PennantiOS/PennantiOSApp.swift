@@ -38,6 +38,8 @@ struct PennantiOSApp: App {
         // The host's other addresses (its Tailscale name, say), so the phone finds it away from home too.
         s.onAddressesChanged = { PhoneSettings.endpoint = $0 }
         s.state.persistReadMarks(in: .standard)
+        // Open showing what was on screen last time, while it connects.
+        if credentials != nil { s.state.restore(from: PhoneSettings.savedStateURL(for: endpoint)) }
         _session = State(initialValue: s)
         _paired = State(initialValue: credentials != nil)
     }
@@ -46,7 +48,10 @@ struct PennantiOSApp: App {
         WindowGroup {
             rootContent.pennantAppearance()
                 // iOS drops the connection while the app sleeps: back in front, it reconnects at once.
-                .onChange(of: scenePhase) { _, phase in if phase == .active { session.resume() } }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { session.resume() }
+                    if phase == .background, paired { session.state.save(to: PhoneSettings.savedStateURL(for: session.endpoint)) }
+                }
         }
     }
 
@@ -86,6 +91,7 @@ struct PennantiOSApp: App {
         Task {
             await session.disconnect()
             ClientCredentials.remove(for: session.endpoint)
+            try? FileManager.default.removeItem(at: PhoneSettings.savedStateURL(for: session.endpoint))
             // A reinstalled Mac has a new certificate; signing in again trusts that one.
             HostPins.forget(session.endpoint)
             session.token = nil
@@ -96,6 +102,13 @@ struct PennantiOSApp: App {
 
 enum PhoneSettings {
     private static var defaults: UserDefaults { .standard }
+
+    /// Where the phone keeps what it last showed for a Mac (see `ClientState.save`).
+    static func savedStateURL(for endpoint: HostEndpoint) -> URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let name = endpoint.host.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "host"
+        return caches.appendingPathComponent("pennant-state-\(name).json")
+    }
 
     static var endpoint: HostEndpoint {
         get {

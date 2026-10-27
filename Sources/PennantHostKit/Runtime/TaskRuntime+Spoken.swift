@@ -19,7 +19,7 @@ extension TaskRuntime {
         system += "\n" + Self.spokenVersionRules
         let said = alreadySaid.trimmingCharacters(in: .whitespacesAndNewlines)
         let ask = (said.isEmpty ? "" : "You've already said aloud: “\(said)”\n\n") + "Your message in the chat:\n\(text)\n\nWhat you say out loud:"
-        for choice in await modelChoices(for: lead) {
+        for choice in await modelChoices(for: lead, inChat: true) {
             let request = InferenceRequest(messages: [.system(system), .user(ask)], maxOutputTokens: 300, temperature: 0.3, disableTools: true,
                                            reasoningEffort: Self.chatEffort(agent: lead, model: choice))
             guard let reply = try? await withTimeout(seconds: 15, { try await choice.provider.complete(request).text }) else { continue }

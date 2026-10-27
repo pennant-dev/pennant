@@ -38,11 +38,13 @@ struct MicrosoftGraphConnector: NativeConnector {
                 "body": Prop.str("Reply text"),
                 "reply_all": Prop.bool("Reply to all recipients"),
             ], required: ["id", "body"], readOnly: false, destructive: true),
-            .make("mail_draft", "Save a draft in Outlook without sending it.", properties: [
-                "to": Prop.strings("Recipient addresses"),
-                "subject": Prop.str("Subject"),
-                "body": Prop.str("Body"),
-            ], required: ["subject", "body"], readOnly: false),
+            .make("mail_draft", "Save a draft in Outlook without sending it: a new email, or (reply_to) a reply in its thread that waits in Drafts for the user to send.", properties: [
+                "to": Prop.strings("Recipient addresses (a new email)"),
+                "subject": Prop.str("Subject (a new email; a reply keeps the thread's)"),
+                "body": Prop.str("Body, plain text"),
+                "reply_to": Prop.str("Message id to reply to: the draft is a reply in that thread, with the quoted history"),
+                "reply_all": Prop.bool("With reply_to: reply to all recipients"),
+            ], required: ["body"], readOnly: false),
             // Calendar
             .make("calendar_events", "Events between two times (default: now to 7 days ahead).", properties: [
                 "start": Prop.str("ISO 8601 start, e.g. 2026-09-22T00:00:00"),
@@ -193,6 +195,16 @@ struct MicrosoftGraphConnector: NativeConnector {
             return a.bool("reply_all") == true ? "Replied to all." : "Replied."
 
         case "mail_draft":
+            if let id = a.string("reply_to"), !id.isEmpty {
+                // Like mail_reply, but the reply stays in Drafts: Outlook makes it (quoted thread and all), the text goes
+                // above the quote, and nothing is sent.
+                let body = try a.require("body")
+                let draft = try await api.json("POST", url("/me/messages/\(id)/\(a.bool("reply_all") == true ? "createReplyAll" : "createReply")"), json: [:])
+                guard let draftID = draft["id"] as? String else { throw ConnectorAPI.Failure(status: 0, message: "Outlook didn't return the reply draft.") }
+                let quoted = ((draft["body"] as? [String: Any])?["content"] as? String) ?? ""
+                _ = try await api.json("PATCH", url("/me/messages/\(draftID)"), json: ["body": ["contentType": "HTML", "content": Self.replyHTML(body, above: quoted)]])
+                return "Saved a reply draft in Outlook's Drafts (id \(draftID)). Nothing was sent."
+            }
             let draft: [String: Any] = [
                 "subject": try a.require("subject"),
                 "body": ["contentType": "Text", "content": try a.require("body")],

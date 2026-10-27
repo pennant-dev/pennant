@@ -33,6 +33,7 @@ extension WorkUpdate.Kind {
         case .failed: return "exclamationmark.triangle.fill"
         case .question: return "questionmark.bubble.fill"
         case .approval: return "checkmark.seal.fill"
+        case .unfinished: return "pause.circle.fill"
         }
     }
 
@@ -42,6 +43,7 @@ extension WorkUpdate.Kind {
         case .failed: return PennantTheme.danger
         case .question: return ShellPalette.violet
         case .approval: return PennantTheme.attention
+        case .unfinished: return PennantTheme.warning
         }
     }
 }
@@ -69,12 +71,13 @@ struct WorkUpdateRow: View {
         case .failed: return "Didn't finish"
         case .question: return "Asks you"
         case .approval: return pendingCard == nil ? (update.outcome ?? "Decided") : "Needs your OK"
+        case .unfinished: return "Ended without a change"
         }
     }
 
     var body: some View {
         switch update.kind {
-        case .question where worded, .finished where worded, .failed where worded:
+        case .question where worded, .finished where worded, .failed where worded, .unfinished where worded:
             // Pennant said it; this is just where it came from.
             source
         case .approval where worded:
@@ -99,45 +102,39 @@ struct WorkUpdateRow: View {
         session.state.conversation(update.threadID).flatMap { session.state.agent($0.agentID) } ?? session.state.leadAgent
     }
 
-    /// One quiet line under what Pennant said: the work it's about (it opens) and where that stands.
+    /// One line under what Pennant said: the work it's about, where that stands, and the way in. Pennant's own words
+    /// carry the news; "Details" shows the thread's.
     private var source: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 5) {
-                Image(systemName: sourceSymbol)
-                    .foregroundStyle(sourceColor)
-                Button { open() } label: {
-                    HStack(spacing: 2) {
-                        Text("About “\(update.thread)”").lineLimit(1)
-                        Image(systemName: "arrow.up.right").font(.zoomed(size: 8, weight: .semibold))
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(openChat == nil)
-                .help("Open the thread")
-                Text("·")
-                Text(sourceStatus).foregroundStyle(update.kind == .failed ? PennantTheme.danger : PennantTheme.inkTertiary)
+        VStack(alignment: .leading, spacing: 6) {
+            ThreadNewsLine(name: update.threadName, status: sourceStatus, state: newsState, open: openChat == nil ? nil : { open() }) {
                 if worded, update.kind != .approval {
-                    Button(showOriginal ? "Hide the details" : "Details") { showOriginal.toggle() }
+                    Button(showOriginal ? "Hide details" : "Details") { withAnimation(.easeInOut(duration: 0.15)) { showOriginal.toggle() } }
                         .buttonStyle(.plain)
+                        .font(.zoomed(.caption).weight(.medium))
                         .foregroundStyle(PennantTheme.brandInk)
                 }
-                Spacer(minLength: 8)
-                // A worded question has its time under Pennant's words already.
-                if !worded { Text(update.createdAt, style: .time).monospacedDigit() }
             }
-            .font(.zoomed(.caption))
-            .foregroundStyle(PennantTheme.inkTertiary)
             if showOriginal {
                 Text(update.text)
                     .font(.zoomed(.caption))
                     .foregroundStyle(PennantTheme.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
+                    .padding(.horizontal, 12)
+                    .transition(.opacity)
             }
         }
-        .padding(.leading, 14)
         .frame(maxWidth: 720, alignment: .leading)
+    }
+
+    private var newsState: ThreadNewsState {
+        switch update.kind {
+        case .finished: return .done
+        case .failed: return .failed
+        case .unfinished: return .unchanged
+        case .question: return threadStillAsks ? .waiting : .done
+        case .approval: return pendingCard == nil ? .done : .waiting
+        }
     }
 
     /// A card, a failure, or a question nobody worded: the thread's news as it came.
@@ -145,7 +142,7 @@ struct WorkUpdateRow: View {
         VStack(alignment: .leading, spacing: 8) {
             header
             switch update.kind {
-            case .finished, .failed:
+            case .finished, .failed, .unfinished:
                 Text(update.text)
                     .font(.zoomed(.callout))
                     .foregroundStyle(PennantTheme.inkSecondary)
@@ -186,7 +183,7 @@ struct WorkUpdateRow: View {
                 .foregroundStyle(update.kind.color)
             Button { open() } label: {
                 HStack(spacing: 3) {
-                    Text(update.thread).lineLimit(1)
+                    Text(update.threadName).lineLimit(1)
                     Image(systemName: "arrow.up.right").font(.zoomed(size: 9, weight: .semibold))
                 }
                 .font(.zoomed(.subheadline).weight(.semibold))
@@ -208,27 +205,12 @@ struct WorkUpdateRow: View {
         }
     }
 
-    private var sourceSymbol: String {
-        switch update.kind {
-        case .finished: return "checkmark.circle"
-        case .failed: return "exclamationmark.triangle"
-        case .question, .approval: return "arrow.turn.down.right"
-        }
-    }
-
-    private var sourceColor: Color {
-        switch update.kind {
-        case .finished: return PennantTheme.success
-        case .failed: return PennantTheme.danger
-        case .question, .approval: return PennantTheme.inkTertiary
-        }
-    }
-
     /// Where the work stands, in a few words.
     private var sourceStatus: String {
         switch update.kind {
         case .finished: return "done"
         case .failed: return "didn't finish"
+        case .unfinished: return "ended without a change"
         case .question: return threadStillAsks ? "waiting on your answer" : "answered"
         case .approval: return pendingCard == nil ? (update.outcome ?? "decided").lowercased() : "waiting for your OK"
         }
@@ -264,27 +246,63 @@ struct ThreadStartedRow: View {
 
     var body: some View {
         let phase = DelegatedWork.phase(task, call: activity.status)
-        HStack(spacing: 5) {
-            Image(systemName: "arrow.triangle.branch")
-            Button { if let task { openChat?(task.agentID, task.conversationID) } } label: {
-                HStack(spacing: 2) {
-                    Text("Working on “\(title)”").lineLimit(1)
-                    Image(systemName: "arrow.up.right").font(.zoomed(size: 8, weight: .semibold))
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(openChat == nil || task == nil)
-            .help("Open the thread")
-            Text("·")
-            Text(phase.word.lowercased()).foregroundStyle(phase.live ? PennantTheme.info : PennantTheme.inkTertiary)
-            if phase.live { ProgressView().controlSize(.mini) }
-            Spacer(minLength: 0)
+        // While it works, what it's doing this moment and for how long, instead of a bare "working".
+        let step = phase.live ? task.flatMap { WorkStep.current($0, records: session.state.toolRecords[$0.id] ?? [], naming: .from(session.state)) } : nil
+        ThreadNewsLine(name: TitleMarks.strip(title), status: step == nil ? phase.word.lowercased() : "", state: phase.live ? .working : .done,
+                       open: openChat == nil || task == nil ? nil : { if let task { openChat?(task.agentID, task.conversationID) } }) {
+            if let step { WorkStepLabel(phrase: step.phrase, since: step.since) }
         }
-        .font(.zoomed(.caption))
-        .foregroundStyle(PennantTheme.inkTertiary)
-        .padding(.leading, 14)
-        .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: 720, alignment: .leading)
+    }
+}
+
+enum ThreadNewsState { case working, waiting, done, unchanged, failed }
+
+/// Where a thread stands, as one line in the Pennant chat: a spinner while it works, its name, a few words, and Open.
+/// Its later news takes its place (one line per thread), so the chat doesn't fill with rows about the same work.
+struct ThreadNewsLine<Extra: View>: View {
+    var name: String
+    var status: String
+    var state: ThreadNewsState
+    var open: (() -> Void)?
+    @ViewBuilder var extra: Extra
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Group {
+                switch state {
+                case .working: ProgressView().controlSize(.small).scaleEffect(0.75)
+                case .waiting: Circle().fill(PennantTheme.brand).frame(width: 7, height: 7)
+                case .done: Image(systemName: "checkmark").font(.zoomed(size: 10, weight: .bold)).foregroundStyle(PennantTheme.success)
+                case .unchanged: Image(systemName: "pause.circle.fill").font(.zoomed(size: 10)).foregroundStyle(PennantTheme.warning)
+                case .failed: Image(systemName: "exclamationmark.triangle.fill").font(.zoomed(size: 10)).foregroundStyle(PennantTheme.danger)
+                }
+            }
+            .frame(width: 14, height: 14)
+            Text(name)
+                .font(.zoomed(.callout).weight(.semibold))
+                .foregroundStyle(PennantTheme.ink)
+                .lineLimit(1)
+            Text(status)
+                .font(.zoomed(.callout))
+                .foregroundStyle(state == .failed ? PennantTheme.danger : PennantTheme.inkSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(-1)
+            extra
+            Spacer(minLength: 8)
+            if let open {
+                Button("Open", action: open)
+                    .buttonStyle(.pennantCompact)
+                    .help("Open the thread")
+            }
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 6)
+        .padding(.vertical, 5)
+        .background(state == .working || state == .waiting ? PennantTheme.brandSoft : PennantTheme.panelBackground,
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .animation(.easeOut(duration: 0.2), value: status)
         .accessibilityElement(children: .combine)
     }
 }
@@ -307,7 +325,7 @@ struct ThreadFooter: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let openPennantChat {
                 Button {
-                    ChatDraft.shared.pending = "About “\(conversation.title)”: "
+                    ChatDraft.shared.pending = "About “\(conversationLabel(conversation))”: "
                     openPennantChat()
                 } label: {
                     Text("Talk to Pennant")

@@ -8,7 +8,9 @@ extension TaskRuntime {
     /// Takes one turn's context apart.
     func inspection(agent: AgentProfile, context: ContextBuilder.Output, specs: [ToolSpec], services: [ContextBuilder.Service], model: ModelChoice, isPreview: Bool, inChat: Bool) -> PromptInspection {
         let system = context.messages.first { $0.role == .system }?.text ?? ""
-        let history = context.messages.filter { $0.role != .system }
+        // The task and its checkpoint follow the system prompt as their own message; they read as part of the prompt.
+        let brief = context.messages.dropFirst().first.flatMap { $0.role == .user && $0.text.hasPrefix("## Current task") ? $0 : nil }
+        let history = context.messages.dropFirst(brief == nil ? 0 : 2).filter { $0.role != .system }
         let tools = specs.map { spec in
             PromptInspection.Tool(
                 name: spec.name,
@@ -23,7 +25,7 @@ extension TaskRuntime {
             isPreview: isPreview,
             model: model.label,
             reasoningEffort: inChat ? Self.chatEffort(agent: agent, model: model) : agent.reasoningEffort ?? model.reasoningEffort,
-            sections: Self.sections(of: system),
+            sections: Self.sections(of: brief.map { system + "\n" + $0.text } ?? system),
             // The per-turn context note goes at the end of every request; it isn't conversation history.
             historyMessages: history.filter { !$0.text.hasPrefix("[Context for this turn]") }.count,
             historyTokens: history.reduce(0) { $0 + TokenEstimator.tokens(for: $1) },

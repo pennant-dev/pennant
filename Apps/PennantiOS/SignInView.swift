@@ -5,7 +5,7 @@ import PennantUI
 import SwiftUI
 import UIKit
 
-/// First run: pick a host found on the network, scan the code the Mac shows (Settings › iPhone), or type its
+/// First run: pick a host found on the network, scan the code the Mac shows (Settings › Connections › iPhone), or type its
 /// Tailscale name, then sign in with an email and password or with Microsoft, Google or GitHub. Someone invited joins
 /// with the owner's one-time code and chooses a password. Cloudflare and pasting a token live under Advanced.
 struct SignInView: View {
@@ -202,7 +202,7 @@ struct SignInView: View {
                 Label("Scan the Mac's code", systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity)
             }
             .buttonStyle(.pennantSecondary)
-            Text("On the Mac: Pennant › Settings › iPhone. The phone needs Tailscale on, signed in to the same tailnet.")
+            Text("On the Mac: Pennant › Settings › Connections › iPhone. The phone needs Tailscale on, signed in to the same tailnet.")
                 .font(.caption).foregroundStyle(PennantTheme.inkTertiary)
         }
     }

@@ -110,12 +110,13 @@ extension TaskRuntime {
             await publish(.toolRecordUpserted(record))
             return (ToolResult.text(call.id, name: call.name, "Refused: " + Self.chatHandOffNote, isError: true), false)
         }
-        // A goal set to "only propose" changes nothing by itself.
-        if spec.isConsequential, let freedom = await deps.goalFreedom?(task.id), freedom == .proposeOnly {
+        // A goal set to "only propose" changes nothing by itself. Looking is fine: a command that only reads runs.
+        if spec.isConsequential, !(spec.name == "shell" && ShellReads.isReadOnly(call.arguments["command"]?.stringValue ?? "")),
+           let freedom = await deps.goalFreedom?(task.id), freedom == .proposeOnly {
             record.status = .denied; record.isError = true; record.resultSummary = "Held back in goal work"; record.finishedAt = Date()
             try? await deps.store.upsertToolRecord(record)
             await publish(.toolRecordUpserted(record))
-            return (ToolResult.text(call.id, name: call.name, "Held back: this goal only proposes. Put it to the owner as a card with request_approval (on_approve runs it once they approve), move the item to \"waiting\", and carry on with something else.", isError: true), spec.needsDesktop)
+            return (ToolResult.text(call.id, name: call.name, "Held back: this goal only proposes. Put it to the owner with request_approval, move the item to \"waiting\", and carry on with something else.", isError: true), spec.needsDesktop)
         }
         // The owner signs off on three things only: publishing to a public page or sending email, deleting, and
         // spending money. Pennant asks on the agent's behalf and runs exactly what's approved; the rest just runs.
@@ -139,8 +140,8 @@ extension TaskRuntime {
                 call.arguments = arguments
                 record.call = call
             }
-        } else if let reason = SignOff.reason(spec, arguments: call.arguments) ?? SignOff.asksFirst(spec),
-                  !(await approvedSend(call, reason: reason, task: task)), !(await alreadySignedOff(task: task, call: call)),
+        } else if let reason = SignOff.reason(spec, arguments: call.arguments) ?? SignOff.asksFirst(spec), SignOff.asks(reason, deps.config.askFirst),
+                  !heldSignedOff.contains(call.id), !(await approvedSend(call, reason: reason, task: task)), !(await alreadySignedOff(task: task, call: call)),
                   !signedOffEarlier(reason, call: call, in: task.conversationID) {
             let command = call.arguments["command"]?.stringValue
             // A delete whose places are known can be allowed for the rest of the thread, there.
@@ -154,6 +155,16 @@ extension TaskRuntime {
             request.details = [ApprovalDetail(label: "Tool", value: spec.name)]
             request.approveLabel = ApprovalRequest.signOffLabel
             if deletions?.isEmpty == false { request.allowRestLabel = SignOff.allowHereLabel }
+            // A thread doesn't stop at the card: it carries on with what doesn't depend on this call, which runs when
+            // the owner approves.
+            if await carriesOnPastCards(task) {
+                request.heldCall = call
+                try await postHeldCard(task: task, request)
+                record.status = .cancelled; record.resultSummary = "Waiting for the owner's OK"; record.finishedAt = Date()
+                try? await deps.store.upsertToolRecord(record)
+                await publish(.toolRecordUpserted(record))
+                return (ToolResult.text(call.id, name: call.name, Self.heldNote(request)), false)
+            }
             let decided: ApprovalRequest
             do { decided = try await requestApproval(taskID: task.id, request) } catch {
                 if stopping { throw error }
@@ -238,7 +249,9 @@ extension TaskRuntime {
         }
 
         try? await transition(task.id, to: .waitingForTool, reason: "Running \(spec.name)")
-        await setAgentStatus(agent.id, spec.needsDesktop ? .acting : .thinking, line: "Using \(spec.name)")
+        // Which tool is running reaches the apps with its record; the agent's own status changes only when it starts
+        // using the Mac (each change goes to every app with the whole profile).
+        if spec.needsDesktop { await setAgentStatus(agent.id, .acting, line: task.title) }
         record.status = .running
         try? await deps.store.upsertToolRecord(record)
         await publish(.toolRecordUpserted(record))
@@ -371,7 +384,7 @@ extension TaskRuntime {
         hooks.requestApproval = { [self] taskID, request in try await self.requestApproval(taskID: taskID, request) }
         hooks.startCoding = { [self] request, folder, mode, thread in
             guard let coding = await self.deps.config.coding, !coding.projects.isEmpty else {
-                throw ToolError.failed("Coding isn't set up on this host: the owner adds a project folder in Settings › Pennant › Coding.")
+                throw ToolError.failed("Coding isn't set up on this host: the owner adds a project folder in Settings › Advanced › Pennant › Coding.")
             }
             if let callerTask {
                 // One run at a time per task, and a few at most: asking again while one works is a loop, not a plan.
@@ -379,7 +392,14 @@ extension TaskRuntime {
                 if thread == nil, let running = earlier.first(where: { !$0.state.isTerminal }) {
                     throw ToolError.failed("A coding run from this task is still going (task \(running.id.rawValue)). Call await_task with that id, or pass its thread to follow up.")
                 }
-                if earlier.count >= 4 { throw ToolError.failed("This task has already started \(earlier.count) coding runs. Answer with what you have.") }
+                // The allowance is per stretch of work: the owner's word starts a new one (see `continuedByOwner`), and
+                // runs from before it don't count. Nothing Pennant does on its own resets it, so a retry can't buy more.
+                let segment = try await self.codingAllowanceSegment(of: callerTask)
+                let used = earlier.filter { segment == nil || $0.createdAt > segment! }
+                if used.count >= Self.codingRunsPerAllowance {
+                    let since = segment == nil ? "" : " since the owner last wrote"
+                    throw ToolError.failed("This task has already started \(used.count) coding runs\(since). Answer with what you have: the owner's reply gives it another \(Self.codingRunsPerAllowance).")
+                }
             }
             var conversationID: ConversationID?
             if let thread {
@@ -391,7 +411,8 @@ extension TaskRuntime {
             // A follow-up stays in its thread's folder; a new run goes to the project asked for.
             let path = conversationID == nil ? try Self.projectFolder(folder, in: coding) : nil
             let (_, cid, taskID) = try await self.submitUserMessage(agentID: caller, conversationID: conversationID, text: request, attachments: [],
-                                                                    folder: path, mode: coding.mode(asked: mode), requestedBy: callerTask, engine: coding.engine)
+                                                                    folder: path, mode: coding.mode(asked: mode), requestedBy: callerTask, engine: coding.engine,
+                                                                    askedForChange: true)
             return (taskID, cid)
         }
         hooks.runInClaudeCode = { [self] skill, request in
@@ -409,6 +430,10 @@ extension TaskRuntime {
         hooks.approval = { [self] id in try await self.findApproval(id)?.request }
         hooks.markPublished = { [self] id, url in try await self.updateApproval(id) { $0.publishedURL = url } }
         hooks.postApproval = { [self] taskID, request in try await self.postApproval(taskID: taskID, request) }
+        hooks.goAhead = { [self] taskID, request in try await self.goAhead(taskID: taskID, request) }
+        hooks.actionAsks = { [self] action in await self.actionAsks(action) }
+        hooks.onlyProposes = { [self] taskID in await self.deps.goalFreedom?(taskID) == .proposeOnly }
+        hooks.proposeInThread = { [self] taskID, request in try await self.proposeInThread(taskID: taskID, request) }
         hooks.resolveTool = { [self] name in
             guard let tool = await self.deps.broker.resolve(name) else { throw ToolError.invalidArguments(await self.deps.broker.whyMissing(name)) }
             return tool.spec.name
@@ -421,5 +446,78 @@ extension TaskRuntime {
         hooks.makeRoom = { [self] taskID, card, replaces, alongside in try await self.makeRoom(for: card, taskID: taskID, replaces: replaces, alongside: alongside) }
         hooks.postPart = { [self] taskID, part in try await self.postPart(taskID: taskID, part) }
         return hooks
+    }
+
+    // MARK: Cards that don't stop the work
+
+    /// Work that goes on past a card with its other steps: a thread, a scheduled run, a goal session. The chat, a
+    /// check-in, a coding run and a helper wait for the answer as before.
+    func carriesOnPastCards(_ task: TaskRecord) async -> Bool {
+        guard task.parentTaskID == nil, !Self.isHeartbeat(task), await !inMainChat(task) else { return false }
+        return (try? await deps.store.conversation(task.conversationID))?.isCodingRun != true
+    }
+
+    /// Puts up a card that holds one call, without waiting on it: the work carries on, and the call runs when the
+    /// owner approves (see `settleHeldCall`).
+    func postHeldCard(task: TaskRecord, _ request: ApprovalRequest) async throws {
+        let message = Message(conversationID: task.conversationID, agentID: task.agentID, taskID: task.id, role: .assistant, parts: [.approval(request)])
+        try await deps.store.appendMessage(message)
+        approvalMessages[request.id] = message.id
+        await publish(.messageAppended(message))
+        await publishConversation(task.conversationID, after: message)
+        await reportCard(task, request)
+        await publish(.notice(level: .info, agentID: task.agentID, text: "\(request.title) is ready for your approval."))
+    }
+
+    /// What a held call's tool result says to the work that made it.
+    static func heldNote(_ request: ApprovalRequest) -> String {
+        "Not run yet: this waits for the owner's OK on a card (approval_id \(request.id)). Carry on with anything that doesn't depend on it; when you've done what you can, finish and say it's waiting on their OK. When they answer, it runs exactly as written and you hear how it went."
+    }
+
+    /// The owner answered a card holding a call: approved, it runs now, exactly as approved; either way the work that
+    /// made it hears, in its next step if it's still going, or as a new message in its thread if it has finished (a
+    /// plain no is left at the card, nothing to act on).
+    func settleHeldCall(_ held: ToolCall, card: ApprovalRequest) async {
+        guard let task = try? await deps.store.task(card.taskID), let agent = try? await deps.store.agent(task.agentID) else { return }
+        var call = held
+        let news: String
+        switch card.state {
+        case .approved:
+            if let edited = card.approvedText, let command = call.arguments["command"]?.stringValue, edited != command, case .object(var fields) = call.arguments {
+                fields["command"] = .string(edited)
+                call.arguments = .object(fields)
+            }
+            heldSignedOff.insert(call.id)
+            defer { heldSignedOff.remove(call.id) }
+            let result = (try? await executeTool(call, task: task, agent: agent).0) ?? ToolResult.text(call.id, name: call.name, "It couldn't run.", isError: true)
+            _ = try? await updateApproval(card.id) { a in
+                a.actionResult = String(result.textContent.prefix(300))
+                a.actionFailed = result.isError
+            }
+            news = "The owner approved “\(card.title)” and it ran\(result.isError ? ", but it failed" : ""):\n\(result.textContent.prefix(1500))"
+        case .changesRequested:
+            news = "The owner asked for a change to “\(card.title)” instead of running it: \(card.comment ?? "see the card"). Adjust it and try again."
+        case .rejected:
+            news = "The owner declined “\(card.title)”\(card.comment.map { ": \($0)" } ?? ""). It didn't run; don't retry it."
+        case .pending:
+            return
+        }
+        // The record of the call that waited says how it ended.
+        if var record = (try? await deps.store.toolRecords(taskID: task.id))?.last(where: { $0.call.id == held.id && $0.status == .cancelled }) {
+            switch card.state {
+            case .approved: record.status = news.contains(", but it failed") ? .failed : .succeeded; record.resultSummary = "Approved and run"
+            case .changesRequested: record.status = .denied; record.resultSummary = Self.changesRequestedSummary
+            default: record.status = .denied; record.resultSummary = "Declined"
+            }
+            record.isError = record.status != .succeeded
+            try? await deps.store.upsertToolRecord(record)
+            await publish(.toolRecordUpserted(record))
+        }
+        if !task.state.isTerminal {
+            runtimeNotes[task.id, default: []].append(news)
+        } else if card.state != .rejected {
+            _ = try? await submitUserMessage(agentID: task.agentID, conversationID: task.conversationID, text: news, attachments: [],
+                                             author: MessageAuthor(id: PersonID("pennant"), name: agent.name))
+        }
     }
 }

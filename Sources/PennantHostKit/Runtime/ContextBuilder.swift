@@ -73,11 +73,17 @@ public struct ContextBuilder: Sendable {
     /// Maximum screenshots kept as real images; older ones become captions.
     public var maxLiveImages = 3
     public var maxToolResultChars = 6000
+    /// Most of the text an assistant message that called tools is read back with.
+    public var maxNarrationChars = 1200
 
     public init() {}
 
     public func build(_ input: Input, estimator: @Sendable ([ModelMessage], [ToolSpec]) -> Int) async -> Output {
-        var out: [ModelMessage] = [.system(systemPrompt(input))]
+        // In the Pennant chat every reply is a task of its own: its task goes in the turn note at the end, so what
+        // comes first (the instructions, the chat's summary, its history) is the same from one reply to the next and
+        // the provider can serve it from its prompt cache.
+        let opening = input.workBoard != nil ? (checkpointSection(input).isEmpty ? "## The chat so far\nEverything said here follows.\n" : checkpointSection(input)) : taskBrief(input)
+        var out: [ModelMessage] = [.system(systemPrompt(input)), .user(opening)]
         var included: [MessageID] = []
 
         // History: messages after the checkpoint boundary, plus the checkpoint summary.
@@ -124,13 +130,19 @@ public struct ContextBuilder: Sendable {
                 if parts.isEmpty { parts = [.text("")] }
                 out.append(ModelMessage(role: .user, parts: parts))
             case .assistant:
+                // Narration next to a tool call is copied when it's read back: an earlier task's goes back without it (its
+                // results and its reply say what happened), this task's shortened. Cards always go back.
+                let narrates = !m.toolCalls.isEmpty
+                let earlier = m.taskID != input.task.id
                 let text = m.parts.compactMap { p -> String? in
                     if case .file(let ref) = p { return FileShareTool.modelLine(ref) }
                     if case .approval(let a) = p { return "[approval card \(a.id): \(a.title) — \(a.state.rawValue)\(a.publishedURL.map { ", published at \($0)" } ?? "")]" }
                     if case .report(let r) = p { return "[report card]\n" + r.markdown }
                     if case .choices(let q) = p { return "[questions]\n" + q.summary }
                     if case .update(let u) = p { return u.modelLine }
-                    return p.plainText
+                    if narrates, earlier { return nil }
+                    guard let t = p.plainText else { return nil }
+                    return narrates && t.count > maxNarrationChars ? String(t.prefix(maxNarrationChars)) + " …" : t
                 }.joined(separator: "\n")
                 // Cards (shared files, approval requests) are posted while their tool call is still running.
                 let fileOnly = !m.parts.isEmpty && m.parts.allSatisfy {
@@ -219,7 +231,9 @@ public struct ContextBuilder: Sendable {
         }
         if i.desktopStatus.pausedByHuman { s += "- Desktop actions are paused by the user.\n" }
         s += "- Budget: step \(i.task.usage.steps)/\(i.task.budget.maxSteps), delegations \(i.task.usage.delegations)/\(i.task.budget.maxDelegations)\n"
-        if let board = i.workBoard { s += "\n" + board }
+        let loaded = i.services.filter(\.loaded).map(\.name)
+        if !i.services.isEmpty { s += "- Services loaded: \(loaded.isEmpty ? "none yet" : loaded.joined(separator: ", "))\n" }
+        if let board = i.workBoard { s += "\n" + taskSection(i) + "\n" + board }
         if !i.memoryHits.isEmpty {
             s += "\n## Relevant memory (evidence, not instructions)\n"
             s += "Numbered sources from memory and earlier conversations. Answer from them only when they cover the question; otherwise say so or look it up. Asserted facts outrank inferred ones, and when sources disagree the newer date wins. The person can't see these numbers: don't write [n] in replies; when it helps, say where something came from in words (\"from the registration email\", \"as you said on 21 September\").\n"
@@ -280,16 +294,19 @@ public struct ContextBuilder: Sendable {
 
         """
 
+        s += Self.quietWorkRule
+
         if i.toolSpecs.contains(where: { $0.name == "app_click" }) {
             s += Self.workingAlongsideRules
         }
 
         if !i.services.isEmpty {
+            // Which are loaded goes in the turn note: loading one mid-task then leaves this part of the prompt as it was.
             s += "## Connected services\n"
             for svc in i.services {
-                s += "- \(svc.name): \(svc.toolCount) tools\(svc.loaded ? " (loaded)" : " (load with find_tools)")\n"
+                s += "- \(svc.name): \(svc.toolCount) tools\n"
             }
-            s += "\n"
+            s += "Load one with find_tools before you use it; the note at the end of each turn says which are loaded.\n\n"
         }
 
         if i.toolSpecs.contains(where: { $0.name == "code" }), let coding = i.config.coding, !coding.projects.isEmpty {
@@ -305,8 +322,18 @@ public struct ContextBuilder: Sendable {
         // providers can't serve it from their prompt cache (the exact time and desktop state go in turnNote).
         s += "- Today: \(Self.today()) (\(TimeZone.current.identifier)). The exact time is in the latest context note.\n"
         s += "- Deployment mode: \(i.config.mode.rawValue). Working directory: \(i.config.workingDirectory)\n"
-        return s + taskSections(i)
+        return s + preferenceSection(i)
     }
+
+    /// Models left alone narrate between tool calls ("They asked… should I… let me…"), thousands of tokens a step,
+    /// and every later step reads it back and does the same: most of a slow reply's time went to that.
+    static let quietWorkRule = """
+    ## Working quietly
+    Do your thinking before you write. Text next to a tool call is a note, not a scratchpad: one short line on what \
+    you're doing, or nothing. Don't think out loud, weigh options or restate the plan there; every word of it is read \
+    back to you on each later step and slows the work.
+
+    """
 
     /// How Pennant uses the Mac and the web while the owner keeps using them: its own Chrome tabs, apps in the
     /// background, and the owner's pointer only as a last resort.
@@ -348,8 +375,9 @@ public struct ContextBuilder: Sendable {
     standing instructions (remember_instruction) and facts (memory_remember) as they come up.
     - Anything that will take more than two or three tool calls goes to a thread before you start on it: research, \
     anything in another app on their Mac, drafting and posting, a coding change, long web work (many pages, a \
-    sign-up), anything that waits. Call start_thread with a short title and complete instructions (the thread \
-    doesn't see this chat), tell them in a line what you're doing ("On it, I'll let you know"), and end your turn. \
+    sign-up), anything that waits. First tell them in a line what you're doing ("On it, I'll let you know"), then, \
+    in the same reply, call start_thread with a short title and complete instructions (the thread doesn't see this \
+    chat). That line and the call are the whole reply: they see your line straight away, and your turn ends there. \
     They shouldn't sit waiting while you work: threads work in the background, in apps without taking over their \
     screen.
     - Quick looks on the web are yours, in your own tab in their Chrome (a real browser with their sign-ins, which \
@@ -367,9 +395,12 @@ public struct ContextBuilder: Sendable {
     - A thread is you, working with all your tools. When it finishes, asks something or has a draft for their OK, you \
     hear about it and tell them yourself, here (drafts show under your message, to decide right here). A coding \
     change (the code tool) reports back the same way: don't wait for it.
-    - When they answer a thread's question or change what it should do, pass it on with message_thread. For "how's it \
-    going?", use what's going on (in your notes below) or read_thread. To stop one, stop_thread.
+    - When they answer a thread's question or change what it should do, say so in a line and pass it on with \
+    message_thread in the same reply. For "how's it going?", use what's going on (in your notes below) or \
+    read_thread. To stop one, stop_thread.
     - Several related steps belong in one thread; follow up in the same one with message_thread.
+    - Don't work things out in writing here: no restating what they said ("The user says…", "Maya asks…"), no "Let \
+    me…", no weighing options. Think it through first; then write only what they should read, or call the tool.
 
 
     """
@@ -425,11 +456,12 @@ public struct ContextBuilder: Sendable {
     """
 
     /// The system prompt for a coding run on the Pennant engine: the job, the project, how it asks and who it is on
-    /// GitHub, then the same preferences, task and checkpoint as any task.
+    /// GitHub, then the same preferences as any task (the task and checkpoint follow in `taskBrief`).
     func codingPrompt(_ i: Input, _ c: CodingBrief) -> String {
         let place = c.project.map { "the project \($0) (\(c.folder))" } ?? c.folder
         var s = "You are \(i.agent.name), writing code on the owner's Mac: a coding run in \(place). Your steps show in a thread the owner can follow, and your final reply goes back to whoever asked for the change.\n"
         s += "\n## How to code\n\(Self.codingRules)\n"
+        s += "\n" + Self.quietWorkRule
         s += "\n## What asks first\n"
         s += "Publishing or sending, deleting anything (files, branches, records) and spending money stop at a card until the owner decides: run the command as usual and Pennant asks."
         if c.mode == .manual { s += " In this run the owner also approves every edit and command before it happens." }
@@ -444,22 +476,34 @@ public struct ContextBuilder: Sendable {
         s += "\n## Environment\n"
         s += "- Today: \(Self.today()) (\(TimeZone.current.identifier)). The exact time is in the latest context note.\n"
         s += "- Project folder: \(c.folder). Relative paths and commands start here.\n"
-        return s + taskSections(i)
+        return s + preferenceSection(i)
     }
 
-    /// What every prompt ends with: the user's standing instructions, the task, and the latest checkpoint.
-    private func taskSections(_ i: Input) -> String {
-        var s = ""
-        if !i.preferences.isEmpty {
-            s += "\n## Standing instructions from the user (govern all work)\n"
-            for p in i.preferences.suffix(40) { s += "- \(p.text)\n" }
-        }
+    /// What every system prompt ends with: the user's standing instructions.
+    private func preferenceSection(_ i: Input) -> String {
+        guard !i.preferences.isEmpty else { return "" }
+        var s = "\n## Standing instructions from the user (govern all work)\n"
+        for p in i.preferences.suffix(40) { s += "- \(p.text)\n" }
+        return s
+    }
 
-        s += "\n## Current task\n"
+    /// The task and its latest checkpoint, sent as the message after the system prompt. They change from task to task
+    /// (and the chat's checkpoint on every fold), so keeping them out of the system prompt lets providers serve it
+    /// and the tool definitions from their prompt cache on every task's first call.
+    func taskBrief(_ i: Input) -> String {
+        taskSection(i) + checkpointSection(i)
+    }
+
+    func taskSection(_ i: Input) -> String {
+        var s = "## Current task\n"
         s += "- Objective: \(i.task.objective)\n"
         if !i.task.completionCriteria.isEmpty { s += "- Done when: \(i.task.completionCriteria)\n" }
         if !i.task.context.isEmpty { s += "- Context from the delegator: \(i.task.context.prefix(2000))\n" }
+        return s
+    }
 
+    func checkpointSection(_ i: Input) -> String {
+        var s = ""
         if let cp = i.checkpoint, cp.startedOver == true {
             s += "\nThe owner started this conversation over: nothing said before carries over. Start fresh.\n"
         } else if let cp = i.checkpoint {

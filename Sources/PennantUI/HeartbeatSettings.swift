@@ -2,7 +2,7 @@ import PennantClientKit
 import PennantCore
 import SwiftUI
 
-/// Settings › Pennant › Heartbeat: whether Pennant checks in on its own, how often, what else it does on each check-in
+/// Settings › Advanced › Pennant › Heartbeat: whether Pennant checks in on its own, how often, what else it does on each check-in
 /// (in the owner's words), and how many times a day it may stop to think.
 public struct HeartbeatSettings: View {
     @Environment(\.hostSession) private var session

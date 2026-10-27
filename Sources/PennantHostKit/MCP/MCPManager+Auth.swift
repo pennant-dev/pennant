@@ -263,7 +263,7 @@ extension MCPManager {
     }
 
     func setAuth(_ id: MCPServerID, _ state: MCPAuthState, _ detail: String?) async {
-        guard var status = statuses[id] else { return }
+        guard var status = statuses[id], status.authState != state || status.authDetail != detail else { return }
         status.authState = state
         status.authDetail = detail
         statuses[id] = status
@@ -312,6 +312,7 @@ extension MCPManager {
             return (current.accessToken, current.expiresAt)
         }
         if let running = refreshTasks[id] { return await running.value }
+        if let wait = refreshBackoff[id], wait.until > Date() { return nil }
         let task = Task { await self.performRefresh(id) }
         refreshTasks[id] = task
         let result = await task.value
@@ -346,6 +347,7 @@ extension MCPManager {
             }
             let refreshed = try await oauth.refresh(tokenEndpoint: tokenEndpoint, refreshToken: refreshToken, client: client, resource: resource, scope: nil, headers: configured?.tokenHeaders ?? [:])
             try credentials.set(key, value: try refreshed.encoded())
+            refreshBackoff[id] = nil
             await setAuth(id, .signedIn, refreshed.detail())
             log.info("MCP server \(config.name): token refreshed (\(refreshed.detail()))\(refreshed.claimsSummary.map { "; token claims: \($0)" } ?? "")", category: "mcp")
             return (refreshed.accessToken, refreshed.expiresAt)
@@ -353,7 +355,10 @@ extension MCPManager {
             if let e = error as? OAuthServerError, e.code == "invalid_client" || e.code == "unauthorized_client" { credentials.delete(key + ".client") }
             guard Self.refusedSignIn(error) else {
                 // Offline, a timeout, the provider having a bad minute: the refresh token is still good, so the
-                // connection stays signed in and the next use (or the connection's retry) tries again.
+                // connection stays signed in and the next use (or the connection's retry) tries again, after half
+                // the connection's retry wait (15 s), then twice as long each time it fails, up to 5 minutes.
+                let failures = (refreshBackoff[id]?.failures ?? 0) + 1
+                refreshBackoff[id] = (Date().addingTimeInterval(min(retryBase / 2 * pow(2, Double(failures - 1)), 300)), failures)
                 log.warn("MCP server \(config.name): token refresh failed, trying again later: \(Self.describe(error))", category: "mcp")
                 await setAuth(id, .signedIn, "Couldn't renew the sign-in just now; trying again")
                 return nil

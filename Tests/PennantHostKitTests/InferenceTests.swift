@@ -187,6 +187,20 @@ final class InferenceTests: XCTestCase {
         XCTAssertTrue(response.toolCalls.isEmpty)
     }
 
+    func testAnEngineWithoutJSONModeIsAskedAgainInPlainText() async throws {
+        defer { OpenAICompatibleProvider.noJSONMode.set([]) }
+        MockURLProtocol.install { _, body in
+            let sent = body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            if sent.contains("response_format") {
+                return .init(status: 400, headers: ["Content-Type": "application/json"], chunks: [Data(#"{"error":{"message":"structured output (response_format and the guided_* fields) is not supported by this engine yet"}}"#.utf8)])
+            }
+            return .init(status: 200, chunks: [sse([delta(#"{"summary":"Maya's Harbor plan"}"#, finish: "stop")])])
+        }
+        let response = try await makeProvider().complete(InferenceRequest(messages: [.user("Summarise as JSON")], jsonMode: true))
+        XCTAssertEqual(response.text, #"{"summary":"Maya's Harbor plan"}"#)
+        XCTAssertEqual(MockURLProtocol.requests.count, 2, "one refusal, then plain text")
+    }
+
     func testUsageArrivesBeforeFinished() async throws {
         MockURLProtocol.install { _, _ in
             .init(status: 200, chunks: [sse([delta("x", finish: "stop"), #"{"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1}}"#])])
@@ -545,11 +559,11 @@ final class InferenceTests: XCTestCase {
 
 final class LiveInferenceTests: XCTestCase {
     private var liveConfig: HostConfig.Inference? {
-        guard ProcessInfo.processInfo.environment["PENNANT_LIVE_INFERENCE"] == "1" else { return nil }
         let env = ProcessInfo.processInfo.environment
+        guard env["PENNANT_LIVE_INFERENCE"] == "1", let baseURL = env["PENNANT_LIVE_BASE_URL"], let model = env["PENNANT_LIVE_MODEL"] else { return nil }
         return HostConfig.Inference(
-            baseURL: env["PENNANT_LIVE_BASE_URL"] ?? "http://localhost:11434/v1",
-            model: env["PENNANT_LIVE_MODEL"] ?? "gemma4:e2b-it-qat",
+            baseURL: baseURL,
+            model: model,
             contextWindowTokens: 32_000,
             maxOutputTokens: 256,
             temperature: 0,

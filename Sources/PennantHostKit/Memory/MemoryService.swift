@@ -8,6 +8,9 @@ public actor MemoryService {
     let store: any StoreProtocol
     private let eventBus: EventBus
     private let embeddings: (any EmbeddingProvider)?
+    /// What each passage was embedded from this session (passage id → the text sent): a conversation that grew is
+    /// re-cut, but only its new or changed passages are embedded again.
+    private var embeddedTexts: [String: String] = [:]
 
     public init(store: any StoreProtocol, eventBus: EventBus, embeddings: (any EmbeddingProvider)? = nil) {
         self.store = store
@@ -459,12 +462,17 @@ public actor MemoryService {
     }
 
     private func embedPassages(_ passages: [MemoryPassage]) async {
-        guard let embeddings, !passages.isEmpty else { return }
+        let fresh = passages.filter { embeddedTexts[$0.id] != documentPrompt(title: $0.title, text: $0.text) }
+        guard let embeddings, !fresh.isEmpty else { return }
         do {
-            for start in stride(from: 0, to: passages.count, by: 48) {
-                let batch = Array(passages[start ..< min(start + 48, passages.count)])
-                let vectors = try await embeddings.embed(batch.map { documentPrompt(title: $0.title, text: $0.text) })
-                for (p, v) in zip(batch, vectors) { try await store.putEmbedding(kind: "chunk", itemID: p.id, vector: v) }
+            for start in stride(from: 0, to: fresh.count, by: 48) {
+                let batch = Array(fresh[start ..< min(start + 48, fresh.count)])
+                let prompts = batch.map { documentPrompt(title: $0.title, text: $0.text) }
+                let vectors = try await embeddings.embed(prompts)
+                for ((p, prompt), v) in zip(zip(batch, prompts), vectors) {
+                    try await store.putEmbedding(kind: "chunk", itemID: p.id, vector: v)
+                    embeddedTexts[p.id] = prompt
+                }
             }
         } catch {
             log.warn("Passage embedding failed: \(error)", category: "memory")
@@ -590,13 +598,16 @@ public actor MemoryService {
     /// EmbeddingGemma is trained with task prompts: documents as "title: … | text: …", searches as
     /// "task: search result | query: …". Other models get the plain text.
     private var usesTaskPrompts: Bool { embeddings?.modelName.lowercased().contains("gemma") == true }
+    /// Qwen3-Embedding (Pennant's own) is told what a search is for; what it searches stays plain text.
+    private var usesInstructedQueries: Bool { embeddings?.modelName.lowercased().contains("qwen3-embedding") == true }
 
     func documentPrompt(title: String, text: String) -> String {
         usesTaskPrompts ? "title: \(title.isEmpty ? "none" : title) | text: \(text)" : [title, text].filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     func queryPrompt(_ query: String) -> String {
-        usesTaskPrompts ? "task: search result | query: \(query)" : query
+        if usesInstructedQueries { return "Instruct: Given a question, retrieve the notes and conversation passages that answer it\nQuery:\(query)" }
+        return usesTaskPrompts ? "task: search result | query: \(query)" : query
     }
 
     static func entityText(_ e: MemoryEntity) -> String {
@@ -607,6 +618,7 @@ public actor MemoryService {
     /// the embedding model changes (vectors from different models don't compare, so the old ones are dropped).
     public func backfillEmbeddings() async {
         guard let embeddings else { return }
+        await embeddings.prepare()
         let model = embeddings.modelName
         do {
             if let recorded = try await store.setting("embedding_model"), recorded != model {

@@ -199,7 +199,7 @@ public actor PluginManager {
             // As the Vault names its items.
             let name = given.lowercased().replacingOccurrences(of: " ", with: "-")
             if let vault, !(await vault.items()).contains(where: { $0.name == name }) {
-                throw HostCommandError.invalid("There's no vault item named \(name). Add it in Settings › Vault first.")
+                throw HostCommandError.invalid("There's no vault item named \(name). Add it in the Vault (Everything else › Vault) first.")
             }
             record.grants[key] = name
         case .credential(let name, _, let suggest):

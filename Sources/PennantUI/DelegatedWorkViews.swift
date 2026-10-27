@@ -12,6 +12,8 @@ enum DelegatedWork {
     static let thread = "start_thread"
     /// The chat's other thread tools: not shown, they're how Pennant works.
     static let quietThreadTools: Set<String> = ["message_thread", "read_thread", "stop_thread"]
+    /// The chat's tools that hand work on: what Pennant says in the same step is said to the owner, not narration.
+    static let handsOn: Set<String> = [thread, "message_thread"]
     static func isDelegated(_ name: String) -> Bool { name == coding || name == delegation || name == thread }
     /// A skill only Claude Code can follow: `use_skill` starts it in a thread of its own ("<name> runs in Claude Code
     /// (…), so it's started there: task …"), and it shows like a coding run.
@@ -32,7 +34,7 @@ enum DelegatedWork {
     static func phase(_ task: TaskRecord?, call: ToolActivityStatus) -> (word: String, color: Color, live: Bool) {
         if let task {
             switch task.state {
-            case .completed: return ("Done", PennantTheme.success, false)
+            case .completed: return task.madeChanges == false ? ("Nothing changed", PennantTheme.warning, false) : ("Done", PennantTheme.success, false)
             case .failed: return ("Failed", PennantTheme.danger, false)
             case .cancelled: return ("Cancelled", PennantTheme.inkTertiary, false)
             case .waitingForUser: return ("Needs you", PennantTheme.color(for: AgentStatus.waitingForUser), false)

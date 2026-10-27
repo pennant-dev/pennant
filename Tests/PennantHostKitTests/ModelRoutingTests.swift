@@ -62,7 +62,7 @@ final class ModelRoutingTests: XCTestCase {
         try? FileManager.default.removeItem(at: paths.root)
         TaskRuntime.rateLimitWaits = [10, 30, 60]
         TaskRuntime.serverErrorWaits = [3, 6]
-        TaskRuntime.outageCooldown = 180
+        TaskRuntime.outageCooldown = 600
         TaskRuntime.rateLimitPause = 120
     }
 
@@ -154,6 +154,40 @@ final class ModelRoutingTests: XCTestCase {
         await s.stop()
     }
 
+    func testTheChatAnswersOnItsOwnModelAndOtherWorkKeepsTheAgents() async throws {
+        let sse = """
+        data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"Answered on the fast model."},"finish_reason":null}]}
+
+        data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+        data: [DONE]
+
+
+        """
+        let tiny = try TinyHTTPServer { _ in TinyHTTPServer.Response(status: 200, headers: ["Content-Type": "text/event-stream"], body: Data(sse.utf8)) }
+        try await tiny.start()
+        defer { tiny.stop() }
+        var quick = HostConfig.Inference()
+        quick.baseURL = tiny.baseURL.absoluteString + "/v1"
+        quick.model = "harbor-fast"
+        let fast = InferenceProfile(inference: quick)
+        let own = FlakyProvider(failures: [], answer: "Answered on the agent's model.")
+        let s = try await service(own) { $0.inferenceProfiles = [fast] }
+        var a = try await agent(s)
+        a.chatModelProfileID = fast.id
+        try await s.store.upsertAgent(a)
+
+        let chat = try await s.runtime.ensureMainChat()
+        let (_, _, reply) = try await s.runtime.submitUserMessage(agentID: a.id, conversationID: chat.id, text: "When is Maya's flight?", attachments: [])
+        let answered = try await wait(s, reply, .completed)
+        XCTAssertEqual(answered.resultSummary, "Answered on the fast model.")
+
+        let (_, _, work) = try await s.runtime.submitUserMessage(agentID: a.id, conversationID: nil, text: "Plan Dana's Harbor visit", attachments: [])
+        let done = try await wait(s, work, .completed)
+        XCTAssertEqual(done.resultSummary, "Answered on the agent's model.")
+        await s.stop()
+    }
+
     func testAModelThatKeepsFailingHandsTheTaskToTheFallbackAndComesBackAfterTheCooldown() async throws {
         // The default model answers 503 "no healthy upstream" every time; the fallback profile is healthy.
         let sse = """
@@ -228,8 +262,12 @@ final class ModelRoutingTests: XCTestCase {
         XCTAssertFalse(first.tools.contains { $0.source.hasPrefix("mcp:") }, "service tools start unloaded")
         XCTAssertTrue(first.tools.contains { $0.name == "find_tools" })
         let prompt = first.messages.first?.text ?? ""
-        XCTAssertTrue(prompt.contains("Canva: 21 tools (load with find_tools)"))
+        XCTAssertTrue(prompt.contains("Canva: 21 tools\n"))
+        XCTAssertTrue(first.messages.last?.text.contains("Services loaded: none yet") == true)
         let second = try XCTUnwrap(provider.requests.dropFirst().first)
+        // Loading changes only the note at the end, not the instructions before the conversation.
+        XCTAssertEqual(second.messages.first?.text, prompt)
+        XCTAssertTrue(second.messages.last?.text.contains("Services loaded: Canva") == true)
         XCTAssertEqual(second.tools.filter { $0.source == "mcp:srv-canva" }.count, 21)
         XCTAssertFalse(second.tools.contains { $0.source == "mcp:srv-mail" }, "only the matching service loads")
         await s.stop()

@@ -740,7 +740,7 @@ struct ModelKeyField: View {
     var placeholder: String
     /// A name for a new entry, from the endpoint or resource ("openrouter-key").
     var suggestedName: String
-    /// Endpoints such as a local Ollama need no key.
+    /// Endpoints such as LM Studio on this Mac need no key.
     var optional: Bool
     @State private var entries: [VaultItem] = []
     @State private var adding = false

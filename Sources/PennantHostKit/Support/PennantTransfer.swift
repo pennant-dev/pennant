@@ -60,7 +60,7 @@ public enum PennantTransfer {
         try encoder.encode(manifest).write(to: dir.appendingPathComponent("manifest.json"))
         try Data("""
         Pennant export from \(manifest.hostName), \(stamp.string(from: manifest.createdAt)).
-        Import it on another Mac from Pennant › Settings › Host settings › Move to another Mac (or `pennant import "<this folder>"`).
+        Import it on another Mac from Pennant › Settings › Advanced › Host settings › Move to another Mac (or `pennant import "<this folder>"`).
         \(manifest.includesSecrets ? "Vault secrets and connector sign-ins are inside, sealed with the passphrase you chose." : "No secrets inside: vault passwords and connector sign-ins need to be entered again.")
         Browser sign-ins don't transfer (Chrome ties them to this Mac): copy them again in Vault › Sign-ins from Chrome.
         """.utf8).write(to: dir.appendingPathComponent("README.txt"))

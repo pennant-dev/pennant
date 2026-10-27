@@ -114,9 +114,14 @@ final class APITestStore: StoreProtocol, @unchecked Sendable {
     func messagesAfter(conversationID: ConversationID, after: MessageID?, limit: Int) async throws -> [Message] { [] }
     func searchMessages(text: String, agentID: AgentID?, limit: Int) async throws -> [Message] { [] }
     func messages(taskID: TaskID) async throws -> [Message] { [] }
+    func messagesWithWaitingCards() async throws -> [Message] { [] }
+    func messagesWithReports() async throws -> [Message] { [] }
     func upsertTask(_ task: TaskRecord) async throws {}
     func task(_ id: TaskID) async throws -> TaskRecord? { nil }
     func listTasks(agentID: AgentID?, includeFinished: Bool) async throws -> [TaskRecord] { [] }
+    func tasks(conversationID: ConversationID) async throws -> [TaskRecord] { [] }
+    func latestTopLevelTasks(in conversations: Set<ConversationID>) async throws -> [ConversationID: TaskRecord] { [:] }
+    func conversationsWithTasks(updatedSince date: Date) async throws -> Set<ConversationID> { [] }
     func recordTransition(_ transition: TaskTransition) async throws {}
     func childTasks(parentTaskID: TaskID) async throws -> [TaskRecord] { [] }
     func upsertToolRecord(_ record: ToolRecord) async throws {}

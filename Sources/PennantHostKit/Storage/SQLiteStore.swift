@@ -5,6 +5,10 @@ import Foundation
 public actor SQLiteStore: StoreProtocol {
     let db: SQLiteDatabase
     public let paths: HostPaths
+    /// The messages holding a card that waits for the owner: found with one pass over the stored text the first time
+    /// they're asked for, then kept up as messages are written, so finding the waiting cards never reads every
+    /// conversation. Nil until then, and again after conversations are deleted.
+    var waitingCards: Set<MessageID>?
 
     public init(paths: HostPaths) throws {
         try paths.ensureDirectories()
@@ -259,6 +263,7 @@ public actor SQLiteStore: StoreProtocol {
                 try upsertConversation(conversation)
             }
         }
+        if message.holdsWaitingCard { waitingCards?.insert(message.id) } else { waitingCards?.remove(message.id) }
     }
 
     public func updateMessage(_ message: Message) throws {
@@ -311,6 +316,27 @@ public actor SQLiteStore: StoreProtocol {
             "SELECT json FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC LIMIT ?",
             [.text(conversationID.rawValue), .int(limit)]
         ) { Self.decode(Message.self, $0.string(0), context: "message") }.compactMap { $0 }
+    }
+
+    public func messagesWithWaitingCards() throws -> [Message] {
+        if waitingCards == nil { waitingCards = Set(try messages(withKey: "approval").filter(\.holdsWaitingCard).map(\.id)) }
+        guard let ids = waitingCards, !ids.isEmpty else { return [] }
+        let marks = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        return try db.query("SELECT json FROM messages WHERE id IN (\(marks)) ORDER BY created_at ASC, rowid ASC", ids.map { .text($0.rawValue) }) {
+            Self.decode(Message.self, $0.string(0), context: "message")
+        }.compactMap { $0 }.filter(\.holdsWaitingCard)
+    }
+
+    public func messagesWithReports() throws -> [Message] {
+        try messages(withKey: "report").filter(\.holdsReport)
+    }
+
+    /// The messages whose stored JSON has `key` in quotes (a part's key, say), oldest first: one pass over the text in
+    /// SQLite, decoding only the few that match.
+    private func messages(withKey key: String) throws -> [Message] {
+        try db.query("SELECT json FROM messages WHERE instr(json, ?) > 0 ORDER BY created_at ASC, rowid ASC", [.text("\"\(key)\"")]) {
+            Self.decode(Message.self, $0.string(0), context: "message")
+        }.compactMap { $0 }
     }
 
     public func searchMessages(text: String, agentID: AgentID?, limit: Int) throws -> [Message] {

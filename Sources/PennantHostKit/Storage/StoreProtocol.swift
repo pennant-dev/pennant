@@ -35,11 +35,21 @@ public protocol StoreProtocol: Sendable {
     func searchMessages(text: String, agentID: AgentID?, limit: Int) async throws -> [Message]
     /// Every message a task wrote, oldest first.
     func messages(taskID: TaskID) async throws -> [Message]
+    /// Messages holding a card that still waits for the owner, oldest first, in any conversation.
+    func messagesWithWaitingCards() async throws -> [Message]
+    /// Messages holding a report card, oldest first, in any conversation.
+    func messagesWithReports() async throws -> [Message]
 
     // MARK: Tasks
     func upsertTask(_ task: TaskRecord) async throws
     func task(_ id: TaskID) async throws -> TaskRecord?
     func listTasks(agentID: AgentID?, includeFinished: Bool) async throws -> [TaskRecord]
+    /// A conversation's tasks, newest first.
+    func tasks(conversationID: ConversationID) async throws -> [TaskRecord]
+    /// Each of these conversations' newest top-level task (none for a conversation without one).
+    func latestTopLevelTasks(in conversations: Set<ConversationID>) async throws -> [ConversationID: TaskRecord]
+    /// The conversations with a task updated since `date`.
+    func conversationsWithTasks(updatedSince date: Date) async throws -> Set<ConversationID>
     func recordTransition(_ transition: TaskTransition) async throws
     func childTasks(parentTaskID: TaskID) async throws -> [TaskRecord]
 
@@ -107,6 +117,18 @@ public protocol StoreProtocol: Sendable {
     func setSetting(_ key: String, value: String) async throws
     func setting(_ key: String) async throws -> String?
 
+}
+
+extension Message {
+    /// It holds a card that still waits for the owner.
+    var holdsWaitingCard: Bool {
+        parts.contains { if case .approval(let a) = $0 { return a.state == .pending }; return false }
+    }
+
+    /// It holds a report card.
+    var holdsReport: Bool {
+        parts.contains { if case .report = $0 { return true }; return false }
+    }
 }
 
 public extension StoreProtocol {

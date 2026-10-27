@@ -20,9 +20,10 @@ extension TaskRuntime {
         var pricing: ModelPricing? = nil
     }
 
-    /// The models a task may use, in order: the agent's profile (when set), the host's default, then the host's
-    /// fallback profile. A task moves down the list when a model refuses it, runs out of quota, or keeps failing.
-    func modelChoices(for agent: AgentProfile) async -> [ModelChoice] {
+    /// The models a task may use, in order: the agent's chat profile for work in the Pennant chat (when set), the
+    /// agent's profile (when set), the host's default, then the host's fallback profiles. A task moves down the list
+    /// when a model refuses it, runs out of quota, or keeps failing.
+    func modelChoices(for agent: AgentProfile, inChat: Bool = false) async -> [ModelChoice] {
         let config = deps.config
         var out: [ModelChoice] = []
         func profile(_ id: String?) async -> ModelChoice? {
@@ -34,12 +35,15 @@ extension TaskRuntime {
         // model last when the agent had its own; no model twice.
         let hostDefault = ModelChoice(provider: deps.provider, label: config.defaultProfile?.name ?? config.inference.model, maxOutputTokens: config.inference.maxOutputTokens, reasoningEffort: config.inference.reasoningEffort,
                                       profileID: config.defaultProfileID, providerID: config.inference.provider, modelID: config.inference.model, pricing: config.defaultProfile?.effectivePricing)
+        if inChat, let chat = await profile(agent.chatModelProfileID) { out.append(chat) }
         let own = await profile(agent.modelProfileID)
         out.append(own ?? hostDefault)
         for id in config.fallbackProfileIDs where id != agent.modelProfileID && id != config.defaultProfileID {
             if let fallback = await profile(id) { out.append(fallback) }
         }
         if own != nil, agent.modelProfileID != config.defaultProfileID { out.append(hostDefault) }
+        var seen = Set<String>()
+        out = out.filter { seen.insert($0.profileID ?? $0.label).inserted }
         // Leave out models whose quota is used up until they reset, and models resting after an outage (unless
         // nothing else is left).
         let now = Date()
@@ -67,18 +71,22 @@ extension TaskRuntime {
         return effortLevels[max(a, b)]
     }
 
-    /// How hard the model thinks on a Pennant chat reply: low unless the owner chose otherwise, so the chat answers in
-    /// seconds; its threads think as hard as the agent's own setting. A model that's sent no effort elsewhere gets
-    /// none here either, except a ChatGPT account, which otherwise thinks at medium.
+    /// How hard the model thinks on a Pennant chat reply, so the chat answers in seconds; its threads think as hard as
+    /// the agent's own setting. Unless the owner chose otherwise: no thinking on a chat-completions endpoint (on
+    /// DeepSeek "low" still reasons for a thousand tokens or more a step, most of a reply's time; an endpoint that
+    /// refuses "none" is fitted to its lowest), low on a ChatGPT account or the Responses API, which can't take none. A
+    /// model that's sent no effort elsewhere gets none here either, except a ChatGPT account, which otherwise thinks at
+    /// medium.
     static func chatEffort(agent: AgentProfile, model: ModelChoice) -> String? {
         let elsewhere = agent.reasoningEffort ?? model.reasoningEffort
         guard elsewhere != nil || model.providerID == HostConfig.Inference.chatGPTProvider else { return nil }
-        return agent.chatReasoningEffort ?? "low"
+        if let chosen = agent.chatReasoningEffort { return chosen }
+        return model.provider is OpenAICompatibleProvider ? "none" : "low"
     }
 
     /// The choice the task is on now (it stays on a fallback for the rest of the task once it moved).
     func currentModel(task: TaskRecord, agent: AgentProfile) async -> ModelChoice {
-        let choices = await modelChoices(for: agent)
+        let choices = await modelChoices(for: agent, inChat: await inMainChat(task))
         return choices[min(modelIndex[task.id] ?? 0, choices.count - 1)]
     }
 
@@ -89,9 +97,10 @@ extension TaskRuntime {
         return false
     }
 
-    /// A failure on the model's side (5xx, unreachable) rather than a refusal of the request.
+    /// A failure on the model's side (5xx, unreachable, a garbled stream) rather than a refusal of the request.
     static func isServerError(_ error: InferenceError) -> Bool {
         if case .unreachable = error { return true }
+        if case .malformedResponse = error { return true }
         if case .httpStatus(let code, _) = error { return code >= 500 }
         return false
     }
@@ -99,7 +108,7 @@ extension TaskRuntime {
     /// Seconds to wait before each retry of the same model after a server error, and how long a model that kept
     /// failing is skipped (tests shorten both).
     nonisolated(unsafe) static var serverErrorWaits: [Double] = [3, 6]
-    nonisolated(unsafe) static var outageCooldown: TimeInterval = 180
+    nonisolated(unsafe) static var outageCooldown: TimeInterval = 600
 
     /// How long a task waits, paused, when every model it may use is rate limited (tests shorten it).
     nonisolated(unsafe) static var rateLimitPause: TimeInterval = 120
@@ -143,8 +152,10 @@ extension TaskRuntime {
         // The Pennant chat talks: it carries what a quick answer, a look on the web and steering its threads take, and
         // loads a connected service only when it asks for one (find_tools). The rest of the work is a thread's.
         if await inMainChat(task) {
+            // A service it loads goes after the rest, so loading one only adds to the end of the list and the start
+            // of the request stays the same for the prompt cache.
             let services = Set(activeServers[task.id, default: []].map(Self.serviceSource))
-            return all.filter { Self.chatTools.contains($0.name) || services.contains($0.source) } + [Self.findToolsSpec]
+            return all.filter { Self.chatTools.contains($0.name) } + [Self.findToolsSpec] + all.filter { !Self.chatTools.contains($0.name) && services.contains($0.source) }
         }
         all.removeAll { ThreadTools.names.contains($0.name) }
         let limit = Self.maxToolsPerRequest

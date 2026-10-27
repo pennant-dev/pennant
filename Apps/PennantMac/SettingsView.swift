@@ -13,56 +13,99 @@ struct SettingsView: View {
     @State private var discovery = HostDiscovery()
 
     @AppStorage("pennant.settings.pane") private var paneRaw = Pane.general.rawValue
+    @AppStorage("pennant.settings.page") private var pageRaw = ""
 
-    /// The settings sections, in sidebar order.
+    /// Four panes: what most people change (General, Models, Connections), and the rest (Advanced).
     enum Pane: String, CaseIterable, Identifiable {
-        case general, pennant, connection, host, people, iphone, channels, models, usage, hostSettings, permissions
+        case general, models, connections, advanced
         var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .general: return "General"
-            case .pennant: return "Pennant"
-            case .connection: return "Connection"
-            case .host: return "Host"
-            case .people: return "People"
-            case .iphone: return "iPhone"
-            case .channels: return "Channels"
-            case .models: return "Models"
-            case .usage: return "Usage"
-            case .hostSettings: return "Host settings"
-            case .permissions: return "Permissions"
-            }
-        }
+        var title: String { rawValue.capitalized }
         var symbol: String {
             switch self {
             case .general: return "gearshape"
-            case .pennant: return "flag"
-            case .connection: return "network"
-            case .host: return "desktopcomputer"
-            case .people: return "person.2"
-            case .iphone: return "iphone"
-            case .channels: return "bubble.left.and.bubble.right"
             case .models: return "cpu"
-            case .usage: return "chart.bar"
-            case .hostSettings: return "slider.horizontal.3"
-            case .permissions: return "lock.shield"
+            case .connections: return "point.3.connected.trianglepath.dotted"
+            case .advanced: return "wrench.and.screwdriver"
+            }
+        }
+        /// The pages inside it, as tabs; a pane with one page has none.
+        var pages: [Page] {
+            switch self {
+            case .general, .models: return []
+            case .connections: return [.channels, .people, .iphone, .connection]
+            case .advanced: return [.pennant, .hostSettings, .host, .permissions]
             }
         }
     }
 
-    private var pane: Pane { Pane(rawValue: paneRaw) ?? .general }
+    /// The pages inside a pane. Their names are the panes they used to be, so "Settings › Channels" still finds one.
+    enum Page: String, Identifiable {
+        case channels, people, iphone, connection, pennant, hostSettings, host, permissions
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .channels: return "Channels"
+            case .people: return "People"
+            case .iphone: return "iPhone"
+            case .connection: return "Connection"
+            case .pennant: return "Pennant"
+            case .hostSettings: return "Host settings"
+            case .host: return "Host"
+            case .permissions: return "Permissions"
+            }
+        }
+        var pane: Pane { Pane.allCases.first { $0.pages.contains(self) } ?? .advanced }
+    }
+
+    /// Opens Settings on a pane or a page by name, the new names or the old panes' ("channels", "permissions"), for
+    /// launch arguments and screenshots. False when there's no such place.
+    @discardableResult
+    static func choose(_ name: String) -> Bool {
+        let defaults = UserDefaults.standard
+        if let pane = Pane(rawValue: name) {
+            defaults.set(pane.rawValue, forKey: "pennant.settings.pane")
+            defaults.set(pane.pages.first?.rawValue ?? "", forKey: "pennant.settings.page")
+            return true
+        }
+        if let page = Page(rawValue: name) {
+            defaults.set(page.pane.rawValue, forKey: "pennant.settings.pane")
+            defaults.set(page.rawValue, forKey: "pennant.settings.page")
+            return true
+        }
+        return false
+    }
+
+    /// A pane saved under an old name opens where that page lives now.
+    private var pane: Pane { Pane(rawValue: paneRaw) ?? Page(rawValue: paneRaw)?.pane ?? .general }
+    private var page: Page? {
+        let pages = pane.pages
+        if let p = Page(rawValue: pageRaw), pages.contains(p) { return p }
+        if let p = Page(rawValue: paneRaw), pages.contains(p) { return p }
+        return pages.first
+    }
 
     var body: some View {
         HStack(spacing: 0) {
             sidebar
             Rectangle().fill(PennantTheme.divider).frame(width: 1)
             VStack(alignment: .leading, spacing: 0) {
-                Text(pane.title)
-                    .font(.zoomed(.title2).weight(.semibold))
-                    .foregroundStyle(PennantTheme.ink)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 40)
-                    .padding(.bottom, 4)
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(pane.title)
+                        .font(.zoomed(.title2).weight(.semibold))
+                        .foregroundStyle(PennantTheme.ink)
+                    Spacer(minLength: 8)
+                    if !pane.pages.isEmpty {
+                        Picker("Page", selection: Binding(get: { page?.rawValue ?? "" }, set: { pageRaw = $0 })) {
+                            ForEach(pane.pages) { Text($0.title).tag($0.rawValue) }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 40)
+                .padding(.bottom, 8)
                 detail
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
@@ -78,7 +121,7 @@ struct SettingsView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Pane.allCases) { p in
-                Button { paneRaw = p.rawValue } label: {
+                Button { paneRaw = p.rawValue; pageRaw = p.pages.first?.rawValue ?? "" } label: {
                     HStack(spacing: 10) {
                         Image(systemName: p.symbol).frame(width: 20).foregroundStyle(pane == p ? PennantTheme.ink : PennantTheme.inkSecondary)
                         Text(p.title).foregroundStyle(PennantTheme.ink)
@@ -96,24 +139,26 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 10)
         .padding(.top, 44)
-        .frame(width: 210)
+        .frame(width: 190)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(PennantTheme.sidebarBackground)
     }
 
     @ViewBuilder private var detail: some View {
         switch pane {
-        case .general: appearanceTab
-        case .pennant: PennantAgentSettings()
-        case .connection: connectionTab
-        case .host: hostTab
-        case .people: PeopleSettingsView()
-        case .iphone: IPhoneSettingsView()
-        case .channels: ChannelsSettingsView()
+        case .general: generalTab
         case .models: ModelsSettingsView()
-        case .usage: UsageView()
-        case .hostSettings: HostConfigView()
-        case .permissions: permissionsTab
+        case .connections, .advanced:
+            switch page ?? .pennant {
+            case .channels: ChannelsSettingsView()
+            case .people: PeopleSettingsView()
+            case .iphone: IPhoneSettingsView()
+            case .connection: connectionTab
+            case .pennant: PennantAgentSettings()
+            case .hostSettings: HostConfigView()
+            case .host: hostTab
+            case .permissions: permissionsTab
+            }
         }
     }
 
@@ -160,8 +205,9 @@ struct SettingsView: View {
         Binding(get: { port }, set: { port = $0 ?? Self.defaultPort })
     }
 
-    private var appearanceTab: some View {
+    private var generalTab: some View {
         SettingsPage {
+            AskFirstSettingsCard()
             SettingsCard("Appearance") {
                 AppearancePicker()
                 SettingsNote("Match system follows the Mac's light or dark setting. The iPhone app has its own choice.")
@@ -198,14 +244,6 @@ struct SettingsView: View {
                 }
             }
             MovePennantCard()
-            SettingsCard("Deployment") {
-                SettingsRow("Mode", value: session.state.host?.mode == .dedicated ? "Dedicated Mac (operated remotely)" : "Everyday Mac (shares your desktop)")
-                Toggle("Pause agents when I use the mouse or keyboard", isOn: Binding(
-                    get: { session.state.desktop.pauseOnHumanInput },
-                    set: { v in Task { try? await session.setPauseOnHumanInput(v) } }
-                ))
-                .toggleStyle(.switch)
-            }
         }
         .onAppear { discovery.start() }
         .onDisappear { discovery.stop() }
@@ -503,7 +541,7 @@ struct HostConfigView: View {
         Task {
             defer { busy = false }
             do {
-                // Models are edited in the Models tab, and coding in Settings › Pennant: keep the host's current
+                // Models are edited in the Models tab, and coding in Settings › Advanced › Pennant: keep the host's current
                 // ones, never this page's copy.
                 let fresh = try await session.getConfig().config
                 c.inference = fresh.inference

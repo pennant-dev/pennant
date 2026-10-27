@@ -47,6 +47,7 @@ public struct AwaitTaskTool: Tool {
         }
         var text = "Task '\(task.title)' is \(task.state.rawValue)."
         if !task.stateReason.isEmpty { text += " Reason: \(task.stateReason)" }
+        if task.madeChanges == false { text += " It changed nothing in the project: what follows is what it found or means to do, not a change it made." }
         if let r = task.resultSummary { text += "\nResult:\n\(r)" }
         return ToolResult(callID: ToolCallID("pending"), name: spec.name, content: [.text(text)], isError: task.state == .failed)
     }

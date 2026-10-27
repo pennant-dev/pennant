@@ -1,10 +1,10 @@
 import PennantCore
 import Foundation
 
-/// Pennant's heartbeat. Every so often (Settings › Pennant › Heartbeat) it looks over the work without the model:
+/// Pennant's heartbeat. Every so often (Settings › Advanced › Pennant › Heartbeat) it looks over the work without the model:
 /// the goal sessions that are due start (a goal needs no schedule of its own), and when something needs a look (work
 /// that stopped moving, a question or draft left waiting for hours), Pennant takes one turn in its chat to nudge, stop
-/// or tell. What the owner asked for on each check-in (Settings › Pennant › Heartbeat, in their own words) is a turn on
+/// or tell. What the owner asked for on each check-in (Settings › Advanced › Pennant › Heartbeat, in their own words) is a turn on
 /// every beat. A beat with nothing in it costs nothing, and Pennant's turns are capped per day.
 public actor Heartbeat {
     /// What one beat did, for the log and the tests.
@@ -36,6 +36,8 @@ public actor Heartbeat {
 
     public func start() async {
         await scheduler.setGoalsOnHeartbeat(settings.enabled)
+        let runtime = self.runtime
+        Task { await runtime.retireStaleCards() }
         loop?.cancel()
         loop = Task { [weak self] in
             while !Task.isCancelled {
@@ -61,8 +63,9 @@ public actor Heartbeat {
     @discardableResult
     public func beat(now: Date = Date()) async -> Beat {
         var beat = Beat()
-        guard settings.enabled else { beat.skipped = "off"; return beat }
         let runtime = self.runtime
+        await runtime.retireStaleCards(now: now)
+        guard settings.enabled else { beat.skipped = "off"; return beat }
         let started = await scheduler.runDueGoalJobs(now: now) { job in await runtime.goalWaitsOnOwner(job) }
         beat.goalSessions = started.map(\.name)
 

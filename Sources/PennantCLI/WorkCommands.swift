@@ -6,8 +6,8 @@ import Foundation
 
 @MainActor
 func approvalCommand(_ options: CLIOptions) async throws {
-    guard options.args.count >= 2, let verdict = ["approve": ApprovalDecision.Verdict.approve, "changes": .requestChanges, "reject": .reject][options.args[1]] else {
-        fail("Usage: pennant approval <id> approve|changes|reject [comment]")
+    guard options.args.count >= 2, let verdict = ["approve": ApprovalDecision.Verdict.approve, "changes": .requestChanges, "reject": .reject, "dismiss": .dismiss][options.args[1]] else {
+        fail("Usage: pennant approval <id> approve|changes|reject|dismiss [comment]")
     }
     let session = try await connect(options)
     let comment = options.args.dropFirst(2).joined(separator: " ")

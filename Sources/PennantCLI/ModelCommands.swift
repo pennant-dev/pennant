@@ -87,6 +87,18 @@ func runChatGPT(_ sub: String, options: CLIOptions) async throws {
 @MainActor
 func modelsCommand(_ options: CLIOptions) async throws {
     let session = try await connect(options)
+    if let which = options.args.first, which == "default" || which == "worker" {
+        try await setModel(which, to: options.args.dropFirst().joined(separator: " "), session: session)
+        return
+    }
+    if options.args.first == "chat" || options.args.first == "threads" {
+        try await setChatModel(to: options.args.dropFirst().joined(separator: " "), threads: options.args.first == "threads", session: session)
+        return
+    }
+    if options.args.first == "fallbacks" {
+        try await setFallbacks(to: options.args.dropFirst().joined(separator: " "), session: session)
+        return
+    }
     var baseURL = options.args.first
     if baseURL == nil, case .config(let cfg, _) = try await session.send(.getConfig) { baseURL = cfg.inference.baseURL }
     guard let url = baseURL else { await session.disconnect(); fail("Usage: pennant models [baseURL] [apiKey]") }
@@ -95,4 +107,68 @@ func modelsCommand(_ options: CLIOptions) async throws {
     out("\(models.count) model(s) at \(url)")
     for m in models { out("  \(m.id)\(m.ownedBy.map { "  (\($0))" } ?? "")") }
     await session.disconnect()
+}
+
+/// `pennant models default <profile>` and `pennant models worker <profile>|default`: what Settings › Models sets.
+@MainActor
+private func setModel(_ which: String, to wanted: String, session: HostSession) async throws {
+    guard case .config(var c, _) = try await session.send(.getConfig) else { await session.disconnect(); fail("Unexpected reply") }
+    if wanted.isEmpty { await session.disconnect(); fail("Usage: pennant models \(which) <profile name or id>\(which == "worker" ? "|default" : "")") }
+    if which == "worker", wanted.lowercased() == "default" {
+        c.workerProfileID = nil
+    } else if let profile = c.profile(matching: wanted) {
+        if which == "worker" { c.workerProfileID = profile.id } else { c.defaultProfileID = profile.id }
+    } else {
+        await session.disconnect()
+        fail("There's no model called \(wanted). Models (Settings › Models): \(c.inferenceProfiles.map(\.name).joined(separator: ", ")).")
+    }
+    c = try await session.updateConfig(c).config
+    await session.disconnect()
+    out("Default model: \(c.profile(c.defaultProfileID)?.name ?? "none")")
+    out("Worker model: \(c.profile(c.workerProfileID)?.name ?? "the default")")
+}
+
+/// `pennant models chat <profile>|same`: the model Pennant's chat replies run on (its threads keep the agent's own).
+/// `pennant models threads <profile>|default`: the agent's own model, which its threads and jobs run on.
+@MainActor
+private func setChatModel(to wanted: String, threads: Bool, session: HostSession) async throws {
+    guard case .config(let c, _) = try await session.send(.getConfig) else { await session.disconnect(); fail("Unexpected reply") }
+    guard var lead = session.state.leadAgent else { await session.disconnect(); fail("There's no agent yet.") }
+    if wanted.isEmpty { await session.disconnect(); fail(threads ? "Usage: pennant models threads <profile name or id>|default" : "Usage: pennant models chat <profile name or id>|same") }
+    if wanted.lowercased() == (threads ? "default" : "same") {
+        if threads { lead.modelProfileID = nil } else { lead.chatModelProfileID = nil }
+    } else if let profile = c.profile(matching: wanted) {
+        if threads { lead.modelProfileID = profile.id } else { lead.chatModelProfileID = profile.id }
+    } else {
+        await session.disconnect()
+        fail("There's no model called \(wanted). Models (Settings › Models): \(c.inferenceProfiles.map(\.name).joined(separator: ", ")).")
+    }
+    let r = try await session.send(.updateAgent(lead), timeout: 30)
+    if case .error = r { await session.disconnect(); fail(replyError(r)) }
+    await session.disconnect()
+    out("Chat model: \(c.profile(lead.chatModelProfileID)?.name ?? "the same as \(lead.name)'s threads")")
+    out("\(lead.name)'s threads: \(c.profile(lead.modelProfileID)?.name ?? "the default model")")
+}
+
+/// `pennant models fallbacks <profile>[, <profile>…]|none`: what a task moves to when its model fails, in order.
+@MainActor
+private func setFallbacks(to wanted: String, session: HostSession) async throws {
+    guard case .config(var c, _) = try await session.send(.getConfig) else { await session.disconnect(); fail("Unexpected reply") }
+    if wanted.isEmpty { await session.disconnect(); fail("Usage: pennant models fallbacks <profile>[, <profile>…]|none") }
+    if wanted.lowercased() == "none" {
+        c.fallbackProfileIDs = []
+    } else {
+        var ids: [String] = []
+        for name in wanted.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) where !name.isEmpty {
+            guard let profile = c.profile(matching: name) else {
+                await session.disconnect()
+                fail("There's no model called \(name). Models (Settings › Models): \(c.inferenceProfiles.map(\.name).joined(separator: ", ")).")
+            }
+            if !ids.contains(profile.id) { ids.append(profile.id) }
+        }
+        c.fallbackProfileIDs = ids
+    }
+    c = try await session.updateConfig(c).config
+    await session.disconnect()
+    out("Fallbacks: \(c.fallbackProfileIDs.isEmpty ? "none" : c.fallbackProfileIDs.compactMap { c.profile($0)?.name }.joined(separator: ", "))")
 }

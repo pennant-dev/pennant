@@ -4,7 +4,7 @@ import PennantCore
 import PennantUI
 import SwiftUI
 
-/// Settings › Pennant › Chrome: Pennant's extension, which lets it work in tabs of its own in the owner's Chrome. Whether
+/// Settings › Advanced › Pennant › Chrome: Pennant's extension, which lets it work in tabs of its own in the owner's Chrome. Whether
 /// it's connected, a button that has Pennant add it (or the steps to do it by hand), and the sites the owner let
 /// Pennant use there.
 struct ChromeSettingsCard: View {
@@ -28,7 +28,7 @@ struct ChromeSettingsCard: View {
                     .font(.zoomed(.callout))
                     .foregroundStyle(PennantTheme.inkSecondary)
             }
-            SettingsNote("Pennant works on the web in tabs of its own, in a Chrome window of its own behind yours, with your sign-ins. It clicks and types with Chrome's own input, so your pointer, keyboard and tabs stay yours. Sending, publishing, deleting and paying still wait for your OK.")
+            SettingsNote("Pennant works on the web in tabs of its own, in a Chrome window of its own behind yours, with your sign-ins. It clicks and types with Chrome's own input, so your pointer, keyboard and tabs stay yours. Sending, publishing, deleting and paying wait for your OK if you turned that on in General › Ask me before….")
             if !connected, status != nil {
                 if settingUp {
                     HStack(spacing: 8) {

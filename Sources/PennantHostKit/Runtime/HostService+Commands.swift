@@ -159,7 +159,11 @@ extension HostService {
     private static let pluginsOwnerOnly = ReplyBody.error(code: "owner_only", message: "Only the host's owner can install, change or remove plugins.")
 
     private func dispatch(_ body: CommandBody, client: ConnectedClient) async throws -> ReplyBody {
+
         switch body {
+        case .composing(let conversationID, let draft):
+            await runtime.prewarm(conversationID: conversationID, draft: draft)
+            return .ok
         case .hello, .ping, .subscribeScreen, .unsubscribeScreen, .screenFrameReceived, .listEvents, .signInOptions, .beginSignIn, .completeSignIn, .signInWithPassword, .redeemInvite, .speak, .stopSpeaking:
             return .ok
 
@@ -743,7 +747,7 @@ extension HostService {
                 await updateInference(reachable: ok)
                 let where_ = await inferenceEndpointLabel()
                 if newConfig.inference.provider == HostConfig.Inference.chatGPTProvider {
-                    await publish(.notice(level: ok ? .info : .warning, agentID: nil, text: ok ? "Now using \(newConfig.inference.model) through your ChatGPT account (\(where_))." : "Saved. Sign in to a ChatGPT account (Settings › Host) to use \(newConfig.inference.model)."))
+                    await publish(.notice(level: ok ? .info : .warning, agentID: nil, text: ok ? "Now using \(newConfig.inference.model) through your ChatGPT account (\(where_))." : "Saved. Sign in to a ChatGPT account (Settings › Models) to use \(newConfig.inference.model)."))
                 } else {
                     await publish(.notice(level: ok ? .info : .warning, agentID: nil, text: ok ? "Now using \(newConfig.inference.model) at \(where_)." : "Saved, but \(where_) is not reachable yet."))
                 }

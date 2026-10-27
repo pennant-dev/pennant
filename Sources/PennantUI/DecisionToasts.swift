@@ -55,6 +55,8 @@ struct DecisionToasts: ViewModifier {
             t = Toast(symbol: "arrow.uturn.backward.circle.fill", text: "Sent back · \(request.title)", color: PennantTheme.warning)
         case .reject:
             t = Toast(symbol: "xmark.circle.fill", text: "Rejected · \(request.title)", color: PennantTheme.danger)
+        case .dismiss:
+            t = Toast(symbol: "eye.slash.fill", text: "Dismissed · \(request.title)", color: PennantTheme.inkSecondary)
         }
         withAnimation(.snappy) { toast = t }
         let id = t.id

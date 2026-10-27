@@ -50,6 +50,10 @@ public final class AzureResponsesProvider: InferenceProvider, Sendable {
     }
 
     /// The resource answers `GET /models` with the credential.
+    public func prewarm() async {
+        _ = try? await authority.credential()
+    }
+
     public func healthCheck() async -> Bool {
         guard let credential = try? await authority.credential(), let url = OpenAICompatibleProvider.endpointURL(base: credential.baseURL, path: "models") else { return false }
         var req = URLRequest(url: url)

@@ -4,7 +4,7 @@ import PennantUI
 import AppKit
 import SwiftUI
 
-/// Settings › Channels: how agents reach people outside Pennant. Telegram (a bot you create), iMessage (this Mac's
+/// Settings › Connections › Channels: how agents reach people outside Pennant. Telegram (a bot you create), iMessage (this Mac's
 /// Messages), Teams (coming). Linked people and iMessage contacts, and who agents may message without asking.
 struct ChannelsSettingsView: View {
     @Environment(\.hostSession) private var session

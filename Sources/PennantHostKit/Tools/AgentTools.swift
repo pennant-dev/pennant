@@ -1,7 +1,7 @@
 import PennantCore
 import Foundation
 
-/// Writes code: hands a change to the coding engine set in Settings › Pennant › Coding, which works in one of the
+/// Writes code: hands a change to the coding engine set in Settings › Advanced › Pennant › Coding, which works in one of the
 /// project folders on this Mac and acts on GitHub as the host's own App. Its steps show in a thread under the one that
 /// asked.
 public struct CodeTool: Tool {

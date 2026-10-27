@@ -2,7 +2,7 @@ import PennantCore
 import PennantUI
 import SwiftUI
 
-/// Settings › Pennant › Talk mode: the voice Pennant speaks with. A natural voice runs on this Mac's GPU once it's
+/// Settings › Advanced › Pennant › Talk mode: the voice Pennant speaks with. A natural voice runs on this Mac's GPU once it's
 /// downloaded; the Mac's own voices are there everywhere, and while one downloads.
 struct TalkVoiceSettings: View {
     private let natural = NaturalVoice.shared

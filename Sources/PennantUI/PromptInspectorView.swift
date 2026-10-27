@@ -179,17 +179,17 @@ public struct PromptInspectorView: View {
     /// Where each section comes from, and so where to change it.
     static func editHint(_ title: String) -> String? {
         switch title {
-        case "How to work": return "Edit in Settings › Host settings › House rules. Applies to every agent."
+        case "How to work": return "Edit in Settings › Advanced › Host settings › House rules. Applies to every agent."
         case "Identity and the agent's own instructions": return "Edit in the agent's settings: role, voice and standing instructions."
         case "Connected services": return "Connections decides what is listed; the agent's settings choose what always loads."
-        case "Coding projects": return "Edit in Settings › Pennant › Coding."
+        case "Coding projects": return "Edit in Settings › Advanced › Pennant › Coding."
         case "Environment": return "Filled in by the host on every turn."
         case "Standing instructions from the user (govern all work)": return "Edit in Memory › Preferences. Agents add these when you say \"always…\"."
         default:
             if title.hasPrefix("Relevant memory") { return "Chosen from memory for this task; edit entries in Memory." }
             if title.hasPrefix("Relevant learned skills") { return "Chosen from Skills for this task." }
             if title.hasPrefix("Checkpoint") { return "The summary of older history, written at compaction." }
-            if title == "Current task" { return "The task's goal and budget; limits are in Settings › Task limits." }
+            if title == "Current task" { return "The task's goal and budget; limits are in Settings › Advanced › Host settings." }
             return nil
         }
     }

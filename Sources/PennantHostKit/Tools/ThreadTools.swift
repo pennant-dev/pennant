@@ -31,8 +31,8 @@ public struct StartThreadTool: Tool {
     public init() {}
     public var spec: ToolSpec {
         ToolSpec(name: Self.name, description: "Start a thread for a piece of work: you, working on it in a conversation of its own with all your tools, while this chat stays free. Its result, questions and cards come back to this chat as updates by themselves; don't wait for it. The thread doesn't see this chat, so the instructions must say everything it needs: the goal, the facts and links, what done looks like, and what to check with the owner first.", inputSchema: JSONSchema.object([
-            "title": JSONSchema.string("A short title the owner will recognise, e.g. \"LinkedIn post on the October release\"."),
-            "instructions": JSONSchema.string("Complete, self-contained instructions for the thread."),
+            "title": JSONSchema.string("A short title the owner will recognise, e.g. \"LinkedIn post on the October release\". Write it first."),
+            "instructions": JSONSchema.string("Complete, self-contained instructions for the thread, as short as they can be while saying all it needs."),
         ], required: ["title", "instructions"]))
     }
     public func invoke(_ arguments: JSONValue, context: ToolContext) async throws -> ToolResult {

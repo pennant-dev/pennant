@@ -5,7 +5,7 @@ import PennantCore
 import PennantUI
 import SwiftUI
 
-/// Settings › iPhone: the connect code a phone scans to find this host anywhere (its Tailscale name, its local
+/// Settings › Connections › iPhone: the connect code a phone scans to find this host anywhere (its Tailscale name, its local
 /// address and its certificate), and the addresses themselves.
 struct IPhoneSettingsView: View {
     @Environment(\.hostSession) private var session

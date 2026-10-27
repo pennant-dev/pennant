@@ -179,6 +179,9 @@ extension TaskRuntime {
                                                       author: MessageAuthor(id: PersonID("pennant"), name: name), requestedBy: before == nil ? taskID : nil)
         // Picked back up: a fresh allowance of the same size.
         if before == nil { try await updateTask(sent) { $0.budget = Self.chatThreadBudget(deps.config.defaultBudget) } }
+        // Still going, steered on the owner's word: its coding runs start a new stretch too. Not when the chat sends it
+        // on its own (a heartbeat, a thread's report), or a thread could be kept coding without them.
+        else if await onOwnersWord(taskID) { try? await resetCodingAllowance(sent) }
         let label = "“\(thread.title)” (thread \(thread.id.rawValue.prefix(8)))"
         switch before?.state {
         case .waitingForUser?: return "Sent to \(label). It was waiting for an answer and goes on with this one."
@@ -190,7 +193,7 @@ extension TaskRuntime {
     /// Where a thread stands and its latest messages, for answering "how's it going?" without the owner opening it.
     func readThread(_ ref: String, limit: Int) async throws -> String {
         let thread = try await resolveThread(ref)
-        let tasks = try await deps.store.listTasks(agentID: nil, includeFinished: true).filter { $0.conversationID == thread.id }
+        let tasks = try await deps.store.tasks(conversationID: thread.id)
         var out = "Thread “\(thread.title)” (thread \(thread.id.rawValue.prefix(8)))"
         if let latest = tasks.max(by: { $0.createdAt < $1.createdAt }) {
             out += ": \(Self.stateWords(latest))"
@@ -287,6 +290,10 @@ extension TaskRuntime {
         """
         let task = TaskRecord(agentID: chat.agentID, conversationID: chat.id, title: "Checking in", objective: objective, completionCriteria: "",
                               budget: TaskBudget(maxSteps: 8, maxTokens: 200_000, maxDuration: 600, maxDelegations: 0))
+        // What the owner asks for on each check-in usually needs the same service (their mail, say): ready from
+        // the start, as the last check-in left it.
+        if let last = lastHeartbeatTask, let loaded = activeServers[last], !loaded.isEmpty { activeServers[task.id] = loaded }
+        lastHeartbeatTask = task.id
         try await deps.store.upsertTask(task)
         await publish(.taskUpserted(task))
         await schedule()
@@ -378,17 +385,11 @@ extension TaskRuntime {
     func chatThreads(includeClosed: Bool = false, since: Date? = nil) async throws -> [ChatThread] {
         guard let lead = await leadAgent() else { return [] }
         let chat = try await ensureMainChat().id
-        let tasks = try await deps.store.listTasks(agentID: nil, includeFinished: true)
-        let busy = Set(tasks.filter { !$0.state.isTerminal }.map(\.conversationID))
+        let busy = Set(try await deps.store.listTasks(agentID: nil, includeFinished: false).map(\.conversationID))
         let conversations = try await deps.store.listConversations(agentID: lead.id).filter { c in
             !c.isMain && (c.parentID == nil || c.parentID == chat || busy.contains(c.id)) && (includeClosed || !c.isClosed) && (since.map { c.updatedAt >= $0 } ?? true)
         }
-        let ids = Set(conversations.map(\.id))
-        var latest: [ConversationID: TaskRecord] = [:]
-        for t in tasks where ids.contains(t.conversationID) && t.parentTaskID == nil {
-            if let have = latest[t.conversationID], have.createdAt >= t.createdAt { continue }
-            latest[t.conversationID] = t
-        }
+        let latest = try await deps.store.latestTopLevelTasks(in: Set(conversations.map(\.id)))
         let pending = (try? await pendingApprovals()) ?? []
         return conversations.map { c in
             ChatThread(conversation: c, task: latest[c.id], cards: pending.filter { $0.conversationID == c.id }.count)
@@ -442,7 +443,7 @@ extension TaskRuntime {
         case .running, .waitingForTool, .waitingForDesktop: return "working on it"
         case .queued: return "about to start"
         case .paused: return "paused (\(task.stateReason))"
-        case .completed: return "done" + (task.resultSummary.map { ": " + Conversation.previewLine($0, limit: 200) } ?? "")
+        case .completed: return (task.madeChanges == false ? "ended without changing anything" : "done") + (task.resultSummary.map { ": " + Conversation.previewLine($0, limit: 200) } ?? "")
         case .failed: return "didn't finish: \(task.stateReason)"
         case .cancelled: return "stopped"
         }
@@ -529,7 +530,8 @@ extension TaskRuntime {
                 .first { $0.taskID == task.id && $0.role == .assistant && !$0.text.isEmpty }?.text
             text = (task.resultSummary?.nilIfEmpty ?? last ?? "Done.")
         }
-        var update = WorkUpdate(kind: task.state == .failed ? .failed : .finished, threadID: thread.id, taskID: task.id, thread: thread.title, text: text)
+        let kind: WorkUpdate.Kind = task.state == .failed ? .failed : task.madeChanges == false ? .unfinished : .finished
+        var update = WorkUpdate(kind: kind, threadID: thread.id, taskID: task.id, thread: TitleMarks.strip(thread.title), text: text)
         // Pennant tells them in its own words, or nothing when they already know.
         Task { [self] in
             switch await self.wordUpdate(update) {
@@ -554,7 +556,7 @@ extension TaskRuntime {
     /// came from. When no model words it in time, the question goes up as the thread put it.
     func reportQuestion(_ task: TaskRecord, _ question: String) async {
         guard let thread = await threadForUpdates(task) else { return }
-        let update = WorkUpdate(kind: .question, threadID: thread.id, taskID: task.id, thread: thread.title, text: question)
+        let update = WorkUpdate(kind: .question, threadID: thread.id, taskID: task.id, thread: TitleMarks.strip(thread.title), text: question)
         // Worded on the side: the thread goes on to wait for the answer meanwhile.
         Task { [self] in
             if case .say(let words)? = await self.wordUpdate(update) { await self.postUpdate(update, saying: words) } else { await self.postUpdate(update) }
@@ -594,11 +596,13 @@ extension TaskRuntime {
         case .question: news = "Something you're working on (\(work)) needs their answer. What it asks:\n\(update.text)"
         case .finished: news = "Something you were doing in the background (\(work)) just finished. What it reported:\n\(update.text)"
         case .failed: news = "Something you were doing in the background (\(work)) couldn't finish. Why:\n\(update.text)"
+        case .unfinished: news = "A coding run you asked for (\(work)) ended without changing anything. What it said:\n\(update.text)"
         case .approval: news = "A draft from your work on \(work) is ready for their OK: “\(update.text)”.\n\(detail)"
         }
         let ask = (transcript.isEmpty ? "" : "The chat so far, latest last:\n\(transcript)\n") + news + "\n\nWrite your message to them."
-        for choice in await modelChoices(for: lead) {
-            let request = InferenceRequest(messages: [.system(system), .user(ask)], maxOutputTokens: 1500, temperature: 0.4, disableTools: true)
+        for choice in await modelChoices(for: lead, inChat: true) {
+            let request = InferenceRequest(messages: [.system(system), .user(ask)], maxOutputTokens: 1500, temperature: 0.4, disableTools: true,
+                                           reasoningEffort: Self.chatEffort(agent: lead, model: choice))
             guard let reply = try? await withTimeout(seconds: 45, { try await choice.provider.complete(request).text }) else { continue }
             let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
             if text.isEmpty { continue }
@@ -684,6 +688,11 @@ extension TaskRuntime {
             Some work of yours couldn't finish. Tell them in a sentence or two what didn't work and what you'd suggest. \
             Leave out error codes unless they'd act on one.
             """
+        case .unfinished:
+            task = """
+            A coding run of yours ended without changing anything: it read, looked, or said what it means to do. Say so \
+            plainly in a sentence or two: what it found, and what's next. Don't present it as a change made.
+            """
         case .approval:
             task = """
             A draft is ready for their OK, and it shows right under your message, so don't repeat it. Introduce it in one \
@@ -696,7 +705,7 @@ extension TaskRuntime {
     /// A thread put up a card for the owner: it shows in the chat, where it can be decided.
     func reportCard(_ task: TaskRecord, _ card: ApprovalRequest) async {
         guard let thread = await threadForUpdates(task) else { return }
-        var update = WorkUpdate(kind: .approval, threadID: thread.id, taskID: task.id, thread: thread.title, text: card.title, approvalID: card.id)
+        var update = WorkUpdate(kind: .approval, threadID: thread.id, taskID: task.id, thread: TitleMarks.strip(thread.title), text: card.title, approvalID: card.id)
         let draft = [card.destination, String(card.finalText.prefix(600)), card.notes.isEmpty ? "" : "Note: \(card.notes)"].filter { !$0.isEmpty }.joined(separator: "\n")
         // Pennant introduces it in a line; the card shows under its words.
         Task { [self] in
@@ -736,7 +745,7 @@ extension TaskRuntime {
             if card.actionFailed == true { return "Approved, but it failed: \(card.actionResult ?? "see the thread")" }
             return card.publishedURL == nil ? "Approved" : "Approved and published"
         case .changesRequested: return "Changes requested"
-        case .rejected: return card.replacedBy == nil ? "Rejected" : "Replaced by a newer card"
+        case .rejected: return card.isDismissed ? "Dismissed" : card.replacedBy == nil ? "Rejected" : "Replaced by a newer card"
         }
     }
 }

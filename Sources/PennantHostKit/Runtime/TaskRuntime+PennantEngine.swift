@@ -24,7 +24,7 @@ extension TaskRuntime {
     func startPennantCoding(_ taskID: TaskID, agentID: AgentID, setup: CodingSetup) async throws {
         guard let task = try await deps.store.task(taskID), var conversation = try await deps.store.conversation(task.conversationID) else { throw TaskError.notFound(taskID) }
         guard let folder = conversation.workingDirectory ?? setup.folder else {
-            throw ToolError.failed("Coding has no project folder yet: the owner adds one in Settings › Pennant › Coding.")
+            throw ToolError.failed("Coding has no project folder yet: the owner adds one in Settings › Advanced › Pennant › Coding.")
         }
         if conversation.workingDirectory == nil {
             conversation.workingDirectory = folder
@@ -69,7 +69,7 @@ extension TaskRuntime {
         return profile
     }
 
-    /// The model a run uses: the thread's own choice, else the one set in Settings › Pennant › Coding; nil: the
+    /// The model a run uses: the thread's own choice, else the one set in Settings › Advanced › Pennant › Coding; nil: the
     /// host's default.
     func codingModel(conversation: Conversation?) -> InferenceProfile? {
         let config = deps.config

@@ -269,7 +269,9 @@ final class HeartbeatTests: XCTestCase {
         let said = try await s.store.messagesAfter(conversationID: chat.id, after: nil, limit: 50).filter { $0.role == .assistant && !$0.text.isEmpty }
         XCTAssertTrue(said.isEmpty, "nothing to say leaves nothing: \(said.map(\.text))")
         let brief = try XCTUnwrap(provider.requests.first { $0.messages.first?.text.contains("## The Pennant chat") == true })
-        XCTAssertTrue(brief.messages.first?.text.contains("“Venue search”") == true && brief.messages.first?.text.contains("hasn't moved") == true)
+        // The chat's task goes in the note at the end of the prompt (its start stays the same for the prompt cache).
+        let asked = try XCTUnwrap(brief.messages.last).text
+        XCTAssertTrue(asked.contains("“Venue search”") && asked.contains("hasn't moved"))
 
         // The same thing isn't raised on the next beat.
         let next = await s.heartbeat.beat()

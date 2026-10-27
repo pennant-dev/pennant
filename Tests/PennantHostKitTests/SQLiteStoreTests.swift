@@ -24,6 +24,59 @@ final class SQLiteStoreTests: XCTestCase {
         Message(conversationID: conversation, agentID: agent, role: role, parts: [.text(text)], createdAt: at)
     }
 
+    // MARK: Waiting cards and latest tasks
+
+    func testWaitingCardsAreFoundAndKeptUpAsMessagesChange() async throws {
+        let agent = makeAgent()
+        try await store.upsertAgent(agent)
+        let conversation = Conversation(agentID: agent.id, title: "Harbor newsletter")
+        try await store.upsertConversation(conversation)
+        let task = TaskID()
+        let early = Message(conversationID: conversation.id, agentID: agent.id, role: .assistant,
+                            parts: [.approval(ApprovalRequest(taskID: task, title: "Send the Harbor newsletter", destination: "Email", text: "Hi all"))])
+        try await store.appendMessage(early)
+        try await store.appendMessage(makeMessage(conversation: conversation.id, agent: agent.id, text: "Maya: looks good"))
+        // The first ask finds what's already stored.
+        let first = try await store.messagesWithWaitingCards().map(\.id)
+        XCTAssertEqual(first, [early.id])
+
+        // A new card is found without another pass, and an answered one drops out.
+        let later = Message(conversationID: conversation.id, agentID: agent.id, role: .assistant,
+                            parts: [.approval(ApprovalRequest(taskID: task, title: "Post to the Harbor page", destination: "LinkedIn", text: "We're hiring"))])
+        try await store.appendMessage(later)
+        var answered = early
+        answered.parts = [.approval(ApprovalRequest(taskID: task, title: "Send the Harbor newsletter", destination: "Email", text: "Hi all", state: .approved))]
+        try await store.updateMessage(answered)
+        let second = try await store.messagesWithWaitingCards().map(\.id)
+        XCTAssertEqual(second, [later.id])
+
+        // Through the protocol, as the runtime calls it (on the actor itself, the async default would win).
+        try await (store as any StoreProtocol).deleteMessages([later.id])
+        let third = try await store.messagesWithWaitingCards()
+        XCTAssertTrue(third.isEmpty)
+    }
+
+    func testLatestTopLevelTaskPerConversation() async throws {
+        let agent = makeAgent()
+        try await store.upsertAgent(agent)
+        let harbor = Conversation(agentID: agent.id, title: "Harbor")
+        let dana = Conversation(agentID: agent.id, title: "Dana's deck")
+        try await store.upsertConversation(harbor)
+        try await store.upsertConversation(dana)
+        let old = TaskRecord(agentID: agent.id, conversationID: harbor.id, title: "First", objective: "First", createdAt: Date(timeIntervalSinceNow: -600))
+        let new = TaskRecord(agentID: agent.id, conversationID: harbor.id, title: "Second", objective: "Second", createdAt: Date(timeIntervalSinceNow: -60))
+        let helper = TaskRecord(agentID: agent.id, conversationID: harbor.id, parentTaskID: new.id, title: "Helper", objective: "Helper", createdAt: Date())
+        for t in [old, new, helper] { try await store.upsertTask(t) }
+
+        let latest = try await store.latestTopLevelTasks(in: [harbor.id, dana.id])
+        XCTAssertEqual(latest[harbor.id]?.id, new.id)
+        XCTAssertNil(latest[dana.id])
+        let inHarbor = try await store.tasks(conversationID: harbor.id)
+        XCTAssertEqual(Set(inHarbor.map(\.id)), [old.id, new.id, helper.id])
+        let recent = try await store.conversationsWithTasks(updatedSince: Date(timeIntervalSinceNow: -3600))
+        XCTAssertEqual(recent, [harbor.id])
+    }
+
     // MARK: Events
 
     func testEventSequenceIsMonotonicAndReplayable() async throws {

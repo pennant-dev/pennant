@@ -20,7 +20,7 @@ final class PennantEngineTests: XCTestCase {
     override func tearDown() async throws { try? FileManager.default.removeItem(at: paths.root) }
 
     private func service(_ provider: ScriptedProvider, configure: (inout HostConfig) -> Void = { _ in }) async throws -> HostService {
-        var config = HostConfig()
+        var config = HostConfig.asking
         config.workingDirectory = paths.root.path
         config.desktop.pauseOnHumanInput = false
         config.coding = HostConfig.Coding(engine: .pennant, projects: [CodingProject(path: project)])

@@ -117,12 +117,15 @@ public actor DesktopLease {
 
     /// Drop a task from the queue and release its lease (task cancelled or finished).
     public func forget(taskID: TaskID) async {
+        let waiting = waiters.contains { $0.taskID == taskID }
         cancelWaiter(taskID: taskID)
-        if let h = holder, h.taskID == taskID {
+        let held = holder?.taskID == taskID
+        if held {
             holder = nil
             await grantNext()
         }
-        await onChange(self)
+        // Called after every step that didn't use the desktop: only an actual change is news.
+        if waiting || held { await onChange(self) }
     }
 
     public func snapshot(permissions: DesktopPermissions, frontmostApp: String?, displayWidth: Int, displayHeight: Int, streamingClients: Int) -> DesktopStatus {

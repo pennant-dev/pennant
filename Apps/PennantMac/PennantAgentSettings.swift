@@ -3,7 +3,7 @@ import PennantCore
 import PennantUI
 import SwiftUI
 
-/// Settings › Pennant: the one agent you talk to, how often it checks in on its own, how it sounds in Talk mode, how it
+/// Settings › Advanced › Pennant: the one agent you talk to, how often it checks in on its own, how it sounds in Talk mode, how it
 /// writes code, and how long a quiet thread stays in the list.
 /// What it follows for each kind of work lives in Skills.
 struct PennantAgentSettings: View {

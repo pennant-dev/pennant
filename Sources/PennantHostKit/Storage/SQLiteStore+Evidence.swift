@@ -38,7 +38,8 @@ extension SQLiteStore: MemoryEvidenceStore {
 
     public func replaceSource(id: String, kind: String, conversationID: ConversationID?, agentID: AgentID?, title: String, updatedAt: Date, signature: String, passages: [MemoryPassage]) throws {
         try db.transaction {
-            try removeChunks(sourceID: id)
+            // The passages that are still there keep their embeddings (the memory service embeds only what changed).
+            try removeChunks(sourceID: id, keepingEmbeddingsOf: Set(passages.map(\.id)))
             let conversation: SQLiteValue = conversationID.map { .text($0.rawValue) } ?? .null
             let agent: SQLiteValue = agentID.map { .text($0.rawValue) } ?? .null
             let params: [SQLiteValue] = [.text(id), .text(kind), conversation, agent, .text(title), .real(updatedAt.timeIntervalSince1970), .text(signature)]
@@ -61,11 +62,11 @@ extension SQLiteStore: MemoryEvidenceStore {
         }
     }
 
-    private func removeChunks(sourceID: String) throws {
+    private func removeChunks(sourceID: String, keepingEmbeddingsOf kept: Set<String> = []) throws {
         let ids = try db.query("SELECT id FROM memory_chunks WHERE source_id = ?", [.text(sourceID)]) { $0.string(0) }.compactMap { $0 }
         for chunk in ids {
             try db.execute("DELETE FROM chunks_fts WHERE chunk_id = ?", [.text(chunk)])
-            try db.execute("DELETE FROM embeddings WHERE kind = 'chunk' AND item_id = ?", [.text(chunk)])
+            if !kept.contains(chunk) { try db.execute("DELETE FROM embeddings WHERE kind = 'chunk' AND item_id = ?", [.text(chunk)]) }
         }
         try db.execute("DELETE FROM memory_chunks WHERE source_id = ?", [.text(sourceID)])
     }

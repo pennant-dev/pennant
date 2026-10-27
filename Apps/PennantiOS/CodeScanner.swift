@@ -3,7 +3,7 @@ import PennantUI
 import SwiftUI
 import VisionKit
 
-/// Scans the connect code a Mac shows (Settings › iPhone): a QR code with a pennant://connect link.
+/// Scans the connect code a Mac shows (Settings › Connections › iPhone): a QR code with a pennant://connect link.
 struct CodeScannerSheet: View {
     var onCode: (HostEndpoint) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -18,7 +18,7 @@ struct CodeScannerSheet: View {
                     }
                     .ignoresSafeArea(edges: .bottom)
                     .overlay(alignment: .bottom) {
-                        Text(notOurs ? "That code isn't a Pennant connect code." : "Point at the code in Pennant on your Mac: Settings › iPhone.")
+                        Text(notOurs ? "That code isn't a Pennant connect code." : "Point at the code in Pennant on your Mac: Settings › Connections › iPhone.")
                             .font(.callout)
                             .padding(.horizontal, 16).padding(.vertical, 10)
                             .background(.regularMaterial, in: Capsule())

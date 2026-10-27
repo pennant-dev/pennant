@@ -103,7 +103,7 @@ public struct PersonInvite: Hashable, Codable, Sendable, Identifiable {
     }
 }
 
-/// The people list and who may join, as the owner's Settings › People shows it.
+/// The people list and who may join, as the owner's Settings › Connections › People shows it.
 public struct PeopleDirectory: Hashable, Codable, Sendable {
     public var people: [Person]
     public var invites: [PersonInvite]

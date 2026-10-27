@@ -1,3 +1,4 @@
+import os
 import PennantClientKit
 import PennantCore
 import SwiftUI
@@ -32,10 +33,14 @@ public struct ConversationView: View {
     /// True while the user is dragging, wheeling or flicking the timeline. Only their scrolling moves
     /// `pinnedToBottom`; programmatic scrolls and late row measurement never unpin it.
     @State private var userScrolling = false
+    /// The view sits below the last row: a blank pane. Kept so the end of a scroll can put it right too.
+    @State private var parkedPastEnd = false
     /// True while earlier messages are being prepended, so the size change keeps the visible rows in place.
     @State private var prepending = false
     /// Bumped when a conversation's first page has landed, so the timeline can jump to the end once laid out.
     @State private var initialLoads = 0
+    /// The replies whose work (thinking, tool steps, time and cost) is open: "Show work". The chat is quiet otherwise.
+    @State private var shownWork: Set<String> = []
     /// A coding agent's folder, mode and model picked before the conversation exists; sent with the first message.
 
     public init(agentID: AgentID, conversationID: Binding<ConversationID?>) {
@@ -43,9 +48,10 @@ public struct ConversationView: View {
         _conversationID = conversationID
     }
 
+    /// The conversation's messages, and yours that the host hasn't taken yet (shown at once).
     private var messages: [Message] {
         guard let id = conversationID else { return [] }
-        return session.state.messages[id] ?? []
+        return (session.state.messages[id] ?? []) + (session.state.sending[id] ?? [])
     }
 
     /// Checkpoint boundaries keyed by the last message they cover. Live `checkpointSaved` events are merged in.
@@ -95,9 +101,10 @@ public struct ConversationView: View {
             case timestamp(Date)
             /// A user or system message; `tight` when it follows another on the same side.
             case message(Message, tight: Bool)
-            case work([WorkItem])
-            /// Agent text; `time` when it is the last text of a finished reply (the time and speed go under it).
-            case agentText(String, Message, time: Bool)
+            /// A stretch of work in the reply to `turn` (the message it answers).
+            case work([WorkItem], turn: String)
+            /// Agent text; `time` when it is the last text of a finished reply (the time and "Show work" go under it).
+            case agentText(String, Message, time: Bool, turn: String)
             case agentPart(ContentPart, Message)
             case checkpoint(Checkpoint)
             /// A coding run the agent started (see DelegatedWorkViews).
@@ -116,6 +123,11 @@ public struct ConversationView: View {
 
     private static let timestampGap: TimeInterval = 20 * 60
 
+    /// Up to this many messages, every row stays built: scrolling then only moves what's drawn. A lazy stack rebuilt
+    /// each row (and redrew its text) every time it came back into view, which made a long chat scroll slowly. Past
+    /// it (a long history loaded with "Load earlier"), rows are built as they come into view again.
+    static let eagerLimit = 200
+
     /// Tool results whose call is on screen fold into the call's row, so their own rows are skipped.
     private var toolPairing: ToolPairing { ToolPairing(messages: messages) }
 
@@ -131,9 +143,11 @@ public struct ConversationView: View {
         var work: [WorkItem] = []
         var lastDate: Date?
         var lastUserSide: MessageRole?
+        // The message the agent is answering: a reply's work and its words share it.
+        var turn = "start"
         func flushWork() {
             guard let first = work.first else { return }
-            out.append(TimelineEntry(id: "work-" + first.id, kind: .work(work)))
+            out.append(TimelineEntry(id: "work-" + first.id, kind: .work(work, turn: turn)))
             work = []
         }
         func checkpoint(after m: Message) {
@@ -158,6 +172,7 @@ public struct ConversationView: View {
                 flushWork()
                 out.append(TimelineEntry(id: m.id.rawValue, kind: .message(m, tight: lastUserSide == m.role)))
                 lastUserSide = m.role
+                turn = m.id.rawValue
             case .assistant, .tool:
                 lastUserSide = nil
                 let task = self.task(for: m)
@@ -165,8 +180,10 @@ public struct ConversationView: View {
                 let taskActive = task.map { !$0.state.isTerminal } ?? m.isStreaming
                 var lastTextIndex: Int?
                 var pendingText: String?
-                // Text in a step that also calls tools is narration of the work; it goes in the work group.
-                let narrates = m.parts.contains { if case .toolCall = $0 { return true } else { return false } }
+                // Text in a step that also calls tools is narration of the work; it goes in the work group. In the
+                // Pennant chat, the line said while starting a thread or passing word to one is the reply itself.
+                let calls = m.parts.compactMap { if case .toolCall(let c) = $0 { return c.name } else { return nil } }
+                let narrates = !calls.isEmpty && !(isMainChat && calls.allSatisfy { DelegatedWork.handsOn.contains($0) })
                 func flushText(_ index: Int) {
                     guard let t = pendingText else { return }
                     pendingText = nil
@@ -175,7 +192,7 @@ public struct ConversationView: View {
                         return
                     }
                     flushWork()
-                    out.append(TimelineEntry(id: "\(m.id.rawValue)-t\(index)", kind: .agentText(t, m, time: false)))
+                    out.append(TimelineEntry(id: "\(m.id.rawValue)-t\(index)", kind: .agentText(t, m, time: false, turn: turn)))
                     lastTextIndex = out.count - 1
                 }
                 for (i, part) in m.parts.enumerated() {
@@ -217,6 +234,12 @@ public struct ConversationView: View {
                     case .update(let u) where u.silent == true:
                         // Pennant kept it to itself: they already knew.
                         continue
+                    case .approval(let a) where a.isDismissed || a.isUnasked:
+                        // Dismissed, or never asked (the owner doesn't review these first): not in the chat; Approval
+                        // history has it.
+                        continue
+                    case .update(let u) where u.outcome == "Dismissed":
+                        continue
                     default:
                         flushText(i)
                         flushWork()
@@ -225,14 +248,40 @@ public struct ConversationView: View {
                 }
                 flushText(m.parts.count)
                 if m.isStreaming, m.parts.isEmpty { work.append(.thinking(id: "\(m.id.rawValue)-thinking")) }
-                if let i = lastTextIndex, !m.isStreaming, case .agentText(let t, let msg, _) = out[i].kind {
-                    out[i].kind = .agentText(t, msg, time: true)
+                if let i = lastTextIndex, !m.isStreaming, case .agentText(let t, let msg, _, let turn) = out[i].kind {
+                    out[i].kind = .agentText(t, msg, time: true, turn: turn)
                 }
             }
             checkpoint(after: m)
         }
         flushWork()
-        return out
+        return isMainChat ? Self.latestNewsOnly(out, in: session.state) : out
+    }
+
+    /// One line per thread in the Pennant chat: a thread's news that only says where it stands (it started, a card
+    /// was decided, a question answered, the line under Pennant's words) gives way to its later news.
+    private static func latestNewsOnly(_ entries: [TimelineEntry], in state: ClientState) -> [TimelineEntry] {
+        func news(_ entry: TimelineEntry) -> (thread: ConversationID, replaceable: Bool)? {
+            switch entry.kind {
+            case .threadStarted(let activity):
+                guard let thread = DelegatedWork.taskID(from: activity).flatMap({ state.task($0)?.conversationID }) else { return nil }
+                return (thread, true)
+            case .agentPart(.update(let u), let message):
+                let worded = message.parts.contains { !($0.plainText ?? "").isEmpty }
+                let pending = u.approvalID.map { id in state.pendingApprovals.contains { $0.request.id == id } } ?? false
+                let asking = u.kind == .question && u.taskID.flatMap { state.task($0)?.state } == .waitingForUser
+                let replaceable = worded ? !pending && !asking : (u.kind == .approval && !pending) || (u.kind == .question && !asking)
+                return (u.threadID, replaceable)
+            default:
+                return nil
+            }
+        }
+        var last: [ConversationID: Int] = [:]
+        for (i, entry) in entries.enumerated() { if let n = news(entry) { last[n.thread] = i } }
+        return entries.enumerated().compactMap { i, entry in
+            guard let n = news(entry), n.replaceable, last[n.thread] != i else { return entry }
+            return nil
+        }
     }
 
     public var body: some View {
@@ -240,7 +289,7 @@ public struct ConversationView: View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    TimelineStack(lazy: messages.count > Self.eagerLimit) {
                         let hidden = hiddenClear
                         let clear = latestClear
                         if hasMore, hidden == nil {
@@ -259,6 +308,7 @@ public struct ConversationView: View {
                         }
                         let entries = timeline(pairing)
                         let taskActive = currentTask.map { !$0.state.isTerminal } ?? false
+                        let quiet = Quiet(entries)
                         ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                             let afterAgent = index > 0 && entries[index - 1].isAgent
                             switch entry.kind {
@@ -268,19 +318,33 @@ public struct ConversationView: View {
                                 MessageRow(message: message, agent: session.state.agent(agentID), task: task(for: message), pairing: pairing)
                                     .padding(.top, tight ? 4 : 16)
                                     .id(message.id)
-                            case .work(let items):
-                                WorkGroupView(items: items, live: taskActive && index == entries.count - 1)
-                                    .padding(.top, afterAgent ? 6 : 14)
-                            case .agentText(let text, let message, let time):
+                            case .work(let items, let turn):
+                                // Quiet: a reply's work opens from "Show work" under it. Work still going, and work
+                                // with no words after it, keep their one line; a coding run shows every step.
+                                let live = taskActive && index == entries.count - 1
+                                if live || showsAllWork || shownWork.contains(turn) || !quiet.answered.contains(turn) {
+                                    WorkGroupView(items: items, live: live, initiallyOpen: shownWork.contains(turn))
+                                        .padding(.top, afterAgent ? 6 : 14)
+                                        .transition(.opacity)
+                                }
+                            case .agentText(let text, let message, let time, let turn):
                                 VStack(alignment: .leading, spacing: 4) {
                                     AgentText(text: text, agent: session.state.agent(agentID), showsName: Self.firstTextOfTurn(entries, at: index))
                                     if time {
-                                        HStack(spacing: 4) {
-                                            MessageTime(date: message.createdAt, stats: message.stats)
-                                            // The run's cost goes under its last reply, once it has finished.
-                                            if let t = task(for: message), t.state.isTerminal,
+                                        let open = shownWork.contains(turn)
+                                        HStack(spacing: 6) {
+                                            MessageTime(date: message.createdAt, stats: open ? message.stats : nil)
+                                            // The run's cost goes with its work, under its last reply, once it has finished.
+                                            if open, let t = task(for: message), t.state.isTerminal,
                                                messages.last(where: { $0.taskID == t.id && $0.role == .assistant })?.id == message.id {
                                                 RunCostChip(task: t)
+                                            }
+                                            if quiet.worked.contains(turn), !showsAllWork {
+                                                ShowWorkButton(open: open) {
+                                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                                        if open { shownWork.remove(turn) } else { shownWork.insert(turn) }
+                                                    }
+                                                }
                                             }
                                         }
                                         .font(.zoomed(.caption2).monospacedDigit())
@@ -294,10 +358,11 @@ public struct ConversationView: View {
                                     .frame(maxWidth: part.isApproval || part.isUpdate ? ApprovalCard.maxWidth + 15 : 720, alignment: .leading)
                                     .padding(.top, afterAgent ? 8 : 14)
                             case .checkpoint(let c):
+                                // Only /clear draws a line; Pennant tidying its own context isn't news.
                                 if c.startedOver == true, c.id == clear?.id {
                                     ClearedDivider(checkpoint: c, showsEarlier: hidden == nil) { toggleCleared(c, proxy) }
                                         .padding(.vertical, 10)
-                                } else {
+                                } else if c.startedOver == true {
                                     CheckpointDivider(checkpoint: c)
                                         .padding(.vertical, 10)
                                 }
@@ -344,18 +409,23 @@ public struct ConversationView: View {
                     if userScrolling, !prepending { pinnedToBottom = isNearEnd }
                 }
                 // Rows measured lazily can shrink after the view scrolled to them (a tool group settling while the
-                // agent works), leaving the view parked past the end: a blank screen until you scroll up. Snap back.
+                // agent works, a thread opened after a longer one), leaving the view parked past the end: a blank
+                // screen until you scroll up. Snap back, also when the timeline is shorter than the view, and when a
+                // scroll ends there.
                 .onScrollGeometryChange(for: Bool.self) { geometry in
-                    geometry.contentSize.height > geometry.containerSize.height
-                        && geometry.visibleRect.maxY > geometry.contentSize.height + 80
+                    // The furthest the view scrolls: the end of the content, or its top when it's shorter than the view.
+                    let end = max(-geometry.contentInsets.top, geometry.contentSize.height - geometry.containerSize.height + geometry.contentInsets.bottom)
+                    return geometry.contentOffset.y > end + 80
                 } action: { _, pastEnd in
-                    if pastEnd, !userScrolling { scrollToBottom(proxy, animated: false) }
+                    parkedPastEnd = pastEnd
+                    if pastEnd, !userScrolling { snapBack(proxy) }
                 }
                 .onScrollPhaseChange { _, phase in
                     // Interacting and decelerating are the user's own scrolls; animating is ours.
                     let scrolling = phase == .interacting || phase == .decelerating
                     if userScrolling, !scrolling, !prepending { pinnedToBottom = nearEnd }
                     userScrolling = scrolling
+                    if !scrolling, parkedPastEnd { snapBack(proxy) }
                 }
                 .onChange(of: followFingerprint) { _, _ in
                     if pinnedToBottom { followEnd(proxy) }
@@ -397,6 +467,7 @@ public struct ConversationView: View {
                     pinnedToBottom = true
                     prepending = false
                     showsCleared = false
+                    shownWork = []
                     scrollToBottom(proxy, animated: false)
                 }
                 // A new /clear puts what came before out of view again.
@@ -407,7 +478,8 @@ public struct ConversationView: View {
                 CodingBar(conversationID: conversationID)
                     .padding(.horizontal, 20)
                     .padding(.top, 2)
-            } else if conversationID != nil, threadInChat == nil {
+            } else if conversationID != nil, threadInChat == nil, (ContextUsage.forConversation(conversationID, agentID: agentID, in: session.state).fraction ?? 0) >= 0.7 {
+                // Only once the conversation is getting full: then /compact or /clear helps.
                 ContextMeterView(conversationID: conversationID, agentID: agentID)
                     .padding(.horizontal, 20)
                     .padding(.top, 2)
@@ -417,7 +489,7 @@ public struct ConversationView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
             }
-            if let task = currentTask, !task.state.isTerminal || task.updatedAt.timeIntervalSinceNow > -30 {
+            if let task = currentTask, !task.state.isTerminal || (task.state == .failed && task.updatedAt.timeIntervalSinceNow > -30) {
                 TaskStatusBar(task: task)
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
@@ -545,6 +617,15 @@ public struct ConversationView: View {
         }
     }
 
+    private static let scrollLog = Logger(subsystem: "dev.pennant.app", category: "timeline")
+
+    /// Out of the blank space past the last row, back to the end.
+    private func snapBack(_ proxy: ScrollViewProxy) {
+        Self.scrollLog.notice("Timeline was parked past its end; back to the latest message")
+        pinnedToBottom = true
+        scrollToBottom(proxy, animated: false)
+    }
+
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
         if animated {
             withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
@@ -558,6 +639,26 @@ public struct ConversationView: View {
 
     private func markShownRead() {
         if let id = conversationID { session.state.markRead(id) }
+    }
+
+    /// A coding run's steps are what it's for: they stay in view. Everywhere else a reply's work opens from "Show work".
+    private var showsAllWork: Bool {
+        conversationID.flatMap { session.state.conversation($0)?.isCodingRun } ?? false
+    }
+
+    /// Which replies did work, and which ended in words (where "Show work" goes).
+    private struct Quiet {
+        var worked: Set<String> = []
+        var answered: Set<String> = []
+        init(_ entries: [TimelineEntry]) {
+            for entry in entries {
+                switch entry.kind {
+                case .work(_, let turn): worked.insert(turn)
+                case .agentText(_, _, true, let turn): answered.insert(turn)
+                default: break
+                }
+            }
+        }
     }
 
     /// True for the agent's first text since the user last spoke (or since a break in the timeline): that bubble
@@ -1142,4 +1243,18 @@ struct ThreadDrafts {
 private extension ContentPart {
     var isApproval: Bool { if case .approval = self { return true }; return false }
     var isUpdate: Bool { if case .update = self { return true }; return false }
+}
+
+/// The timeline's rows: all built (`VStack`), or built as they come into view (`LazyVStack`) for a very long history.
+private struct TimelineStack<Content: View>: View {
+    var lazy: Bool
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if lazy {
+            LazyVStack(alignment: .leading, spacing: 0) { content }
+        } else {
+            VStack(alignment: .leading, spacing: 0) { content }
+        }
+    }
 }

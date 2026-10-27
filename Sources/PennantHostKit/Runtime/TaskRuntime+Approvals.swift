@@ -50,6 +50,78 @@ extension TaskRuntime {
         await publish(.notice(level: .info, agentID: task.agentID, text: "\(request.title) is ready for your approval."))
     }
 
+    /// The owner doesn't ask for this (Settings › Ask me before…): the card is kept, approved, but not shown, so the work
+    /// can publish with its approval_id; a card with its own action runs it now.
+    func goAhead(taskID: TaskID, _ request: ApprovalRequest) async throws -> ApprovalRequest {
+        guard let task = try await deps.store.task(taskID) else { throw TaskError.notFound(taskID) }
+        if let action = request.action, await actionAsks(action) { throw ToolError.failed("\(action.tool) needs the owner's approval on a card.") }
+        var card = request
+        card.state = .approved
+        card.decidedAt = Date()
+        card.unasked = true
+        let message = Message(conversationID: task.conversationID, agentID: task.agentID, taskID: taskID, role: .assistant, parts: [.approval(card)])
+        try await deps.store.appendMessage(message)
+        approvalMessages[card.id] = message.id
+        await publish(.messageAppended(message))
+        if card.action != nil { await runApprovedAction(card) }
+        return try await findApproval(card.id)?.request ?? card
+    }
+
+    /// Whether a card's action needs the owner even when posts and sends don't: a change to an agent or a skill (only the
+    /// proposal tools put those up), a tool its maker marked as asking every time, or a spend or delete they ask for.
+    func actionAsks(_ action: ApprovalAction) async -> Bool {
+        guard let tool = await deps.broker.resolve(action.tool) else { return true }
+        if tool.spec.access == .approvalOnly { return true }
+        guard let reason = SignOff.reason(tool.spec, arguments: action.arguments) ?? SignOff.asksFirst(tool.spec), reason != .publishes else { return false }
+        return SignOff.asks(reason, deps.config.askFirst)
+    }
+
+    /// A goal session that only proposes: the proposal is a message in the goal's thread, not a card, and nothing waits on
+    /// it. The owner answers there, and that answer is theirs to act on.
+    func proposeInThread(taskID: TaskID, _ request: ApprovalRequest) async throws {
+        guard let task = try await deps.store.task(taskID) else { throw TaskError.notFound(taskID) }
+        var lines = ["**\(request.title)**"]
+        if !request.destination.isEmpty { lines.append(request.destination) }
+        lines += ["", request.text]
+        if !request.notes.isEmpty { lines += ["", request.notes] }
+        lines += ["", "Say go here and I'll do it."]
+        let parts = [ContentPart.text(lines.joined(separator: "\n"))] + request.images.map { ContentPart.image($0) }
+        let message = Message(conversationID: task.conversationID, agentID: task.agentID, taskID: taskID, role: .assistant, parts: parts)
+        try await deps.store.appendMessage(message)
+        await publish(.messageAppended(message))
+        await publishConversation(task.conversationID, after: message)
+    }
+
+    /// How long a card waits before it goes away by itself.
+    static let cardLifetime: TimeInterval = 24 * 3600
+
+    /// Cards don't pile up: one left a day goes away by itself, and the owner's check before one command goes once the
+    /// work that asked has ended (nothing would act on it). Like Dismiss, nobody is woken, and work still waiting on the
+    /// card stops. Returns how many went.
+    @discardableResult
+    public func retireStaleCards(now: Date = Date()) async -> Int {
+        guard let pending = try? await pendingApprovals(now: now) else { return 0 }
+        var retired = 0
+        for card in pending.map(\.request) {
+            var why: String?
+            if now.timeIntervalSince(card.createdAt) > Self.cardLifetime {
+                why = "No answer in a day"
+            } else if !card.isAgentProposal, card.heldCall == nil, let task = try? await deps.store.task(card.taskID), task.state.isTerminal {
+                why = "The work that asked has ended"
+            }
+            guard let why else { continue }
+            do {
+                try await decideApproval(ApprovalDecision(approvalID: card.id, verdict: .dismiss, comment: why),
+                                         by: MessageAuthor(id: PersonID("pennant"), name: HostService.defaultAgentName))
+                retired += 1
+            } catch {
+                log.warn("Couldn't retire the card \(card.id): \(error)", category: "runtime")
+            }
+        }
+        if retired > 0 { log.info("Retired \(retired) card(s) nobody answered or whose work ended", category: "runtime") }
+        return retired
+    }
+
     /// Runs an approved card's action with exactly the approved text, and records the outcome on the card.
     private func runApprovedAction(_ approval: ApprovalRequest) async {
         guard let action = approval.action else { return }
@@ -98,7 +170,22 @@ extension TaskRuntime {
                 if let edited, !edited.isEmpty, edited != a.text { a.approvedText = edited }
             case .requestChanges: a.state = .changesRequested
             case .reject: a.state = .rejected
+            case .dismiss:
+                a.state = .rejected
+                a.dismissed = true
             }
+        }
+        // Dismissed: nothing goes back to the agent, so no model call. Work that was waiting on the card stops.
+        if updated.isDismissed {
+            if try await isWaitingOn(approvalID: updated.id, taskID: updated.taskID) {
+                try? await cancelTask(updated.taskID, reason: "You dismissed \(updated.title)")
+            }
+            return
+        }
+        // A card holding a thread's call: run it (approved) and tell the work.
+        if let held = updated.heldCall {
+            await settleHeldCall(held, card: updated)
+            return
         }
         // A card with its own action: Pennant acts on the decision itself; nobody is waiting on it.
         if updated.action != nil {
@@ -153,30 +240,22 @@ extension TaskRuntime {
 
     /// Report cards in the conversations of tasks from the last 30 days, newest first (at most 200).
     public func reports(now: Date = Date()) async throws -> [PostedReport] {
-        let since = now.addingTimeInterval(-30 * 86_400)
-        var seen = Set<ConversationID>()
+        let recent = try await deps.store.conversationsWithTasks(updatedSince: now.addingTimeInterval(-30 * 86_400))
         var out: [PostedReport] = []
-        for task in try await deps.store.listTasks(agentID: nil, includeFinished: true) where task.updatedAt >= since {
-            guard seen.insert(task.conversationID).inserted else { continue }
-            for m in try await deps.store.messagesAfter(conversationID: task.conversationID, after: nil, limit: 4000) {
-                for case .report(let r) in m.parts { out.append(PostedReport(report: r, agentID: m.agentID, conversationID: m.conversationID, messageID: m.id)) }
-            }
+        for m in try await deps.store.messagesWithReports() where recent.contains(m.conversationID) {
+            for case .report(let r) in m.parts { out.append(PostedReport(report: r, agentID: m.agentID, conversationID: m.conversationID, messageID: m.id)) }
         }
         return Array(out.sorted { $0.report.createdAt > $1.report.createdAt }.prefix(200))
     }
 
     /// Cards still waiting for the user in the conversations of tasks from the last 30 days, newest first.
     public func pendingApprovals(now: Date = Date()) async throws -> [PendingApproval] {
-        let since = now.addingTimeInterval(-30 * 86_400)
-        var seen = Set<ConversationID>()
+        let recent = try await deps.store.conversationsWithTasks(updatedSince: now.addingTimeInterval(-30 * 86_400))
         var out: [PendingApproval] = []
-        for task in try await deps.store.listTasks(agentID: nil, includeFinished: true) where task.updatedAt >= since {
-            guard seen.insert(task.conversationID).inserted else { continue }
-            for m in try await deps.store.messagesAfter(conversationID: task.conversationID, after: nil, limit: 4000) {
-                for case .approval(let a) in m.parts where a.state == .pending {
-                    approvalMessages[a.id] = m.id
-                    out.append(PendingApproval(request: a, agentID: m.agentID, conversationID: m.conversationID, messageID: m.id))
-                }
+        for m in try await deps.store.messagesWithWaitingCards() where recent.contains(m.conversationID) {
+            for case .approval(let a) in m.parts where a.state == .pending {
+                approvalMessages[a.id] = m.id
+                out.append(PendingApproval(request: a, agentID: m.agentID, conversationID: m.conversationID, messageID: m.id))
             }
         }
         return out.sorted { $0.request.createdAt > $1.request.createdAt }

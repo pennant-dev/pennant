@@ -72,6 +72,16 @@ public struct RuntimeHooks: Sendable {
     public var requestApproval: @Sendable (_ taskID: TaskID, _ request: ApprovalRequest) async throws -> ApprovalRequest = { _, _ in throw ToolError.failed("Approvals are unavailable in this context") }
     /// Looks up an approval by id (for publishing tools).
     public var approval: @Sendable (_ id: String) async throws -> ApprovalRequest? = { _ in nil }
+    /// The owner doesn't ask for this (Settings › Ask me before…): records the card as approved without showing it, runs
+    /// its action if it has one, and returns it.
+    public var goAhead: @Sendable (_ taskID: TaskID, _ request: ApprovalRequest) async throws -> ApprovalRequest = { _, _ in throw ToolError.failed("Approvals are unavailable in this context") }
+    /// Whether a card's action still needs the owner even when posts and sends don't: it changes an agent or a skill,
+    /// or it spends or deletes and they ask for that.
+    public var actionAsks: @Sendable (_ action: ApprovalAction) async -> Bool = { _ in true }
+    /// Whether the task is a session of a goal that only proposes.
+    public var onlyProposes: @Sendable (_ taskID: TaskID) async -> Bool = { _ in false }
+    /// Puts a goal's proposal to the owner as a message in the task's thread (no card); the task doesn't wait.
+    public var proposeInThread: @Sendable (_ taskID: TaskID, _ request: ApprovalRequest) async throws -> Void = { _, _ in throw ToolError.failed("Proposals are unavailable in this context") }
     /// Posts a card that carries its own action and returns at once (the task doesn't wait for the decision).
     public var postApproval: @Sendable (_ taskID: TaskID, _ request: ApprovalRequest) async throws -> Void = { _, _ in throw ToolError.failed("Approvals are unavailable in this context") }
     /// The exact name of the tool a card's action names (models write connection tools several ways), or an error

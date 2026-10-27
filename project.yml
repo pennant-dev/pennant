@@ -107,8 +107,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.pennant.mac
         PRODUCT_NAME: Pennant
-        MARKETING_VERSION: 0.3.3
-        CURRENT_PROJECT_VERSION: 6
+        MARKETING_VERSION: 0.4.0
+        CURRENT_PROJECT_VERSION: 7
         ENABLE_HARDENED_RUNTIME: NO
         ENABLE_APP_SANDBOX: NO
         GENERATE_INFOPLIST_FILE: NO
@@ -186,6 +186,15 @@ targets:
         product: MLXAudioCore
       - package: MLXAudio
         product: MLXAudioSTT
+      # Meaning search for memory (Pennant Voice embed): EmbeddingGemma through MLX's embedders.
+      - package: MLXSwiftLM
+        product: MLXEmbedders
+      - package: MLXSwiftLM
+        product: MLXLMCommon
+      - package: SwiftTransformers
+        product: Tokenizers
+      - package: SwiftHuggingFace
+        product: HuggingFace
     info:
       path: Apps/PennantVoice/Info.plist
       properties:
@@ -199,8 +208,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.pennant.voice
         PRODUCT_NAME: Pennant Voice
-        MARKETING_VERSION: 0.3.3
-        CURRENT_PROJECT_VERSION: 6
+        MARKETING_VERSION: 0.4.0
+        CURRENT_PROJECT_VERSION: 7
         # MLX runs on Apple silicon only; on an Intel Mac Talk mode keeps the system voices.
         ARCHS: arm64
         ENABLE_HARDENED_RUNTIME: NO
@@ -261,8 +270,8 @@ targets:
         PENNANT_IOS_BUNDLE_ID: dev.pennant.ios
         PRODUCT_BUNDLE_IDENTIFIER: $(PENNANT_IOS_BUNDLE_ID)
         PRODUCT_NAME: Pennant
-        MARKETING_VERSION: 0.3.3
-        CURRENT_PROJECT_VERSION: 6
+        MARKETING_VERSION: 0.4.0
+        CURRENT_PROJECT_VERSION: 7
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Apps/PennantiOS/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"

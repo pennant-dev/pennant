@@ -66,7 +66,9 @@ public struct ApprovalCard: View {
         .frame(maxWidth: Self.maxWidth, alignment: .leading)
         .background(PennantTheme.cardElevated, in: RoundedRectangle(cornerRadius: PennantTheme.radiusLarge, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: PennantTheme.radiusLarge, style: .continuous).strokeBorder(PennantTheme.border))
-        .shadow(color: .black.opacity(pending ? 0.11 : 0.06), radius: pending ? 20 : 12, y: pending ? 10 : 5)
+        // A soft lift for a card that waits, none once decided: a wide blurred shadow is redrawn on every frame while the
+        // chat scrolls.
+        .shadow(color: .black.opacity(pending ? 0.08 : 0), radius: pending ? 8 : 0, y: pending ? 3 : 0)
         .sheet(item: $zoomed) { ref in
             VStack(spacing: 0) {
                 HStack { Spacer(); Button("Done") { zoomed = nil }.buttonStyle(.pennantCompact) }.padding(10)
@@ -297,6 +299,16 @@ public struct ApprovalCard: View {
             .buttonStyle(.pennantSecondary).disabled(busy)
     }
 
+    /// Gone without a word to the agent: no reply to write, so no model call. Work waiting on it stops.
+    private var dismissButton: some View {
+        Button { decide(.dismiss) } label: {
+            Text("Dismiss").lineLimit(1).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.pennantGhost)
+        .help("Remove this card without telling Pennant. Anything waiting on it stops.")
+        .disabled(busy)
+    }
+
     private var rejectButton: some View {
         Button(role: .destructive) { mode = .rejecting } label: {
             Text("Reject").lineLimit(1).frame(maxWidth: .infinity).foregroundStyle(PennantTheme.danger)
@@ -328,12 +340,14 @@ public struct ApprovalCard: View {
                     changesButton.fixedSize()
                     rejectButton.fixedSize()
                     Spacer(minLength: 0)
+                    dismissButton.fixedSize()
                 }
                 VStack(spacing: 8) {
                     approveButton.frame(maxWidth: .infinity)
                     allowRestButton.frame(maxWidth: .infinity)
                     changesButton.frame(maxWidth: .infinity)
                     rejectButton.frame(maxWidth: .infinity)
+                    dismissButton.frame(maxWidth: .infinity)
                 }
             }
         case .requestingChanges, .rejecting:
@@ -402,9 +416,10 @@ public struct ApprovalCard: View {
         case .pending: return "Pending"
         case .approved:
             if request.action != nil, let failed = request.actionFailed { return failed ? "Approved · not sent" : "Sent" }
+            if request.isUnasked { return request.publishedURL == nil ? "Went ahead without asking" : "Published without asking" }
             return request.publishedURL == nil ? "Approved" : "Published"
         case .changesRequested: return "Changes requested"
-        case .rejected: return request.replacedBy == nil ? "Rejected" : "Replaced"
+        case .rejected: return request.isDismissed ? "Dismissed" : request.replacedBy == nil ? "Rejected" : "Replaced"
         }
     }
 
@@ -412,7 +427,7 @@ public struct ApprovalCard: View {
         switch request.state {
         case .approved: return request.actionFailed == true ? PennantTheme.danger : PennantTheme.success
         case .changesRequested: return PennantTheme.warning
-        case .rejected: return request.replacedBy == nil ? PennantTheme.danger : PennantTheme.inkSecondary
+        case .rejected: return request.replacedBy == nil && !request.isDismissed ? PennantTheme.danger : PennantTheme.inkSecondary
         case .pending: return PennantTheme.brandInk
         }
     }
@@ -421,7 +436,7 @@ public struct ApprovalCard: View {
         switch request.state {
         case .approved: return request.publishedURL == nil ? "checkmark.seal.fill" : "paperplane.fill"
         case .changesRequested: return "arrow.uturn.backward.circle"
-        case .rejected: return request.replacedBy == nil ? "xmark.seal" : "arrow.triangle.2.circlepath"
+        case .rejected: return request.isDismissed ? "eye.slash" : request.replacedBy == nil ? "xmark.seal" : "arrow.triangle.2.circlepath"
         case .pending: return "checkmark.seal"
         }
     }

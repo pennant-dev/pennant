@@ -40,23 +40,30 @@ enum DemoLaunch {
         }
     }
 
-    /// Settings panes to photograph too (`PENNANT_DEBUG_SHOT_SETTINGS=pennant,models`), each a `SettingsView.Pane`.
+    /// Settings panes or pages to photograph too (`PENNANT_DEBUG_SHOT_SETTINGS=pennant,models`), each a `SettingsView.Pane`
+    /// or `SettingsView.Page`.
     static var settingsPanes: [String] {
-        (env["PENNANT_DEBUG_SHOT_SETTINGS"] ?? "").split(separator: ",").map(String.init).filter { SettingsView.Pane(rawValue: $0) != nil }
+        (env["PENNANT_DEBUG_SHOT_SETTINGS"] ?? "").split(separator: ",").map(String.init).filter { SettingsView.Pane(rawValue: $0) != nil || SettingsView.Page(rawValue: $0) != nil }
     }
 
-    /// Sizes the main window and centres it.
+    /// `PENNANT_DEBUG_SHOT_OFFSCREEN=1`: the windows sit off the screen while they're saved, so taking the shots doesn't
+    /// get in the way of whoever is using the Mac.
+    static var offscreen: Bool { env["PENNANT_DEBUG_SHOT_OFFSCREEN"] == "1" }
+
+    /// Sizes the main window and centres it (or puts it off the screen).
     @MainActor static func prepareWindow() {
         guard let window = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) else { return }
         let size = windowSize
         window.setContentSize(size)
         window.center()
+        if offscreen { window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000)) }
     }
 
     /// A window as the app draws it (title bar and all), at the display's scale; the main window unless another is given.
     @MainActor static func capture(_ name: String, into folder: URL, window: NSWindow? = nil) {
         guard let window = window ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }),
               let view = window.contentView?.superview ?? window.contentView else { return }
+        if offscreen { window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000)) }
         view.layoutSubtreeIfNeeded()
         guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: rep)

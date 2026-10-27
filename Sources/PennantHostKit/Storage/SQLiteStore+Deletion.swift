@@ -13,6 +13,7 @@ extension SQLiteStore {
             try db.execute("DELETE FROM messages_fts WHERE message_id IN (\(marks))", params)
             try db.execute("DELETE FROM messages WHERE id IN (\(marks))", params)
         }
+        waitingCards?.subtract(ids)
     }
 
     public func deleteConversations(_ ids: [ConversationID]) throws {
@@ -33,6 +34,7 @@ extension SQLiteStore {
             try db.execute("DELETE FROM tasks WHERE conversation_id IN (\(marks))", params)
             try db.execute("DELETE FROM conversations WHERE id IN (\(marks))", params)
         }
+        waitingCards = nil
         let fm = FileManager.default
         for raw in artifactIDs {
             let url = paths.artifactsURL.appendingPathComponent(raw)

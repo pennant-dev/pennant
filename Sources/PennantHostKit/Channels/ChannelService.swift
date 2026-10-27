@@ -404,7 +404,7 @@ public actor ChannelService {
     /// someone taps comes back as their reply. Only to a chat agents may message freely.
     public func post(_ text: String, buttons: [String], to contactID: String) async throws {
         guard let contact = state.contacts.first(where: { $0.id == contactID }) else { throw ToolError.failed("That chat is gone.") }
-        guard contact.allowed else { throw ToolError.failed("\(contact.name) isn't cleared for messages from agents (Settings › Channels).") }
+        guard contact.allowed else { throw ToolError.failed("\(contact.name) isn't cleared for messages from agents (Settings › Connections › Channels).") }
         let outgoing = buttons.isEmpty ? Outgoing.text(text) : ChannelCards.simple(title: nil, text: text, facts: [], buttons: buttons)
         try await deliver(outgoing, to: contact)
     }
@@ -440,7 +440,7 @@ public actor ChannelService {
             return id
         }
         guard let config = state.teams, let secret = teamsSecret, let service = contact.details?["serviceURL"] else {
-            throw ToolError.failed("Teams isn't set up (Settings › Channels), or \(contact.name) hasn't messaged the bot yet.")
+            throw ToolError.failed("Teams isn't set up (Settings › Connections › Channels), or \(contact.name) hasn't messaged the bot yet.")
         }
         let id = try await TeamsBot(config: config, secret: secret, session: .shared).send(card: card, summary: fallback, serviceURL: service, conversationID: contact.address, tokens: teamsTokens)
         touch(contact.id)
@@ -467,10 +467,10 @@ public actor ChannelService {
         }
         switch contact.kind {
         case .telegram:
-            guard let token = telegramToken else { throw ToolError.failed("Telegram isn't set up (Settings › Channels).") }
+            guard let token = telegramToken else { throw ToolError.failed("Telegram isn't set up (Settings › Connections › Channels).") }
             try await TelegramBot(token: token).send(text, to: contact.address)
         case .imessage:
-            guard isEnabled(.imessage) else { throw ToolError.failed("iMessage is off (Settings › Channels).") }
+            guard isEnabled(.imessage) else { throw ToolError.failed("iMessage is off (Settings › Connections › Channels).") }
             if Self.isIMessageGroup(contact) {
                 guard let group = contact.details?["group"] else { throw ToolError.failed("Messages has no group chat named \(contact.address) (yet).") }
                 try await IMessageBridge().send(text, toGroup: group)
@@ -479,7 +479,7 @@ public actor ChannelService {
             }
         case .teams:
             guard let config = state.teams, let secret = teamsSecret, let service = contact.details?["serviceURL"] else {
-                throw ToolError.failed("Teams isn't set up (Settings › Channels), or \(contact.name) hasn't messaged the bot yet.")
+                throw ToolError.failed("Teams isn't set up (Settings › Connections › Channels), or \(contact.name) hasn't messaged the bot yet.")
             }
             try await TeamsBot(config: config, secret: secret, session: .shared).send(text, serviceURL: service, conversationID: contact.address, tokens: teamsTokens)
         }
@@ -575,7 +575,7 @@ public actor ChannelService {
         if !state.refusedChats.contains(u.chatID) {
             state.refusedChats.append(u.chatID)
             try? save()
-            try? await bot.send("This is a private Pennant bot. Ask its owner for a link from Settings › Channels.", to: u.chatID)
+            try? await bot.send("This is a private Pennant bot. Ask its owner for a link from Settings › Connections › Channels.", to: u.chatID)
         }
     }
 

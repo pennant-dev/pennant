@@ -35,6 +35,9 @@ public actor TaskRuntime {
         public var goals: (@Sendable () async -> [Goal])?
         /// The environment a coding session runs with to act as its agent's GitHub App (a fresh token each run).
         public var gitHubEnvironment: (@Sendable (GitHubAppIdentity) async throws -> [String: String])?
+        /// Whether someone is one of this host's people (the owner or a teammate), to tell their word from a contact's.
+        /// Nil in tests: only the plain "owner" author counts there.
+        public var isPerson: (@Sendable (PersonID) async -> Bool)?
 
         public init(store: any StoreProtocol, eventBus: EventBus, provider: any InferenceProvider, broker: ToolBroker, desktop: any DesktopControlling, lease: DesktopLease, memory: MemoryService, skillTracker: SkillUsageTracker, config: HostConfig) {
             self.store = store
@@ -109,6 +112,8 @@ public actor TaskRuntime {
     var codingIdentity: [TaskID: String] = [:]
     /// Coding runs on the Pennant engine whose loop is running: their project and GitHub identity.
     var pennantCodingRuns: [TaskID: PennantCodingRun] = [:]
+    /// What the project of each coding run the code tool asked for looked like then, to tell at its end whether it changed anything.
+    var codingBaselines: [TaskID: CodingBaseline] = [:]
     /// Structured answers from a choice card, picked up by the coding run waiting on it.
     var choiceAnswers: [TaskID: [String: String]] = [:]
     /// The open choice card each coding task is waiting on (task → question id).
@@ -139,6 +144,13 @@ public actor TaskRuntime {
     var updateMessages: [String: MessageID] = [:]
     /// The work board as last built, reused for a minute (a turn reads it on every step).
     var boardCache: (at: Date, text: String)?
+    /// What memory had on the owner's draft in a conversation while they typed (`prewarm`), for the reply to use when
+    /// they send exactly that.
+    var draftRecall: [ConversationID: (text: String, hits: [MemoryHit], at: Date)] = [:]
+    /// The latest check-in: the next one starts with the services it loaded, instead of a step loading them again.
+    var lastHeartbeatTask: TaskID?
+    /// Held calls the owner approved, running now: the sign-off gate lets them through.
+    var heldSignedOff: Set<ToolCallID> = []
     /// macOS permissions whose system prompt this process has already shown, by label.
     var promptedPermissions: Set<String> = []
 
@@ -210,10 +222,11 @@ public actor TaskRuntime {
 
     // MARK: Public commands
 
-    /// A user message: either answers a waiting question or starts a task in the conversation.
+    /// A user message: either answers a waiting question or starts a task in the conversation. `askedForChange`: the
+    /// code tool asked a coding run for a change, so its end says whether it made one.
     public func submitUserMessage(agentID: AgentID, conversationID: ConversationID?, text: String, attachments: [Attachment], author: MessageAuthor? = nil, folder: String? = nil,
                                   mode: CodingMode? = nil, model: String? = nil, requestedBy: TaskID? = nil, engine: CodingEngine? = nil,
-                                  chrome: Bool = false, spoken: Bool = false) async throws -> (MessageID, ConversationID, TaskID) {
+                                  chrome: Bool = false, spoken: Bool = false, askedForChange: Bool = false) async throws -> (MessageID, ConversationID, TaskID) {
         guard let agent = try await deps.store.agent(agentID), agent.status != .retired else { throw ToolError.failed("Agent not found") }
         let conversation: Conversation
         if let conversationID, var existing = try await deps.store.conversation(conversationID) {
@@ -263,6 +276,7 @@ public actor TaskRuntime {
             await publish(.messageAppended(message))
             await publishConversation(conversation.id, after: message)
             if spoken { runtimeNotes[waiting.id, default: []].append(Self.spokenNote) }
+            if await continuedByOwner(author) { try? await resetCodingAllowance(waiting.id) }
             try await deliverAnswer(taskID: waiting.id, text: text, alreadyAppended: true)
             return (message.id, conversation.id, waiting.id)
         }
@@ -276,12 +290,17 @@ public actor TaskRuntime {
             await publishConversation(conversation.id, after: message)
             runtimeNotes[active.id, default: []].append("The user sent a new message while you were working; it is included in the conversation. Take it into account.")
             if spoken { runtimeNotes[active.id, default: []].append(Self.spokenNote) }
+            if await continuedByOwner(author) { try? await resetCodingAllowance(active.id) }
             if active.state == .paused { try await resumeTask(active.id) }
             return (message.id, conversation.id, active.id)
         }
 
         var task = TaskRecord(agentID: agentID, conversationID: conversation.id, title: Self.title(from: text), objective: text, completionCriteria: "", budget: deps.config.defaultBudget)
         task.requestedByTaskID = requestedBy
+        // What the project looks like before the run can start, to tell at its end whether it changed anything.
+        if askedForChange, let project = conversation.workingDirectory ?? deps.config.coding?.defaultProject?.path {
+            codingBaselines[task.id] = CodingBaseline(gitState: await Self.gitState(of: project))
+        }
         let message = Message(conversationID: conversation.id, agentID: agentID, taskID: task.id, role: .user, parts: parts, author: author)
         try await deps.store.appendMessage(message)
         await publish(.messageAppended(message))
@@ -381,6 +400,9 @@ public actor TaskRuntime {
     }
 
     public func answerQuestion(taskID: TaskID, text: String) async throws {
+        // The owner answering is an explicit continuation: it starts a new stretch of the task's work, with its own
+        // allowance of coding runs.
+        try? await resetCodingAllowance(taskID)
         try await deliverAnswer(taskID: taskID, text: text, alreadyAppended: false)
     }
 
@@ -485,6 +507,9 @@ public actor TaskRuntime {
     }
 
     // MARK: The loop
+
+    /// The chat's tools that hand work on: a step that calls only these after saying its line ends the chat's reply.
+    static let chatHandOffTools: Set<String> = ["start_thread", "message_thread"]
 
     private func runLoop(_ taskID: TaskID) async {
         defer { Task { await self.loopEnded(taskID) } }
@@ -610,7 +635,13 @@ public actor TaskRuntime {
                         offerPending[taskID] = (assistant.id, response.text)
                         continue
                     }
-                    try await complete(task: taskID, summary: response.text)
+                    if coding != nil {
+                        // A run's last words are only a change made if it changed the project: one that only read,
+                        // or said what it means to do, ends marked as changing nothing.
+                        try await finishCodingRun(taskID, summary: response.text)
+                    } else {
+                        try await complete(task: taskID, summary: response.text)
+                    }
                     break
                 }
 
@@ -633,9 +664,11 @@ public actor TaskRuntime {
                     try await complete(task: taskID, summary: Self.handedOffLine(title))
                     break
                 }
+                var results: [ToolResult] = []
                 for call in response.toolCalls {
                     try Task.checkCancellation()
                     let (result, needsDesktop) = try await executeTool(call, task: task, agent: profile)
+                    results.append(result)
                     usedDesktopThisStep = usedDesktopThisStep || needsDesktop
                     let toolMessage = Message(conversationID: task.conversationID, agentID: agent.id, taskID: taskID, role: .tool, parts: [.toolResult(result)])
                     try await deps.store.appendMessage(toolMessage)
@@ -648,6 +681,14 @@ public actor TaskRuntime {
                 }
                 if !usedDesktopThisStep { await deps.lease.forget(taskID: taskID) }
                 await publish(.taskUpserted(task))
+                // In the chat, a step that said its line and only started threads or passed word to them is the whole
+                // reply: the threads work by themselves, and another call would only say it again.
+                if coding == nil, !Self.isHeartbeat(task), !response.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   response.toolCalls.allSatisfy({ Self.chatHandOffTools.contains($0.name) }), results.allSatisfy({ !$0.isError }),
+                   await inMainChat(task) {
+                    try await complete(task: taskID, summary: response.text)
+                    break
+                }
                 // Every call refused, step after step: another try of the same won't go differently. It ends here with
                 // what it has rather than spinning (a model that ignores the refusal would go on until its budget).
                 if await everyCallRefused(taskID, calls: response.toolCalls) {

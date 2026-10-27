@@ -49,10 +49,10 @@
       <h1>The last agentic harness you'll ever need.</h1>
       <p class="lede">Bring any model. Pennant gives it everything else, on your Mac: a chat you can type or talk to, jobs and goals that keep going on their own, your apps, the web and your code, a memory with receipts, and <b>a card before anything is sent, deleted or paid for.</b></p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.3.3/Pennant-0.3.3.dmg"><i data-ic="download"></i>Download for Mac</a>
+        <a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.4.0/Pennant-0.4.0.dmg"><i data-ic="download"></i>Download for Mac</a>
         <a class="btn btn-ghost" href="#day">Follow a day</a>
       </div>
-      <p class="fine-line">Version 0.3.3, a preview · free · macOS 15 or later, Apple silicon or Intel</p>
+      <p class="fine-line">Version 0.4.0, a preview · free · macOS 15 or later, Apple silicon or Intel</p>
     </div>
     <div class="showcase" id="showcase">
       <div class="tilt">
@@ -368,9 +368,9 @@
         <li><i data-ic="checkc"></i><span><b>Your model, your choice.</b> With a local model, nothing leaves your Mac.</span></li>
         <li><i data-ic="checkc"></i><span><b>The iPhone talks to your Mac directly,</b> over your network or Tailscale.</span></li>
       </ul>
-      <div class="cta-row"><a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.3.3/Pennant-0.3.3.dmg"><i data-ic="download"></i>Download Pennant</a><a class="btn btn-ghost" href="https://github.com/pennant-dev/pennant"><i data-ic="code"></i>View on GitHub</a></div>
-      <p class="fine-line sha">Version 0.3.3, a preview. Signed and notarized by Apple; it updates itself once you allow it. SHA-256 <code>8b34f8216d87e2a7cdb58c4fc694975f12c92e34eafdee893c99db53cb220a1d</code></p>
-      <div class="reqs"><span>macOS 15 or later</span><span>Apple silicon or Intel</span><span>iPhone app: iOS 18 or later</span><span>any OpenAI-compatible endpoint, or Ollama</span></div>
+      <div class="cta-row"><a class="btn btn-primary" href="https://github.com/pennant-dev/pennant/releases/download/v0.4.0/Pennant-0.4.0.dmg"><i data-ic="download"></i>Download Pennant</a><a class="btn btn-ghost" href="https://github.com/pennant-dev/pennant"><i data-ic="code"></i>View on GitHub</a></div>
+      <p class="fine-line sha">Version 0.4.0, a preview. Signed and notarized by Apple; it updates itself once you allow it. SHA-256 <code>6c912a83c7527cf3feec6a5c3e83b60269af56408b434d2e94d43bade937130c</code></p>
+      <div class="reqs"><span>macOS 15 or later</span><span>Apple silicon or Intel</span><span>iPhone app: iOS 18 or later</span><span>any OpenAI-compatible endpoint, or a ChatGPT account</span></div>
     </div>
     <div class="term">
       <div class="term-h">Terminal</div>
@@ -378,8 +378,8 @@
 <span class="ps">$ </span>cd pennant &amp;&amp; Scripts/build-release.sh --open
 <span class="cm"># builds, signs and opens Pennant.app</span>
 
-<span class="cm"># no API key yet? start local</span>
-<span class="ps">$ </span>ollama pull gemma4:e2b-it-qat
+<span class="cm"># no API key yet? use your ChatGPT account</span>
+<span class="ps">$ </span>pennant chatgpt login
 
 <span class="cm"># let it write code in your repository</span>
 <span class="ps">$ </span>pennant coding folder ~/code/your-app</pre>

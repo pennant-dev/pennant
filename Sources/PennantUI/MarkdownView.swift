@@ -16,11 +16,73 @@ public struct PennantMarkdown: View {
     }
 
     public var body: some View {
-        Markdown(text)
-            .markdownTheme(.pennant(onDark ? .onDark : .standard, bodySize: (size ?? bodySize) * PennantZoom.shared.factor))
-            .textSelection(.enabled)
+        #if os(macOS)
+        SelectableWhenPointedAt { rendered }
+        #else
+        rendered.textSelection(.enabled)
+        #endif
+    }
+
+    /// Most replies are a few paragraphs with some bold or a link: one Text draws those, far more cheaply than the
+    /// Markdown renderer's view per paragraph (a long chat scrolls on how much text it has to draw). Headings, lists,
+    /// code, tables and quotes get the full renderer.
+    @ViewBuilder private var rendered: some View {
+        let palette: MarkdownPalette = onDark ? .onDark : .standard
+        let points = (size ?? bodySize) * PennantZoom.shared.factor
+        if !MarkdownDetector.hasBlocks(text), let inline = Self.inline(text, palette: palette) {
+            Text(inline)
+                .font(.system(size: points))
+                .foregroundStyle(palette.ink)
+                .lineSpacing(points * 0.25)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Markdown(text).markdownTheme(.pennant(palette, bodySize: points))
+        }
+    }
+
+    /// The text with its inline Markdown (bold, italics, code, links) applied, paragraphs kept; nil if it doesn't parse.
+    private static func inline(_ text: String, palette: MarkdownPalette) -> AttributedString? {
+        guard var out = try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) else { return nil }
+        for run in out.runs {
+            if run.link != nil { out[run.range].foregroundColor = palette.link }
+            if run.inlinePresentationIntent?.contains(.code) == true {
+                out[run.range].font = .system(.body, design: .monospaced)
+                out[run.range].backgroundColor = palette.codeBackground
+            }
+        }
+        return out
     }
 }
+
+#if os(macOS)
+/// Text you can select once the pointer is on it. On the Mac, selectable text is drawn on the CPU into layers of its
+/// own, which made a long chat slow to scroll; text that only shows is drawn far more cheaply. The pointer reaches the
+/// text before any click, so selecting works the same; it stays selectable for a moment after the pointer leaves, so a
+/// drag that runs past the edge keeps its selection.
+struct SelectableWhenPointedAt<Content: View>: View {
+    @ViewBuilder var content: Content
+    @State private var selectable = false
+    @State private var leaving: Task<Void, Never>?
+
+    var body: some View {
+        Group {
+            if selectable { content.textSelection(.enabled) } else { content }
+        }
+        .onHover { inside in
+            leaving?.cancel()
+            if inside {
+                selectable = true
+            } else {
+                leaving = Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(4))
+                    if !Task.isCancelled { selectable = false }
+                }
+            }
+        }
+    }
+}
+#endif
 
 /// Whether text is written in Markdown: a heading, a fence, a table, a quote or a list of two or more on lines of
 /// their own, or bold, inline code or a link inside a line. A post or an email without those reads as plain text.
@@ -33,6 +95,12 @@ enum MarkdownDetector {
     ].map { try! NSRegularExpression(pattern: $0, options: .anchorsMatchLines) }
     private static let listItem = try! NSRegularExpression(pattern: #"^ {0,3}([-*+]|\d{1,3}[.)]) \S"#, options: .anchorsMatchLines)
     private static let inline = try! NSRegularExpression(pattern: #"\*\*[^*\n]+\*\*|__[^_\n]+__|`[^`\n]+`|\[[^\]\n]+\]\((https?://|mailto:)[^)\s]+\)"#)
+
+    /// Whether it has anything one Text can't lay out: a heading, a fence, a table, a quote or a list.
+    static func hasBlocks(_ text: String) -> Bool {
+        let range = NSRange(text.startIndex..., in: text)
+        return blockPatterns.contains { $0.firstMatch(in: text, range: range) != nil } || listItem.firstMatch(in: text, range: range) != nil
+    }
 
     static func looksLikeMarkdown(_ text: String) -> Bool {
         let range = NSRange(text.startIndex..., in: text)

@@ -117,7 +117,7 @@ final class RuntimeTests: XCTestCase {
     }
 
     func makeService(_ provider: ScriptedProvider, desktop: FakeDesktop = FakeDesktop(), keepRecentMessages: Int = 8, budget: TaskBudget? = nil) async throws -> HostService {
-        var config = HostConfig()
+        var config = HostConfig.asking
         config.workingDirectory = paths.root.path
         config.desktop.pauseOnHumanInput = false
         config.compaction.keepRecentMessages = keepRecentMessages
@@ -194,7 +194,8 @@ final class RuntimeTests: XCTestCase {
         let streamed = await MainActor.run { () -> Message? in
             let client = ClientState()
             for event in seen.dropLast() { client.apply(event: event) }
-            return client.messages.values.joined().first { $0.role == .assistant }
+            let conversations = Set(seen.compactMap { if case .messageDelta(let d) = $0.payload { d.conversationID } else { nil } })
+            return conversations.flatMap { client.messages[$0] ?? [] }.first { $0.role == .assistant }
         }
         let message = try XCTUnwrap(streamed)
         XCTAssertEqual(message.parts.filter { if case .text = $0 { true } else { false } }.count, 1, "\(message.parts)")
@@ -244,7 +245,8 @@ final class RuntimeTests: XCTestCase {
     func testRequestsFromASharedChatActAndDeletesWaitForTheOwner() async throws {
         let dir = "${TMPDIR:-/tmp}/pennant-shared-chat-test-\(UUID().uuidString.prefix(6))"
         let make = ToolCall(id: ToolCallID("c1"), name: "shell", arguments: ["command": .string("mkdir -p \"\(dir)\"")])
-        let remove = ToolCall(id: ToolCallID("c2"), name: "shell", arguments: ["command": "rm -r ~/pennant-nothing-here"])
+        // `command rm` is the real one (a plain rm moves to the Trash and doesn't ask).
+        let remove = ToolCall(id: ToolCallID("c2"), name: "shell", arguments: ["command": "command rm -r ~/pennant-nothing-here"])
         let provider = ScriptedProvider([
             .init(text: "Hi all."),
             .init(toolCalls: [make]),
@@ -276,7 +278,7 @@ final class RuntimeTests: XCTestCase {
         }
         let pending = try XCTUnwrap(card, "deleting waits on the owner")
         XCTAssertTrue(pending.request.title.hasPrefix("Delete"), pending.request.title)
-        XCTAssertEqual(pending.request.text, "rm -r ~/pennant-nothing-here")
+        XCTAssertEqual(pending.request.text, "command rm -r ~/pennant-nothing-here")
         try await service.runtime.decideApproval(ApprovalDecision(approvalID: pending.id, verdict: .reject), by: nil)
         _ = try await waitForTask(service, deleting, state: .completed)
         let refused = try await service.store.toolRecords(taskID: deleting)
@@ -472,7 +474,7 @@ final class RuntimeTests: XCTestCase {
             .init(toolCalls: [ToolCall(id: ToolCallID("r4"), name: "write_file", arguments: ["path": "out.txt", "content": "x"])]),   // now allowed
             .init(text: "Recovered and written."),
         ])
-        var config = HostConfig()
+        var config = HostConfig.asking
         config.workingDirectory = paths.root.path
         config.desktop.pauseOnHumanInput = false
         let store = try SQLiteStore(paths: paths)
@@ -640,7 +642,8 @@ final class RuntimeTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(compactedTask?.usage.compactions ?? 0, 1)
         // After compaction the model saw the checkpoint block instead of the full history.
         let last = provider.requests.last!.messages
-        XCTAssertTrue(last.first!.text.contains("## Checkpoint"))
+        XCTAssertTrue(last[1].text.contains("## Checkpoint"), "the checkpoint follows the system prompt")
+        XCTAssertFalse(last[0].text.contains("## Checkpoint"), "the system prompt stays the same from task to task")
         XCTAssertLessThan(last.count, 12)
         await service.stop()
     }
@@ -774,7 +777,7 @@ extension RuntimeTests {
         let (_, _, t3) = try await service.runtime.submitUserMessage(agentID: agent.id, conversationID: conversationID, text: "And now?", attachments: [])
         _ = try await waitForTask(service, t3, state: .completed)
         let third = provider.requests.last!.messages
-        XCTAssertTrue(third.first!.text.contains("## Checkpoint"))
+        XCTAssertTrue(third[1].text.contains("## Checkpoint"))
         XCTAssertFalse(third.contains { $0.role == .assistant && $0.text.contains("codename is Atlas") }, "summarised turns must not be replayed verbatim")
         await service.stop()
     }

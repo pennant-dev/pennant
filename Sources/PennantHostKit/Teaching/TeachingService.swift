@@ -57,7 +57,7 @@ public actor TeachingService {
         let started = startRecorder { item in continuation.yield(item) }
         stopRecorder = started.stop
         if !started.started {
-            s.warning = "Pennant can’t watch the mouse and keyboard yet. Grant Accessibility and Input Monitoring to Pennant Host (Settings › Permissions), then start again. Notes still work."
+            s.warning = "Pennant can’t watch the mouse and keyboard yet. Grant Accessibility and Input Monitoring to Pennant Host (Settings › Advanced › Permissions), then start again. Notes still work."
         }
         session = s
         await publish(s)

@@ -54,7 +54,7 @@ public enum DemoSeed {
             while d <= now.addingTimeInterval(1800) { d = calendar.date(byAdding: .day, value: 1, to: d) ?? d.addingTimeInterval(86_400) }
             return d
         }
-        func runTitle(_ job: String, _ fired: Date) -> String { "⏰ \(job) · \(fired.formatted(.dateTime.month(.abbreviated).day().hour().minute()))" }
+        func runTitle(_ job: String, _ fired: Date) -> String { "\(job) · \(fired.formatted(.dateTime.month(.abbreviated).day().hour().minute()))" }
 
         // MARK: Pennant, the one agent
 
@@ -110,7 +110,7 @@ public enum DemoSeed {
                                          provider: "Azure AI Foundry", model: "deepseek-v4.1-flash", inputTokens: inp, cachedInputTokens: cach, outputTokens: out, cost: cost, estimated: false)
                 case .helper:
                     record = UsageRecord(at: at, agentID: t.agentID, taskID: t.id, conversationID: t.conversationID, profileID: nil, modelLabel: "Gemma 4 · this Mac",
-                                         provider: "Ollama", model: "gemma4:e2b-it-qat", inputTokens: inp, cachedInputTokens: cach, outputTokens: out, cost: 0, estimated: false)
+                                         provider: "LM Studio", model: "gemma-4-e2b-it", inputTokens: inp, cachedInputTokens: cach, outputTokens: out, cost: 0, estimated: false)
                 case .coding:
                     let cost = (Double(inp - cach) * 3.0 + Double(cach) * 0.30 + Double(out) * 15.0) / 1_000_000
                     record = UsageRecord(at: at, agentID: t.agentID, taskID: t.id, conversationID: t.conversationID, profileID: nil, modelLabel: "Claude Code",

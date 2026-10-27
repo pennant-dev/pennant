@@ -206,6 +206,17 @@ public struct TaskRecord: Hashable, Codable, Sendable, Identifiable {
     public var createdAt: Date
     public var updatedAt: Date
     public var finishedAt: Date?
+    /// When the owner last continued this task (wrote in it, or had the chat pass their word on): a new stretch of its
+    /// work. Coding runs it started before that don't count against the new stretch's allowance. Nil: not continued
+    /// since it began, so every coding run it started counts.
+    public var codingAllowanceResetAt: Date?
+    /// How many times the owner's continuation started a new coding allowance for this task: the audit trail of the
+    /// resets (nil for a task never continued).
+    public var codingAllowanceResets: Int?
+    /// For a coding run Pennant asked for that ended: whether it changed its project. False: it only read, or only said
+    /// what it means to do, so its last words aren't a change it made. Nil: not such a run. (A flag on a completed task
+    /// rather than a state of its own, so apps from before it still read the task.)
+    public var madeChanges: Bool?
 
     public init(
         id: TaskID = TaskID(),

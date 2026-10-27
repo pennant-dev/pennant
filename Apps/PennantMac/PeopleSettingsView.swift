@@ -3,7 +3,7 @@ import PennantCore
 import PennantUI
 import SwiftUI
 
-/// Settings › People: your own account, who can use this Mac's agents, who is invited, and how people sign in.
+/// Settings › Connections › People: your own account, who can use this Mac's agents, who is invited, and how people sign in.
 /// Everyone signs in on their devices with an email and password or with Microsoft, Google or GitHub; invited
 /// people join with a one-time code, and anyone from an allowed Microsoft organisation joins without an invite.
 struct PeopleSettingsView: View {
@@ -251,7 +251,7 @@ struct AccountSetupSheet: View {
                 PennantMark(size: 40)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Set up your account").font(.zoomed(.title3).weight(.semibold)).foregroundStyle(PennantTheme.ink)
-                    Text("Your phone and other Macs sign in with this email and password (or Microsoft, Google, GitHub once set up in Settings › People). This Mac is always signed in as you.")
+                    Text("Your phone and other Macs sign in with this email and password (or Microsoft, Google, GitHub once set up in Settings › Connections › People). This Mac is always signed in as you.")
                         .font(.zoomed(.callout)).foregroundStyle(PennantTheme.inkSecondary).fixedSize(horizontal: false, vertical: true)
                 }
             }

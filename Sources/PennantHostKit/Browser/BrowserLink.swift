@@ -194,7 +194,7 @@ public enum BrowserLinkError: Error, CustomStringConvertible {
     case notConnected, timedOut(String), failed(String)
     public var description: String {
         switch self {
-        case .notConnected: return "Pennant's Chrome extension isn't connected: Chrome isn't open, or the extension isn't added (Settings › Pennant › Chrome)."
+        case .notConnected: return "Pennant's Chrome extension isn't connected: Chrome isn't open, or the extension isn't added (Settings › Advanced › Pennant › Chrome)."
         case .timedOut(let action): return "Chrome didn't answer \(action) in time."
         case .failed(let why): return why
         }

@@ -5,7 +5,7 @@ import PennantUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Settings › Pennant › Coding: what writes the code (Claude Code, or Pennant itself on one of your models), the
+/// Settings › Advanced › Pennant › Coding: what writes the code (Claude Code, or Pennant itself on one of your models), the
 /// project folders it may change, how it asks, its standing instructions, and the GitHub App it acts as.
 struct CodingSettingsCard: View {
     @Environment(\.hostSession) private var session

@@ -24,7 +24,7 @@ public struct SendMessageTool: Tool {
         let channel = arguments.string("channel").flatMap(ChannelKind.init(rawValue:))
         guard let contact = await channels.resolve(who, channel: channel) else {
             let known = await channels.contacts.map { "\($0.name) (\($0.kind.title))" }.joined(separator: ", ")
-            throw ToolError.failed("No contact matches \"\(who)\"\(channel.map { " on \($0.title)" } ?? ""). Contacts: \(known.isEmpty ? "none yet — the owner adds them in Settings › Channels" : known)")
+            throw ToolError.failed("No contact matches \"\(who)\"\(channel.map { " on \($0.title)" } ?? ""). Contacts: \(known.isEmpty ? "none yet — the owner adds them in Settings › Connections › Channels" : known)")
         }
         var outgoing = Outgoing.text(text)
         if let card = arguments["card"]?.objectValue {
@@ -74,7 +74,7 @@ public struct ListContactsTool: Tool {
     }
     public func invoke(_ arguments: JSONValue, context: ToolContext) async throws -> ToolResult {
         let contacts = await channels.contacts
-        let text = contacts.isEmpty ? "No contacts yet: the owner links people in Settings › Channels."
+        let text = contacts.isEmpty ? "No contacts yet: the owner links people in Settings › Connections › Channels."
             : contacts.map { "- \($0.name) — \($0.kind.title)\($0.allowed ? "" : " (each message needs approval)")" }.joined(separator: "\n")
         return .text(ToolCallID("pending"), name: spec.name, text)
     }

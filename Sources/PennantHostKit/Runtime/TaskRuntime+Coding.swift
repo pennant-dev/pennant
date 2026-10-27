@@ -4,6 +4,103 @@ import Foundation
 /// Coding runs: a thread's work handed to a coding engine in a project folder, its permission requests shown as cards,
 /// and (for Claude Code) its steps streamed back into the thread. The Pennant engine's side is in `+PennantEngine`.
 extension TaskRuntime {
+    // MARK: Coding runs
+
+    /// How many coding runs a task may start between the owner's replies: a few, and then it says what it has.
+    static let codingRunsPerAllowance = 4
+
+    /// The tools that write to a project. Reading one changes nothing.
+    static let writingTools: Set<String> = ["write_file", "edit_file", "Write", "Edit", "MultiEdit", "NotebookEdit"]
+
+    /// Tools that run a command, which may have written, committed or generated something.
+    static let commandTools: Set<String> = ["shell", "Bash"]
+
+    /// What a project looked like when the code tool asked for a change in it, to tell at the end whether the run made
+    /// one. Only those runs are judged: the owner's own coding threads and skills that run in Claude Code often change
+    /// nothing on purpose. Kept in memory, so a run the host restarted under finishes without being judged.
+    struct CodingBaseline: Sendable { var gitState: String? }
+
+    /// A folder as git sees it: branch, HEAD, what's changed, and the contents of the changes and of new files, so
+    /// another edit to a file that was already changed still shows. Nil when it isn't a repository.
+    static func gitState(of folder: String) async -> String? {
+        let script = """
+            git rev-parse --git-dir >/dev/null 2>&1 || exit 1
+            git rev-parse --abbrev-ref HEAD; git rev-parse HEAD
+            git status --porcelain --untracked-files=all
+            git diff HEAD --binary | shasum
+            git ls-files --others --exclude-standard -z | xargs -0 shasum | shasum
+            """
+        guard let result = try? await ShellRunner.run(script, workingDirectory: folder, timeout: 30), result.exitCode == 0 else { return nil }
+        return result.stdout
+    }
+
+    /// The project a run works in: its own folder, or the thread's.
+    func codingFolder(_ taskID: TaskID) async -> String? {
+        if let run = pennantCodingRuns[taskID] { return run.folder }
+        guard let task = try? await deps.store.task(taskID), let conversation = try? await deps.store.conversation(task.conversationID) else { return nil }
+        return conversation.workingDirectory ?? deps.config.coding?.defaultProject?.path
+    }
+
+    /// Whether a coding run changed its project: it wrote a file, or (in a repository) the branch, HEAD or working tree
+    /// differ from when it was asked for. With no repository to compare, a command it ran counts too. Reading alone
+    /// changes nothing.
+    func codingRunChanged(_ taskID: TaskID, since baseline: CodingBaseline) async -> Bool {
+        let records = ((try? await deps.store.toolRecords(taskID: taskID)) ?? []).filter { $0.status == .succeeded }.map(\.call.name)
+        // A Claude Code run's calls are in its thread as messages, not in tool records.
+        let calls = ((try? await deps.store.messages(taskID: taskID)) ?? []).flatMap(\.parts).compactMap { part -> String? in
+            if case .toolCall(let call) = part { return call.name }
+            return nil
+        }
+        let used = Set(records + calls)
+        if !used.isDisjoint(with: Self.writingTools) { return true }
+        if let before = baseline.gitState, let folder = await codingFolder(taskID), let after = await Self.gitState(of: folder) { return before != after }
+        return !used.isDisjoint(with: Self.commandTools)
+    }
+
+    /// Ends a coding run. One the code tool asked for that changed nothing says so (`madeChanges`): its last words are
+    /// what it found or means to do, and they go back as that, not as a change made.
+    func finishCodingRun(_ taskID: TaskID, summary: String) async throws {
+        if let baseline = codingBaselines.removeValue(forKey: taskID) {
+            let changed = await codingRunChanged(taskID, since: baseline)
+            try await updateTask(taskID) { $0.madeChanges = changed }
+        }
+        try await complete(task: taskID, summary: summary)
+    }
+
+    /// When the current stretch of a task's work began: the owner's last reply to it. Coding runs it started before that
+    /// don't count against this stretch's allowance. Nil: the owner hasn't written since the task began, so every run
+    /// it started counts.
+    func codingAllowanceSegment(of taskID: TaskID) async throws -> Date? {
+        try await deps.store.task(taskID)?.codingAllowanceResetAt
+    }
+
+    /// The owner's word on a task that's still going starts a new stretch of its work, with its own allowance of coding
+    /// runs. Called only for the owner's word (see `continuedByOwner` and `onOwnersWord`).
+    func resetCodingAllowance(_ taskID: TaskID, at now: Date = Date()) async throws {
+        guard let task = try await deps.store.task(taskID), !task.state.isTerminal else { return }
+        try await updateTask(taskID) {
+            $0.codingAllowanceResetAt = now
+            $0.codingAllowanceResets = ($0.codingAllowanceResets ?? 0) + 1
+        }
+        log.info("Coding allowance for task \(taskID) starts again at \(ISO8601.format(now)): the owner continued it (reset \(task.codingAllowanceResets.map { $0 + 1 } ?? 1))", category: "coding")
+    }
+
+    /// Whether a message is the owner's word: written by the owner, or by a teammate signed in to this host. Pennant's
+    /// own messages aren't (a thread it started, the chat steering one), nor is one with no author (a scheduled run, a
+    /// card's decision, a helper's report), nor a contact writing over Teams or iMessage.
+    func continuedByOwner(_ author: MessageAuthor?) async -> Bool {
+        guard let author, author.id.rawValue != "pennant" else { return false }
+        if author.id.rawValue == "owner" { return true }
+        return await deps.isPerson?(author.id) ?? false
+    }
+
+    /// Whether a task is working on the owner's word: the last message in it that someone wrote is theirs. The chat's
+    /// turn for a heartbeat, a goal's session or a thread's report has none, so what it sends a thread doesn't count.
+    func onOwnersWord(_ taskID: TaskID) async -> Bool {
+        let written = ((try? await deps.store.messages(taskID: taskID)) ?? []).last { $0.role == .user && $0.author != nil }
+        return await continuedByOwner(written?.author)
+    }
+
     // MARK: Claude Code runs
 
     /// Hands the conversation's new messages to Claude Code, streams its turns into the chat, and repeats while you
@@ -50,7 +147,7 @@ extension TaskRuntime {
             cancelQuestion(taskID)
             try await transition(taskID, to: .running, reason: "The coding run finished without that answer")
         }
-        try await complete(task: taskID, summary: summary)
+        try await finishCodingRun(taskID, summary: summary)
     }
 
     /// Starts a Claude Code run for a skill that only Claude Code can follow, whatever engine Coding uses: a thread of its
@@ -120,7 +217,7 @@ extension TaskRuntime {
     static func projectFolder(_ asked: String?, in coding: HostConfig.Coding) throws -> String {
         let names = coding.projects.map(\.name).joined(separator: ", ")
         guard let asked = asked?.trimmingCharacters(in: .whitespacesAndNewlines), !asked.isEmpty else {
-            guard let project = coding.defaultProject else { throw ToolError.failed("Coding has no project folder yet: the owner adds one in Settings › Pennant › Coding.") }
+            guard let project = coding.defaultProject else { throw ToolError.failed("Coding has no project folder yet: the owner adds one in Settings › Advanced › Pennant › Coding.") }
             return project.path
         }
         if let project = coding.project(named: asked) { return project.path }
@@ -261,6 +358,8 @@ extension TaskRuntime {
         var signOff: SignOff.Reason?
         if tool == "Bash" { signOff = SignOff.reason(command: command ?? "") }
         else if tool.hasPrefix("mcp__") { signOff = SignOff.reason(tool: String(tool.split(separator: "_", omittingEmptySubsequences: true).dropFirst(2).joined(separator: "_")), arguments: input) }
+        // What the owner turned off in Ask me before… doesn't ask here either.
+        if let reason = signOff, !SignOff.asks(reason, deps.config.askFirst) { signOff = nil }
         if mode != .manual {
             if coderAllowsRest.contains(taskID) { return (true, input, nil, nil) }
             if signOff == nil { return (true, input, nil, nil) }

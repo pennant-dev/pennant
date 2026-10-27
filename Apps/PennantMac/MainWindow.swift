@@ -4,15 +4,46 @@ import PennantUI
 import SwiftUI
 
 enum SidebarSection: String, CaseIterable, Identifiable {
-    case dashboard, goals, approvals, reports, memory, skills, library, vault, usage, schedules, connections, plugins, diagnostics
+    case everything, dashboard, goals, approvals, reports, memory, skills, library, vault, usage, schedules, connections, plugins, diagnostics
     var id: String { rawValue }
-    /// The rows under the thread list. The dashboard has its own row on top; the rest sit in the More menu.
-    static let utilities: [SidebarSection] = [.goals, .reports, .memory, .schedules, .skills]
-    static let more: [SidebarSection] = [.library, .vault, .usage, .connections, .plugins, .diagnostics, .approvals]
-    var title: String { self == .approvals ? "Approval history" : rawValue.capitalized }
+    /// Everything but the chat and its threads, on one page (Everything else), in the groups it shows them in.
+    static let groups: [(title: String, sections: [SidebarSection])] = [
+        ("Your work", [.dashboard, .goals, .reports, .schedules]),
+        ("What Pennant knows", [.memory, .skills, .library, .vault]),
+        ("Hooked up", [.connections, .plugins]),
+        ("Under the hood", [.usage, .diagnostics, .approvals]),
+    ]
+    var title: String {
+        switch self {
+        case .everything: return "Everything else"
+        case .dashboard: return "Overview"
+        case .approvals: return "Approval history"
+        default: return rawValue.capitalized
+        }
+    }
+    /// A line on what's there, for its row on Everything else.
+    var detail: String {
+        switch self {
+        case .everything: return ""
+        case .dashboard: return "What's going on, at a glance"
+        case .goals: return "Outcomes Pennant works toward"
+        case .reports: return "Write-ups Pennant made for you"
+        case .schedules: return "Jobs Pennant does on a clock"
+        case .skills: return "How Pennant does particular jobs"
+        case .memory: return "What Pennant remembers about you"
+        case .library: return "Images, videos and files it kept"
+        case .vault: return "Keys and passwords Pennant may use"
+        case .connections: return "Email, calendar, pages and chats"
+        case .plugins: return "Extra tools you added"
+        case .usage: return "What each model and job has cost"
+        case .diagnostics: return "Logs, and whether everything's running"
+        case .approvals: return "Every card you've decided"
+        }
+    }
     var symbol: String {
         switch self {
-        case .dashboard: return "square.grid.2x2"
+        case .everything: return "square.grid.2x2"
+        case .dashboard: return "rectangle.3.group"
         case .approvals: return "checkmark.seal"
         case .reports: return "doc.text.magnifyingglass"
         case .memory: return "brain.head.profile"
@@ -43,9 +74,6 @@ struct MainWindow: View {
     @State private var openGoal: GoalID?
     @State private var conversationID: ConversationID?
     @State private var showComputer = AppSettings.showComputerPanel
-    /// The model switcher opened from the sidebar's host row.
-    @State private var showModels = false
-    @State private var showMore = false
     /// The teach-mode review sheet, shown when a demonstration stops.
     @State private var showTeachingReview = false
     /// The agent whose prompt the inspector shows.
@@ -187,14 +215,6 @@ struct MainWindow: View {
                 .frame(height: titleBand)
                 .contentShape(Rectangle())
                 .gesture(WindowDragGesture())
-            Button { section = .dashboard } label: {
-                UtilityRowLabel(title: "Dashboard", symbol: SidebarSection.dashboard.symbol, selected: section == .dashboard,
-                                count: session.state.mainConversation == nil ? session.state.pendingApprovals.count : 0)
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut("1", modifiers: .command)
-            .padding(.horizontal, 8)
-            .padding(.bottom, 4)
             if let chat = session.state.mainConversation {
                 // The one place to talk, always right here above the work: Pennant. What needs you lands there.
                 PennantChatRow(chat: chat, selected: inMainChat, count: needsYouCount) {
@@ -202,15 +222,14 @@ struct MainWindow: View {
                 }
                 .padding(.horizontal, 8)
                 .padding(.top, 2)
-                .padding(.bottom, 8)
+                .padding(.bottom, 6)
             }
             // The work: what's going on, earlier threads folded away, closed ones below.
             ThreadListView(selected: section == nil ? conversationID : nil,
                            onOpen: { agentID, conversation in openConversation(agentID: agentID, conversationID: conversation) },
                            onNewThread: { if let lead = session.state.leadAgent?.id { openConversation(agentID: lead, conversationID: nil) } })
             Rectangle().fill(PennantTheme.divider).frame(height: 1)
-            utilityRows
-            identityRow
+            sidebarFooter
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(PennantTheme.sidebarBackground)
@@ -218,84 +237,20 @@ struct MainWindow: View {
         .toolbar(removing: .sidebarToggle)
     }
 
-    /// Compact rows for the sections, like a "Plugins" row: icon, label, nothing else.
-    private var utilityRows: some View {
-        VStack(spacing: 1) {
-            ForEach(SidebarSection.utilities) { s in
-                Button {
-                    section = s
-                } label: {
-                    UtilityRowLabel(title: s.title, symbol: s.symbol, selected: section == s)
-                }
-                .buttonStyle(.plain)
-            }
-            moreRow
-            // Used often enough to have its own row.
-            Button { openSettings() } label: {
-                UtilityRowLabel(title: "Settings", symbol: "gearshape", selected: false)
+    /// The way to everything else (one page) and to Settings. The chat and its threads are what the sidebar is for.
+    private var sidebarFooter: some View {
+        HStack(spacing: 4) {
+            Button { section = .everything } label: {
+                UtilityRowLabel(title: SidebarSection.everything.title, symbol: SidebarSection.everything.symbol, selected: section != nil,
+                                count: session.state.mainConversation == nil ? session.state.pendingApprovals.count : 0)
             }
             .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-    }
-
-    /// The rest of the sections, in a panel like the model's. The row shows the section it opened.
-    private var moreRow: some View {
-        let current = section.flatMap { SidebarSection.more.contains($0) ? $0 : nil }
-        return Button { showMore.toggle() } label: {
-            UtilityRowLabel(title: current?.title ?? "More", symbol: current?.symbol ?? "ellipsis.circle", selected: current != nil || showMore)
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: $showMore, arrowEdge: .trailing) {
-            MorePanel(current: current) { choice in
-                showMore = false
-                switch choice {
-                case .section(let s): section = s
-                case .conversations: openWindow(id: "conversations")
-                }
-            }
-        }
-    }
-
-    /// Who we are talking to: the host and the model behind it.
-    private var identityRow: some View {
-        let host = session.state.host
-        let endpoint = session.endpoint
-        let title = host?.hostName ?? (endpoint.name.isEmpty ? endpoint.host : endpoint.name)
-        let subtitle: String = {
-            // The default model: what agents without their own model use. Each conversation's chip shows its agent's.
-            if let host, !host.inferenceModel.isEmpty, session.connection.isConnected { return "Default model: \(host.inferenceModel)" }
-            return session.connectionLabel
-        }()
-        let connected = session.connection.isConnected
-        return Button { showModels.toggle() } label: {
-            HStack(spacing: 10) {
-                PennantMark(size: 26)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.zoomed(.callout).weight(.medium)).foregroundStyle(PennantTheme.ink).lineLimit(1)
-                    HStack(spacing: 3) {
-                        Text(subtitle).lineLimit(1).truncationMode(.middle)
-                        if connected {
-                            Image(systemName: "chevron.up.chevron.down").font(.zoomed(size: 8, weight: .semibold))
-                        }
-                    }
-                    .font(.zoomed(.caption))
-                    .foregroundStyle(PennantTheme.inkSecondary)
-                }
-                Spacer(minLength: 0)
-                StatusDot(color: connected ? Color(hex: "#3DB553") : PennantTheme.inkTertiary)
-                    .help(session.connectionLabel)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!connected)
-        .help(connected ? "The default model, for agents without their own. Click to change it." : session.connectionLabel)
-        .popover(isPresented: $showModels, arrowEdge: .trailing) {
-            ModelPopover(conversationID: nil, agentID: nil)
+            .keyboardShortcut("1", modifiers: .command)
+            .help("Goals, memory, schedules, skills and the rest (⌘1)")
+            Button { openSettings() } label: { Image(systemName: "gearshape") }
+                .buttonStyle(.pennantIcon)
+                .help("Settings (⌘,)")
+                .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 8)
         .padding(.top, 6)
@@ -333,15 +288,19 @@ struct MainWindow: View {
     private var header: some View {
         HStack(spacing: 10) {
             if let section {
+                if section != .everything {
+                    // A page opened from Everything else goes back to it.
+                    Button { self.section = .everything } label: { Image(systemName: "chevron.left") }
+                        .buttonStyle(.pennantIcon)
+                        .help("Everything else")
+                        .accessibilityLabel("Back to Everything else")
+                }
                 Text(section.title).font(.zoomed(.headline)).foregroundStyle(PennantTheme.ink)
             } else if let id = selectedAgent, let agent = session.state.agent(id) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(conversationTitle).font(.zoomed(.headline)).foregroundStyle(PennantTheme.ink).lineLimit(1)
-                    if let c = conversationID.flatMap({ session.state.conversation($0) }), !c.isMain, session.state.mainConversation != nil {
-                        Text("A thread \(agent.name) runs").font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkSecondary).lineLimit(1)
-                    }
-                    if agent.kind == .worker {
-                        Text(agent.name).font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkSecondary).lineLimit(1)
+                    if let subtitle = headerSubtitle(agent) {
+                        Text(subtitle).font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkSecondary).lineLimit(1)
                     }
                 }
             } else {
@@ -363,49 +322,47 @@ struct MainWindow: View {
                     .frame(maxWidth: 240)
                     .padding(.trailing, 2)
             }
-            if section == nil, let id = selectedAgent, let agent = session.state.agent(id) {
-                if !inMainChat {
-                    CloseConversationButton(conversationID: $conversationID, iconOnly: true)
-                        .buttonStyle(.pennantIcon)
-                        .keyboardShortcut("w", modifiers: [.command, .shift])
-                }
-                if session.state.mainConversation == nil {
-                    Button { conversationID = nil } label: { Image(systemName: "square.and.pencil") }
-                        .buttonStyle(.pennantIcon)
-                        .help("New thread (⌘N)")
-                }
-                Menu {
-                    ConversationMenuItems(agentID: id, conversationID: $conversationID)
-                } label: {
-                    Image(systemName: "bubble.left.and.text.bubble.right")
-                }
-                .menuStyle(.button)
-                .buttonStyle(.pennantIcon)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Conversations")
-                Menu {
-                    Button("Edit \(agent.name)…") { editingAgent = agent }
-                    Button("See what \(agent.name) sees…") { inspecting = agent }
-                    Divider()
-                    if agent.kind == .worker {
-                        Button("Retire worker", role: .destructive) { retire(agent) }
-                    }
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                }
-                .menuStyle(.button)
-                .buttonStyle(.pennantIcon)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Edit \(agent.name)")
+            if section == nil, session.state.mainConversation == nil {
+                Button { conversationID = nil } label: { Image(systemName: "square.and.pencil") }
+                    .buttonStyle(.pennantIcon)
+                    .help("New thread (⌘N)")
             }
             Button { showComputer.toggle() } label: {
                 Image(systemName: computerSymbol)
                     .foregroundStyle(showComputer ? PennantTheme.ink : PennantTheme.inkSecondary)
             }
             .buttonStyle(.pennantIcon)
-            .help(showComputer ? "Hide the side panel" : "Show what needs you and the computer")
+            .help(showComputer ? "Hide Pennant's screen" : "Pennant's screen")
+            if section == nil, let id = selectedAgent, let agent = session.state.agent(id) {
+                // Everything else about the conversation, in one menu.
+                Menu {
+                    Button("Edit \(agent.name)…") { editingAgent = agent }
+                    Button("See what \(agent.name) sees…") { inspecting = agent }
+                    Divider()
+                    if !inMainChat {
+                        CloseConversationButton(conversationID: $conversationID)
+                            .keyboardShortcut("w", modifiers: [.command, .shift])
+                    }
+                    Menu("Conversations") {
+                        ConversationMenuItems(agentID: id, conversationID: $conversationID)
+                    }
+                    Button("All conversations…") { openWindow(id: "conversations") }
+                    if agent.kind == .worker {
+                        Divider()
+                        Button("Retire worker", role: .destructive) { retire(agent) }
+                    }
+                    Divider()
+                    Button("Settings…") { openSettings() }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .menuStyle(.button)
+                .buttonStyle(.pennantIcon)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("More")
+                .accessibilityLabel("More")
+            }
         }
         .padding(.leading, columnVisibility == .detailOnly ? 80 : 16)
         .padding(.trailing, 12)
@@ -418,6 +375,7 @@ struct MainWindow: View {
         if let section {
             Group {
                 switch section {
+                case .everything: EverythingElseView { self.section = $0 }
                 case .dashboard:
                     DashboardView(onOpenChat: { agentID, conversationID in openConversation(agentID: agentID, conversationID: conversationID) },
                                   onOpenReports: { self.section = .reports }, onOpenApprovals: { self.section = .approvals }, onOpenGoals: { self.section = .goals },
@@ -467,6 +425,17 @@ struct MainWindow: View {
         }
     }
 
+    /// Under the title: how much is going on (the chat), whose thread it is, or the worker's name.
+    private func headerSubtitle(_ agent: AgentProfile) -> String? {
+        guard let c = conversationID.flatMap({ session.state.conversation($0) }) else { return nil }
+        if c.isMain {
+            let going = session.state.tasks.filter { $0.conversationID != c.id && $0.parentTaskID == nil && !$0.state.isTerminal }.count
+            return going == 0 ? nil : going == 1 ? "1 thing going on" : "\(going) things going on"
+        }
+        if session.state.mainConversation != nil { return "A thread \(agent.name) runs" }
+        return agent.kind == .worker ? agent.name : nil
+    }
+
     private var conversationTitle: String {
         guard let id = conversationID, let c = session.state.conversation(id) else { return "New thread" }
         return c.isMain ? (session.state.agent(c.agentID)?.name ?? "Pennant") : conversationLabel(c)
@@ -503,17 +472,22 @@ struct MainWindow: View {
     #if DEBUG
     /// Walks the main screens of the demo host (Pennant and its jobs) and saves each, light and dark (see DemoLaunch),
     /// then quits.
-    private func takeDemoShots(into folder: URL) async {
+    /// Waits for the demo host, then clears the first-run sheets (they'd dim the window; the demo owner doesn't need them)
+    /// and sizes the window.
+    private func prepareDemoWindow() async {
         for _ in 0 ..< 60 where !(session.connection.isConnected && !session.state.agents.isEmpty) { try? await Task.sleep(for: .milliseconds(250)) }
         try? await Task.sleep(for: .seconds(2))
-        // First-run sheets would dim the window; the demo owner doesn't need them.
         permissionsDismissed = true
         accountSetupDismissed = true
         showPermissions = false
         showAccountSetup = false
         showComputer = false
         DemoLaunch.prepareWindow()
-        /// The newest thread that matches (a scheduled job's runs are titled "⏰ <job> · <when>").
+    }
+
+    /// The demo's screens by name, for shots and films.
+    private var demoScreens: [(String, () -> Void)] {
+        /// The newest thread that matches (a scheduled job's runs are titled "<job> · <when>").
         func thread(_ matches: (Conversation) -> Bool) -> Conversation? {
             session.state.conversations.filter(matches).sorted { $0.updatedAt > $1.updatedAt }.first
         }
@@ -521,9 +495,10 @@ struct MainWindow: View {
             guard let c = thread(matches) else { return }
             openConversation(agentID: c.agentID, conversationID: c.id)
         }
-        func job(_ name: String) -> (Conversation) -> Bool { { $0.title.hasPrefix("⏰ \(name)") && !$0.isClosed } }
-        let steps: [(String, () -> Void)] = [
+        func job(_ name: String) -> (Conversation) -> Bool { { ThreadMark.strip($0.title).text.hasPrefix(name) && !$0.isClosed } }
+        return [
             ("home", { section = .dashboard }),
+            ("everything", { section = .everything }),
             ("lead", { open { $0.isMain } }),
             ("coding", { open { $0.isCodingRun } }),
             ("approval", { open(job("Company post")) }),
@@ -538,7 +513,21 @@ struct MainWindow: View {
             ("schedules", { section = .schedules }),
             ("skills", { section = .skills }),
             ("plugins", { section = .plugins }),
+            ("connections", { section = .connections }),
         ]
+    }
+
+    private func takeDemoShots(into folder: URL) async {
+        await prepareDemoWindow()
+        let steps = demoScreens
+        func thread(_ matches: (Conversation) -> Bool) -> Conversation? {
+            session.state.conversations.filter(matches).sorted { $0.updatedAt > $1.updatedAt }.first
+        }
+        func job(_ name: String) -> (Conversation) -> Bool { { ThreadMark.strip($0.title).text.hasPrefix(name) && !$0.isClosed } }
+        func open(_ matches: @escaping (Conversation) -> Bool) {
+            guard let c = thread(matches) else { return }
+            openConversation(agentID: c.agentID, conversationID: c.id)
+        }
         for look in DemoLaunch.appearances {
             NSApp.appearance = NSAppearance(named: look.appearance)
             for (name, go) in steps {
@@ -548,9 +537,13 @@ struct MainWindow: View {
             }
             // Settings panes, each in the Settings window.
             for pane in DemoLaunch.settingsPanes {
-                UserDefaults.standard.set(pane, forKey: "pennant.settings.pane")
+                SettingsView.choose(pane)
                 openSettings()
-                try? await Task.sleep(for: .seconds(2.5))
+                try? await Task.sleep(for: .seconds(0.2))
+                if DemoLaunch.offscreen {
+                    NSApp.windows.filter { $0.identifier?.rawValue.localizedCaseInsensitiveContains("settings") == true }.forEach { $0.setFrameOrigin(NSPoint(x: -30_000, y: -30_000)) }
+                }
+                try? await Task.sleep(for: .seconds(2.3))
                 DemoLaunch.capture("settings-\(pane)" + look.suffix, into: folder, window: NSApp.windows.first { $0.isVisible && $0.identifier?.rawValue.localizedCaseInsensitiveContains("settings") == true })
             }
             NSApp.windows.first { $0.isVisible && $0.identifier?.rawValue.localizedCaseInsensitiveContains("settings") == true }?.close()
@@ -569,6 +562,7 @@ struct MainWindow: View {
         // Straight out: the app would otherwise ask before quitting, or linger in the menu bar.
         exit(0)
     }
+
     #endif
 
     private func retire(_ agent: AgentProfile) {
@@ -606,8 +600,8 @@ struct MainWindow: View {
     }
 }
 
-/// The Pennant chat in the sidebar: bigger than anything around it and always in the same place, right above the
-/// threads, with what needs you counted on it.
+/// The Pennant chat in the sidebar: always in the same place, right above the threads, with what needs you counted
+/// on it.
 private struct PennantChatRow: View {
     @Environment(\.hostSession) private var session
     var chat: Conversation
@@ -630,11 +624,11 @@ private struct PennantChatRow: View {
     var body: some View {
         let agent = session.state.agent(chat.agentID)
         Button(action: action) {
-            HStack(spacing: 11) {
-                if let agent { AgentAvatar(agent: agent, size: 36) }
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 10) {
+                if let agent { AgentAvatar(agent: agent, size: 30) }
+                VStack(alignment: .leading, spacing: 1) {
                     Text(agent?.name ?? "Pennant")
-                        .font(.zoomed(.title3).weight(.semibold))
+                        .font(.zoomed(.callout).weight(.semibold))
                         .foregroundStyle(PennantTheme.ink)
                     Text(subtitle)
                         .font(.zoomed(.caption))
@@ -647,20 +641,19 @@ private struct PennantChatRow: View {
                         .font(.zoomed(.caption).weight(.bold).monospacedDigit())
                         .foregroundStyle(.white)
                         .padding(.horizontal, 7).padding(.vertical, 2)
-                        .background(PennantTheme.attention, in: Capsule())
+                        .background(PennantTheme.brand, in: Capsule())
                 } else if working {
                     ProgressView().controlSize(.small)
                 } else if !selected, session.state.isUnread(chat) {
                     Circle().fill(PennantTheme.info).frame(width: 8, height: 8).help("New since you last looked")
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 11)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(PennantTheme.brand.opacity(selected ? 0.16 : (hovering ? 0.10 : 0.06)),
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(PennantTheme.brand.opacity(selected ? 0.45 : 0.18)))
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(selected ? PennantTheme.selection : (hovering ? PennantTheme.hover : .clear),
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -703,55 +696,5 @@ private struct UtilityRowLabel: View {
         .background(selected ? PennantTheme.selection : (hovering ? PennantTheme.hover : .clear), in: RoundedRectangle(cornerRadius: PennantTheme.radiusSmall, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: PennantTheme.radiusSmall, style: .continuous))
         .onHover { hovering = $0 }
-    }
-}
-
-/// Sidebar › More: the sections used now and then, each with a line on what's there, in a panel like the model's.
-private struct MorePanel: View {
-    enum Choice { case section(SidebarSection), conversations }
-    var current: SidebarSection?
-    var choose: (Choice) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("More").font(.zoomed(.headline)).foregroundStyle(PennantTheme.ink)
-            VStack(alignment: .leading, spacing: 3) {
-                ForEach(SidebarSection.more) { s in
-                    row(s.title, Self.detail(s), symbol: s.symbol, selected: current == s) { choose(.section(s)) }
-                }
-            }
-            Rectangle().fill(PennantTheme.divider).frame(height: 1)
-            row("Conversations", "Every conversation, in a window of its own", symbol: "bubble.left.and.bubble.right", selected: false) { choose(.conversations) }
-        }
-        .padding(14)
-        .frame(width: 320)
-        .background(PennantTheme.windowBackground)
-    }
-
-    private func row(_ title: String, _ detail: String, symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        SelectableRow(selected: selected, action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: symbol).font(.zoomed(.callout)).foregroundStyle(PennantTheme.inkSecondary).frame(width: 20)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.zoomed(.callout).weight(.medium)).foregroundStyle(PennantTheme.ink)
-                    Text(detail).font(.zoomed(.caption)).foregroundStyle(PennantTheme.inkTertiary).lineLimit(1)
-                }
-                Spacer(minLength: 4)
-                Image(systemName: "checkmark").font(.zoomed(.caption).weight(.semibold)).foregroundStyle(PennantTheme.brandInk).opacity(selected ? 1 : 0)
-            }
-        }
-    }
-
-    static func detail(_ section: SidebarSection) -> String {
-        switch section {
-        case .library: return "Images, videos and files kept for the work"
-        case .vault: return "Keys and passwords Pennant may use"
-        case .usage: return "What each model and job has cost"
-        case .connections: return "The services Pennant is connected to"
-        case .plugins: return "Add-ons that run beside Pennant"
-        case .diagnostics: return "How the host is doing"
-        case .approvals: return "Every card you've decided"
-        default: return ""
-        }
     }
 }

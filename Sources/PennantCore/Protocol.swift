@@ -244,6 +244,8 @@ public enum CommandBody: Hashable, Codable, Sendable {
     case unsubscribeScreen
     /// The client has the stream's frame `sequence` (with `acknowledges`). No reply.
     case screenFrameReceived(Int64)
+    /// The owner is writing in a conversation (`draft` so far), so the host can get its reply ready. No reply.
+    case composing(conversationID: ConversationID, draft: String)
     case remoteInput(RemoteInput)
     case captureScreenshot(maxWidth: Int)
 

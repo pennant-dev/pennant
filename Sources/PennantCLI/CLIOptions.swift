@@ -79,7 +79,7 @@ Usage: pennant [--host H] [--port P] [--token T] <command> [args]
   skills disable|enable <name>…  Turn a skill off or on by name, every version (retiring it for good)
   skills claude-code [on|off]  Link Claude Code's skills (~/.claude and enabled plugins), kept in step; lists them
   library                    Brand collections and files agents use (find_assets)
-  approval <id> approve|changes|reject [comment]  Answer an approval card
+  approval <id> approve|changes|reject|dismiss [comment]  Answer an approval card
   export [--to <folder>] [--passphrase P]  Export this host's Pennant (secrets only with a passphrase, sealed)
   import <folder> [--passphrase P]  Import an export on this host (restarts it; keeps the previous data)
   chrome-signins [<site>… --profile P]  List Chrome profiles, or copy sites' sign-ins into Pennant's browser
@@ -95,6 +95,11 @@ Usage: pennant [--host H] [--port P] [--token T] <command> [args]
   goals edit <title|id> [--work W] [--review R] [--status S]  Reschedule a goal or move it (proposed, active, paused, achieved, dropped)
   goals delete <title|id>    Delete a goal with its board and jobs (its conversation stays)
   models [baseURL] [apiKey]  List models served by the configured (or given) endpoint
+  models default <model>     The model everything uses unless told otherwise (Settings › Models)
+  models worker <model>|default  The model helpers run on
+  models chat <model>|same   The model Pennant's chat replies run on (its threads keep its own)
+  models threads <model>|default  The model Pennant's threads and jobs run on
+  models fallbacks <model>[, <model>…]|none  What a task moves to when its model fails, in order
   permissions [request|reset [target]]  Show macOS grants; request or reset one (accessibility, screenRecording, inputMonitoring, automation, or a bundle id)
   context                    The latest conversation: context size vs window, compactions
   compact                    Fold the latest conversation into a checkpoint now

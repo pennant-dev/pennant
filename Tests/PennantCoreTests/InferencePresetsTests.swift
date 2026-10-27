@@ -6,7 +6,7 @@ final class InferencePresetsTests: XCTestCase {
     private let expectedIDs = [
         "openai", "anthropic", "google-ai-studio", "xai", "mistral", "deepseek", "moonshot", "kimi-code",
         "zai", "zai-coding", "alibaba-coding", "alibaba-model-studio", "openrouter", "groq", "together",
-        "fireworks", "perplexity", "ollama-cloud", "ollama", "lm-studio", "vllm",
+        "fireworks", "perplexity", "lm-studio", "vllm",
     ]
 
     func testCatalogueCoversTheSpec() {
@@ -82,7 +82,7 @@ final class InferencePresetsTests: XCTestCase {
         XCTAssertEqual(InferencePresets.preset(for: "  HTTPS://API.OPENAI.COM/v1 ")?.id, "openai", "scheme and host compare case-insensitively")
         XCTAssertEqual(InferencePresets.preset(for: "https://api.z.ai/api/coding/paas/v4")?.id, "zai-coding")
         XCTAssertEqual(InferencePresets.preset(for: "https://api.z.ai/api/paas/v4")?.id, "zai")
-        XCTAssertEqual(InferencePresets.preset(for: "http://localhost:11434/v1")?.id, "ollama")
+        XCTAssertEqual(InferencePresets.preset(for: "http://localhost:1234/v1")?.id, "lm-studio")
     }
 
     func testPresetForBaseURLRejectsLookalikes() {

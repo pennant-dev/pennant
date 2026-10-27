@@ -26,7 +26,7 @@ pennant [--host H] [--port P] [--token T] status|agent|threads|send|tasks|pause|
 
 ## Inference endpoint
 
-The adapter speaks the OpenAI chat-completions protocol with streaming. It sends `tools` in function format, images as `data:` URLs inside user messages, and expects tool calls back as `tool_calls` deltas. Reasoning arrives as `delta.reasoning_content` (DeepSeek) or `delta.reasoning` (Ollama) and is shown collapsed in the UI.
+The adapter speaks the OpenAI chat-completions protocol with streaming. It sends `tools` in function format, images as `data:` URLs inside user messages, and expects tool calls back as `tool_calls` deltas. Reasoning arrives as `delta.reasoning_content` (DeepSeek) or `delta.reasoning` (other servers) and is shown collapsed in the UI.
 
 DeepSeek V4 Flash Vision on vLLM needs native tool parsing enabled, for example:
 
@@ -100,7 +100,7 @@ Grants are attributed to the *responsible* process. The host is always its own: 
 
 macOS caches Screen Recording (and sometimes Accessibility) per process, so a grant made in System Settings is invisible to the running host. The host therefore re-evaluates permissions in a fresh helper process (`pennant-host --check-permissions`) every few seconds while anything is missing, publishes the change to the apps, and when a grant needs a restart it restarts itself once no task is running; the app (or launchd) starts it again within seconds and reconnects. The Permissions screen also has a Re-check button.
 
-The app asks for everything up front: Settings › Permissions, or the sheet that appears on first launch while anything is missing. If a tool still hits a missing grant, the host shows the system prompt at that moment and posts a notice with a Fix button. Automation consent is checked per target app with `AEDeterminePermissionToAutomateTarget`; the target has to be running for macOS to show its dialog, so Request launches it hidden if needed.
+The app asks for everything up front: Settings › Advanced › Permissions, or the sheet that appears on first launch while anything is missing. If a tool still hits a missing grant, the host shows the system prompt at that moment and posts a notice with a Fix button. Automation consent is checked per target app with `AEDeterminePermissionToAutomateTarget`; the target has to be running for macOS to show its dialog, so Request launches it hidden if needed.
 
 Folders are asked for the same way. macOS asks about Documents, Desktop and Downloads the first time the host opens each, and remembers the answer. A "Don't Allow" (even one given to an older copy) keeps Pennant out until it's asked again. The Permissions screen lists each folder; macOS files the host's folder access under the app it's inside, **Pennant** (`dev.pennant.mac`; tccd's log shows `Sub:{dev.pennant.mac} Resp:{dev.pennant.host}`), the way it files Automation, so that's the answer Grant clears (`tccutil reset SystemPolicyDocumentsFolder dev.pennant.mac`, and the same for Desktop and Downloads) before opening the folder; macOS then shows its prompt, “Pennant would like to access files in your Documents folder”, and the owner accepts it. When work is refused in one, the host asks then and there (at most every six hours per folder), and the model tells the owner in a line to click Allow.
 
@@ -118,7 +118,7 @@ The Mac app embeds the host and a LaunchAgent plist (`dev.pennant.host.plist`, `
 
 Pennant's extension lets it work in tabs of its own in your Chrome, with your sign-ins, without your pointer or keyboard.
 
-**To add it**, open Settings › Pennant › Chrome and click **Set it up for me**, or run `pennant chrome setup`. It takes about 15 seconds:
+**To add it**, open Settings › Advanced › Pennant › Chrome and click **Set it up for me**, or run `pennant chrome setup`. It takes about 15 seconds:
 1. Pennant opens Chrome's Extensions page.
 2. It turns on Developer mode and clicks Load unpacked. Both go through Accessibility, without Chrome in front.
 3. Chrome comes to the front for a moment while Pennant picks the extension's folder in the file picker. The picker only takes keys typed into the app in front, and Pennant stops if Chrome loses the front.
@@ -160,7 +160,7 @@ The waveform button in the Pennant chat's composer (⇧⌘T on the Mac) turns Ta
 - **Privacy:** recognition happens on the device where Apple supports it for your language. Only the words go to Pennant.
 - **Pennant's voice:** the speaker button in the Talk bar lists the voices, and your choice is kept on that device.
   - **Natural voices (Mac with Apple silicon):** speech models that sound like a person, run on the Mac's GPU. They're on by default. The first time Talk mode starts, Kokoro (340 MB) downloads, and the Talk bar shows how far it's got. Until it's ready, Pennant speaks with the system's voices.
-    - **Where:** Settings › Pennant › Talk mode has the switch, the voice, Hear it, and Download or Remove for each model.
+    - **Where:** Settings › Advanced › Pennant › Talk mode has the switch, the voice, Hear it, and Download or Remove for each model.
     - **Penny:** Qwen3-TTS 0.6B (2 GB) cloning a short recording that ships with the app. Each piece of speech is a fresh copy of her voice, and copies differ a little, so a reply goes to her whole rather than a sentence at a time.
     - **Expressive:** Qwen3-TTS 1.7B (4.5 GB) is the most lifelike and uses more of the GPU. It has nine speakers: Ryan and Aiden (English), Vivian, Serena, Uncle Fu, Dylan and Eric (Chinese), Ono Anna (Japanese) and Sohee (Korean). They speak the reply's English in their own accents.
     - **Files:** the models live in ~/Library/Application Support/Pennant/Voices. The helper's own log is Pennant/logs/voice.log.
@@ -175,17 +175,17 @@ The waveform button in the Pennant chat's composer (⇧⌘T on the Mac) turns Ta
 ## Deployment modes
 
 - **everyday**: same desktop as the user. Pause-on-human-input is on by default: the moment you move the mouse while an agent holds the desktop, its lease is paused and its task is paused with an explicit reason. Resume from the computer panel, or set `autoResumeAfterSeconds`.
-- **dedicated**: a separate Mac. Turn pause-on-human-input off, use the iPhone or another Mac for live view and takeover. `listenOnNetwork` must be true; people sign in from their devices (Settings › People invites them).
+- **dedicated**: a separate Mac. Turn pause-on-human-input off, use the iPhone or another Mac for live view and takeover. `listenOnNetwork` must be true; people sign in from their devices (Settings › Connections › People invites them).
 
 Sleeping the host or losing the graphical session interrupts desktop work; the runtime records the tool as uncertain if it was mid-flight and reconciles on resume.
 
 ## Connecting an iPhone
 
-1. Mac app: Settings › People. The owner sets up their own sign-in (a password, or Microsoft, Google or GitHub) and invites anyone else by email; an invite carries a one-time code.
+1. Mac app: Settings › Connections › People. The owner sets up their own sign-in (a password, or Microsoft, Google or GitHub) and invites anyone else by email; an invite carries a one-time code.
 2. iPhone: find the Mac on the network (or scan its connect code), then sign in. The host replies `signedIn` with a token for that device, kept in the phone's Keychain.
 3. Later connections send `hello` with the token; the host replies with a snapshot and replays missed events.
 
-Removing a person in Settings › People signs out every device they signed in on.
+Removing a person in Settings › Connections › People signs out every device they signed in on.
 
 ## Diagnostics
 
@@ -197,7 +197,7 @@ Schedules live in the host and run whether or not an app is open. Create them in
 
 ## Coding runs
 
-Pennant's `code` tool hands a change to a coding run: a thread of its own under the one that asked, with its steps, cards and approvals there, whose final reply goes back to the asking task (`await_task`). Settings › Pennant › Coding, or `pennant coding`, sets it up; it is `coding` in `config.json` (an older config's single `workingDirectory` is read as one project).
+Pennant's `code` tool hands a change to a coding run: a thread of its own under the one that asked, with its steps, cards and approvals there, whose final reply goes back to the asking task (`await_task`). Settings › Advanced › Pennant › Coding, or `pennant coding`, sets it up; it is `coding` in `config.json` (an older config's single `workingDirectory` is read as one project).
 
 - **Engine.** Claude Code runs the `claude` program you installed and signed in to; its permission requests come back to Pennant through `pennant-host coder-permission`. The Pennant engine runs the task on Pennant's own loop with five tools (`read_file`, `list_directory`, `edit_file`, `write_file`, `shell`): commands start in the project folder, and files are written only inside it. It runs on the thread's model (the model pill above the composer), else the one chosen under Coding (`pennant coding model <name>`), else the default model, and its calls go into the usage ledger like any task's.
 - **Project folders.** As many as you like, each with a name; `code` takes a name or a path, and the first folder is the default. `pennant coding folder <dir> [--name N]` adds one as the default, `pennant coding folders` lists them, `pennant coding folder remove <name>` takes one off the list.

@@ -10,7 +10,7 @@ public actor VoiceService {
         case unavailable(String)
         public var errorDescription: String? {
             switch self {
-            case .unavailable(let voice): return "The voice \(voice) isn't on this Mac: download it in Pennant's Settings › Pennant › Talk mode."
+            case .unavailable(let voice): return "The voice \(voice) isn't on this Mac: download it in Pennant's Settings › Advanced › Pennant › Talk mode."
             }
         }
     }

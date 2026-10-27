@@ -98,7 +98,7 @@ public final class ChatGPTProvider: InferenceProvider, Sendable {
             "stream": .bool(true),
             "reasoning": .object(["effort": .string(request.reasoningEffort ?? config.reasoningEffort ?? reasoningEffort), "summary": "auto"]),
             "include": .array(replayReasoning ? ["reasoning.encrypted_content"] : []),
-            "prompt_cache_key": .string(promptCacheKey(scope: cacheScope, instructions: instructions, tools: tools)),
+            "prompt_cache_key": .string(request.cacheKey.map { "pennant-" + $0 } ?? promptCacheKey(scope: cacheScope, instructions: instructions, tools: tools)),
         ]
         if useTools {
             body["tools"] = .array(tools)
@@ -177,6 +177,10 @@ public final class ChatGPTProvider: InferenceProvider, Sendable {
         }
     }
 
+    public func prewarm() async {
+        _ = try? await auth.accessToken()
+    }
+
     /// `pck_<sha256[:24]>` of the scope, instructions, and name-sorted tools: a routing hint for the backend's prompt
     /// cache, the same derivation Hermes uses.
     static func promptCacheKey(scope: String, instructions: String, tools: [JSONValue]) -> String {
@@ -205,7 +209,7 @@ public final class ChatGPTProvider: InferenceProvider, Sendable {
             if !credential.accountID.isEmpty { urlRequest.setValue(credential.accountID, forHTTPHeaderField: "chatgpt-account-id") }
             urlRequest.setValue("responses=experimental", forHTTPHeaderField: "OpenAI-Beta")
             urlRequest.setValue(Self.originator, forHTTPHeaderField: "originator")
-            urlRequest.setValue(sessionID, forHTTPHeaderField: "session_id")
+            urlRequest.setValue(request.cacheKey ?? sessionID, forHTTPHeaderField: "session_id")
             urlRequest.setValue("pennant-host/\(PennantVersion.string)", forHTTPHeaderField: "User-Agent")
             if let residency { urlRequest.setValue(residency, forHTTPHeaderField: "x-openai-internal-codex-residency") }
             urlRequest.httpBody = try JSONCodec.encode(Self.requestBody(for: request, config: config, replay: replay, replayReasoning: replayReasoning, cacheScope: sessionID))

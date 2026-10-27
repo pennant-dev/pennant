@@ -491,6 +491,10 @@ actor ClientConnection {
             case .screenFrameReceived(let sequence):
                 acknowledged(upTo: sequence)
 
+            case .composing:
+                let body = command.body
+                Task { [weak self] in _ = await self?.delegate.handle(body, from: client) }
+
             case .speak(let request):
                 let outlet = speechOutlet()
                 do {

@@ -57,11 +57,13 @@ public struct ModelChip: View {
     }
 
     private var agent: AgentProfile? { agentID.flatMap { session.state.agent($0) } }
+    /// In the Pennant chat the chip is the chat's model, which can differ from the agent's threads.
+    private var inChat: Bool { conversationID.flatMap { session.state.conversation($0)?.isMain } ?? false }
 
-    /// The profile this chip's agent (or the host) is set to use.
+    /// The profile this chip's agent (or the host) is set to use: in the Pennant chat, the chat's own when it has one.
     private var configured: InferenceProfile? {
         guard let config else { return nil }
-        return config.profile(agent?.modelProfileID) ?? config.defaultProfile
+        return (inChat ? config.profile(agent?.chatModelProfileID) : nil) ?? config.profile(agent?.modelProfileID) ?? config.defaultProfile
     }
 
     private var modelName: String {
@@ -117,6 +119,7 @@ public struct ModelChip: View {
     private var help: String {
         guard session.connection.isConnected else { return "Connect to the host to see the model" }
         if let fellBackTo { return "\(agent?.name ?? "The agent") is set to \(modelName), but its last reply came from \(fellBackTo) (a fallback). Click to change." }
+        if inChat { return "The chat runs on \(modelName); \(agent?.name ?? "Pennant")'s threads keep their own model. Click to change." }
         return agent == nil ? "Default model: \(modelName). Click to change." : "\(agent?.name ?? "Agent") uses \(modelName). Click to change."
     }
 
@@ -147,18 +150,22 @@ public struct ModelPopover: View {
     private var profiles: [InferenceProfile] { config?.inferenceProfiles ?? [] }
 
     /// Which row is selected: the agent's own profile, or nil for "the default model". Without an agent, the default.
-    private var selectedID: String? { agent != nil ? agent?.modelProfileID : config?.defaultProfileID }
+    private var selectedID: String? { agent != nil ? (inChat ? agent?.chatModelProfileID : agent?.modelProfileID) : config?.defaultProfileID }
+    /// In the Pennant chat it sets the chat's model and effort, not the agent's threads'.
+    private var inChat: Bool { agent != nil && (conversationID.flatMap { session.state.conversation($0)?.isMain } ?? false) }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(agent.map { "Model for \($0.name)" } ?? "Default model").font(.zoomed(.headline)).foregroundStyle(PennantTheme.ink)
+                Text(inChat ? "Model for the chat" : agent.map { "Model for \($0.name)" } ?? "Default model").font(.zoomed(.headline)).foregroundStyle(PennantTheme.ink)
                 Spacer()
                 if config == nil || saving != nil { ProgressView().controlSize(.mini) }
             }
             if let config {
                 VStack(alignment: .leading, spacing: 3) {
-                    if agent != nil {
+                    if inChat {
+                        row(id: nil, title: "Same as \(agent?.name ?? "Pennant")'s threads", subtitle: (config.profile(agent?.modelProfileID) ?? config.defaultProfile)?.name, symbol: "equal")
+                    } else if agent != nil {
                         row(id: nil, title: "Default model", subtitle: config.defaultProfile?.name, symbol: "star")
                     }
                     ForEach(profiles) { p in
@@ -212,7 +219,7 @@ public struct ModelPopover: View {
     }
 
     @ViewBuilder private func fallbackNote(_ config: HostConfig) -> some View {
-        let configured = config.profile(agent?.modelProfileID) ?? config.defaultProfile
+        let configured = (inChat ? config.profile(agent?.chatModelProfileID) : nil) ?? config.profile(agent?.modelProfileID) ?? config.defaultProfile
         if let conversationID, let configured,
            let used = (session.state.messages[conversationID] ?? []).last(where: { $0.role == .assistant && $0.stats?.model != nil })?.stats?.model,
            used != configured.name {
@@ -222,7 +229,7 @@ public struct ModelPopover: View {
     }
 
     private var effortRow: some View {
-        let current: String? = agent != nil ? agent?.reasoningEffort : config?.defaultProfile?.inference.reasoningEffort
+        let current: String? = agent != nil ? (inChat ? agent?.chatReasoningEffort : agent?.reasoningEffort) : config?.defaultProfile?.inference.reasoningEffort
         return HStack(spacing: 8) {
             Text("Reasoning").font(.zoomed(.caption).weight(.semibold)).foregroundStyle(PennantTheme.inkSecondary)
             ChipRow(selection: Binding(get: { current }, set: { setEffort($0) }), options: [
@@ -260,7 +267,7 @@ public struct ModelPopover: View {
     private func choose(_ id: String?) {
         guard id != selectedID else { return }
         if var a = agent {
-            a.modelProfileID = id
+            if inChat { a.chatModelProfileID = id } else { a.modelProfileID = id }
             saving = id ?? "default"
             Task {
                 defer { saving = nil }
@@ -274,7 +281,7 @@ public struct ModelPopover: View {
 
     private func setEffort(_ effort: String?) {
         if var a = agent {
-            a.reasoningEffort = effort
+            if inChat { a.chatReasoningEffort = effort } else { a.reasoningEffort = effort }
             Task { do { try await session.updateAgent(a) } catch { self.error = Self.describe(error) } }
         } else if var c = config, let i = c.inferenceProfiles.firstIndex(where: { $0.id == c.defaultProfileID }) {
             c.inferenceProfiles[i].inference.reasoningEffort = effort

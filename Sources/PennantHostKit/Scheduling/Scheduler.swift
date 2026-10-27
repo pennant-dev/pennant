@@ -175,7 +175,7 @@ public actor Scheduler {
                 hasConversation = false
             }
             if !hasConversation {
-                let conversation = Conversation(agentID: job.agentID, title: fresh ? "⏰ \(job.name) · \(now.formatted(.dateTime.month(.abbreviated).day().hour().minute()))" : "⏰ \(job.name)")
+                let conversation = Conversation(agentID: job.agentID, title: fresh ? "\(job.name) · \(now.formatted(.dateTime.month(.abbreviated).day().hour().minute()))" : job.name)
                 try await store.upsertConversation(conversation)
                 await publish(.conversationUpserted(conversation))
                 job.conversationID = conversation.id

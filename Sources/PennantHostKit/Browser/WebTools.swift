@@ -53,7 +53,7 @@ actor WebTabRegistry {
 }
 
 /// Pennant in the owner's Chrome: tabs of its own, in a window of its own, worked with Chrome's own input. The owner's
-/// pointer and keyboard stay theirs, and so do their own tabs. The extension (Settings › Pennant › Chrome) does it.
+/// pointer and keyboard stay theirs, and so do their own tabs. The extension (Settings › Advanced › Pennant › Chrome) does it.
 public enum WebTools {
     public static let names: Set<String> = ["web_open", "web_read", "web_screenshot", "web_click", "web_type", "web_press_key", "web_scroll", "web_back", "web_tabs", "web_close"]
 
@@ -85,7 +85,7 @@ public enum WebTools {
         if await sites.isAllowed(site) { return }
         guard let hooks = context.runtimeHooks else { throw ToolError.denied("Pennant hasn't been allowed to use \(site) in Chrome.") }
         var card = ApprovalRequest(taskID: context.taskID, title: "Use \(site) in your Chrome", destination: "Chrome · \(site)", text: url,
-                                   notes: "Pennant works in tabs of its own, with your Chrome's sign-ins for \(site). Allowing it lets Pennant open and work on \(site) from now on; you can take it back in Settings › Pennant › Chrome.")
+                                   notes: "Pennant works in tabs of its own, with your Chrome's sign-ins for \(site). Allowing it lets Pennant open and work on \(site) from now on; you can take it back in Settings › Advanced › Pennant › Chrome.")
         card.approveLabel = "Allow \(site)"
         let decided = try await hooks.requestApproval(context.taskID, card)
         guard decided.state == .approved else { throw ToolError.denied("The owner didn't let Pennant use \(site) in Chrome. Don't try it another way.") }

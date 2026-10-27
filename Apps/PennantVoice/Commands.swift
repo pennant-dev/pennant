@@ -10,6 +10,7 @@ import Foundation
 ///   Pennant Voice speak --text "…" --out clip.wav [--voice Ryan] [--instruct "calm, warm"] [--language English]
 ///                       [--ref-audio sample.wav --ref-text "what the sample says"] [--temperature 0.7] [--model <repo>]
 ///   Pennant Voice transcribe --audio clip.wav [--language en] [--model <repo>]
+///   Pennant Voice embed [--model <repo>]   (Pennant's meaning search: requests on stdin, see Embeddings.swift)
 ///
 /// `speak` uses Qwen3-TTS 1.7B: the CustomVoice model with a named speaker (and an optional style), or the Base model
 /// cloning the voice in `--ref-audio`. `transcribe` uses Whisper large-v3-turbo. Each prints one line of JSON.
@@ -32,6 +33,7 @@ enum Commands {
             switch arguments.first {
             case "speak": try await speak(options)
             case "transcribe": try await transcribe(options)
+            case "embed": return await Embedder.serve(options)
             default: throw CommandError.usage
             }
             return 0
@@ -99,6 +101,7 @@ enum CommandError: LocalizedError {
         usage: Pennant Voice speak --text "…" --out file.wav [--voice Ryan] [--instruct style] [--language English] \
         [--ref-audio sample.wav --ref-text "…"] [--temperature 0.7] [--model repo]
                Pennant Voice transcribe --audio file.wav [--language en] [--model repo]
+               Pennant Voice embed [--model repo]
         """
     }
 }

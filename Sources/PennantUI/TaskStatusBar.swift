@@ -2,8 +2,8 @@ import PennantClientKit
 import PennantCore
 import SwiftUI
 
-/// One slim line above the composer while a task is active: a pulsing dot, the state, the reason,
-/// and pause / resume / cancel on the right.
+/// One quiet line above the composer while work goes on: what Pennant is working on, and Stop. Paused work offers
+/// Resume; pausing is in the line's menu. Steps and tokens are in its tooltip.
 public struct TaskStatusBar: View {
     @Environment(\.hostSession) private var session
     var task: TaskRecord
@@ -12,9 +12,21 @@ public struct TaskStatusBar: View {
 
     public init(task: TaskRecord) { self.task = task }
 
-    private var detail: String {
-        if !task.stateReason.isEmpty { return task.stateReason }
-        return task.title
+    /// What the work is: the task's title, without the marks older hosts put on scheduled runs.
+    private var title: String { TitleMarks.strip(task.title) }
+
+    /// Where it stands, when that says more than the title.
+    private var detail: String? {
+        let reason = task.stateReason.trimmingCharacters(in: .whitespaces)
+        // A bare state ("Working") says nothing the line doesn't.
+        let states = Set(TaskState.allCases.map { PennantTheme.label(for: $0).lowercased() } + ["working", "running", "started", "resumed"])
+        guard !reason.isEmpty, reason != task.title, !states.contains(reason.lowercased()), !reason.hasPrefix("Waiting for your approval") else { return nil }
+        return reason
+    }
+
+    /// The step it's on, in plain words, and since when.
+    private var step: (phrase: String, since: Date)? {
+        WorkStep.current(task, records: session.state.toolRecords[task.id] ?? [], naming: .from(session.state))
     }
 
     /// A rate-limit pause resumes by itself; the host says after how long, counted from when it paused.
@@ -28,93 +40,96 @@ public struct TaskStatusBar: View {
         task.state == .paused && (task.stateReason.contains("took control of the computer") || task.stateReason.contains("Computer use paused by the user"))
     }
 
+    /// The line's words: "Working on Inbox drafts", "Paused · Inbox drafts".
+    private var headline: String {
+        switch task.state {
+        case .queued: return "Up next: \(title)"
+        case .paused: return tookOver ? "You took over" : "Paused · \(title)"
+        case .waitingForUser: return "Waiting for you · \(title)"
+        case .waitingForDesktop: return "Waiting for the computer · \(title)"
+        case .failed: return "Didn't finish · \(title)"
+        default: return "Working on \(title)"
+        }
+    }
+
     public var body: some View {
-        HStack(spacing: 10) {
-            if tookOver {
-                Image(systemName: "hand.raised.fill").font(.zoomed(size: 12)).foregroundStyle(PennantTheme.warning)
-                Text("You took over · agent paused").font(.zoomed(.callout).weight(.medium)).foregroundStyle(PennantTheme.ink).lineLimit(1)
-            } else if let resumesAt {
-                Image(systemName: "pause.circle.fill").font(.zoomed(size: 12)).foregroundStyle(PennantTheme.warning)
-                Text("Rate limited").font(.zoomed(.callout).weight(.medium)).foregroundStyle(PennantTheme.ink).lineLimit(1)
+        HStack(spacing: 8) {
+            Group {
+                if tookOver {
+                    Image(systemName: "hand.raised.fill").foregroundStyle(PennantTheme.warning)
+                } else if task.state == .paused {
+                    Image(systemName: "pause.circle.fill").foregroundStyle(PennantTheme.warning)
+                } else if task.state == .failed {
+                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(PennantTheme.danger)
+                } else if task.state == .waitingForUser {
+                    StatusDot(color: PennantTheme.attention, pulsing: false)
+                } else {
+                    ProgressView().controlSize(.small).scaleEffect(0.8)
+                }
+            }
+            .font(.zoomed(size: 12))
+            .frame(width: 16, height: 16)
+            Text(headline)
+                .font(.zoomed(.callout).weight(.semibold))
+                .foregroundStyle(PennantTheme.ink)
+                .lineLimit(1)
+                .layoutPriority(1)
+            if let resumesAt {
                 TimelineView(.periodic(from: Clock.anchor, by: 1)) { context in
                     let left = max(0, Int(resumesAt.timeIntervalSince(context.date).rounded()))
-                    Text(left > 0 ? "resumes in \(left / 60):\(String(format: "%02d", left % 60))" : "resuming…")
+                    Text(left > 0 ? "· resumes in \(left / 60):\(String(format: "%02d", left % 60))" : "· resuming…")
                         .font(.zoomed(.callout).monospacedDigit())
                         .foregroundStyle(PennantTheme.inkSecondary)
                         .contentTransition(.numericText(countsDown: true))
                 }
-            } else {
-                StatusDot(color: PennantTheme.color(for: task.state), pulsing: task.state.isActive)
-                Text(PennantTheme.label(for: task.state))
-                    .font(.zoomed(.callout).weight(.medium))
-                    .foregroundStyle(PennantTheme.ink)
-                    .lineLimit(1)
-            }
-            if !detail.isEmpty, !tookOver, resumesAt == nil {
-                Text(detail)
+            } else if let step {
+                WorkStepLabel(phrase: step.phrase, since: step.since)
+            } else if let detail, !tookOver {
+                Text("· \(detail)")
                     .font(.zoomed(.callout))
                     .foregroundStyle(PennantTheme.inkSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .layoutPriority(-1)
             }
             Spacer(minLength: 8)
             if let error {
                 Text(error).font(.zoomed(.caption)).foregroundStyle(ShellPalette.danger).lineLimit(1).layoutPriority(-1)
             }
-            // Counts up as the agent works.
-            let tokens = task.usage.inputTokens + task.usage.outputTokens
-            Text(tokens > 0 ? "\(task.usage.steps) steps · \(WorkersCard.tokens(tokens))" : "\(task.usage.steps) steps")
-                .font(.zoomed(.caption))
-                .monospacedDigit()
-                .foregroundStyle(PennantTheme.inkTertiary)
-                .contentTransition(.numericText())
-                .animation(.snappy, value: tokens)
-                .fixedSize()
             if !task.state.isTerminal {
-                // Titles when there is room, icons alone on a phone; never let a label wrap letter by letter.
-                ViewThatFits(in: .horizontal) {
-                    controls(iconOnly: false)
-                    controls(iconOnly: true)
+                if task.state == .paused {
+                    Button("Resume") { run { try await session.resumeTask(task.id) } }
+                        .buttonStyle(.pennantCompact)
                 }
-                .fixedSize()
+                Button {
+                    run { try await session.cancelTask(task.id) }
+                } label: {
+                    Label("Stop", systemImage: "stop.fill").labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.pennantCompact)
+                .help("Stop this work")
             }
         }
         .disabled(busy)
-        .padding(.horizontal, 12)
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
         .padding(.vertical, 5)
         .background(PennantTheme.panelBackground, in: RoundedRectangle(cornerRadius: PennantTheme.cornerRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: PennantTheme.cornerRadius, style: .continuous).strokeBorder(PennantTheme.border))
+        .help(stepsAndTokens)
+        .contextMenu {
+            if task.state.isActive, task.state != .paused {
+                Button("Pause") { run { try await session.pauseTask(task.id) } }
+            }
+            if task.state == .paused { Button("Resume") { run { try await session.resumeTask(task.id) } } }
+            if !task.state.isTerminal { Button("Stop", role: .destructive) { run { try await session.cancelTask(task.id) } } }
+        }
+        .animation(.easeOut(duration: 0.2), value: task.state)
     }
 
-    @ViewBuilder private func controls(iconOnly: Bool) -> some View {
-        HStack(spacing: 6) {
-            if task.state == .paused {
-                Button {
-                    run { try await session.resumeTask(task.id) }
-                } label: {
-                    Label("Resume", systemImage: "play.fill")
-                }
-                .buttonStyle(.pennantCompact)
-                .help("Resume")
-            } else {
-                Button {
-                    run { try await session.pauseTask(task.id) }
-                } label: {
-                    Label("Pause", systemImage: "pause.fill")
-                }
-                .buttonStyle(.pennantCompact)
-                .help("Pause")
-            }
-            Button {
-                run { try await session.cancelTask(task.id) }
-            } label: {
-                Label("Cancel", systemImage: "xmark")
-            }
-            .buttonStyle(PennantButtonStyle(.ghost, compact: true))
-            .help("Cancel")
-        }
-        .labelStyle(iconOnly ? AnyLabelStyle(.iconOnly) : AnyLabelStyle(.titleAndIcon))
-        .fixedSize()
+    /// "12 steps · 48k tokens", for the curious.
+    private var stepsAndTokens: String {
+        let tokens = task.usage.inputTokens + task.usage.outputTokens
+        return tokens > 0 ? "\(task.usage.steps) steps · \(WorkersCard.tokens(tokens)) tokens" : "\(task.usage.steps) steps"
     }
 
     private func run(_ op: @escaping () async throws -> Void) {
@@ -126,11 +141,3 @@ public struct TaskStatusBar: View {
         }
     }
 }
-
-/// Type-erased label style so a `ViewThatFits` branch can pick titles or icons.
-struct AnyLabelStyle: LabelStyle {
-    private let make: (Configuration) -> AnyView
-    init<S: LabelStyle>(_ style: S) { make = { AnyView(style.makeBody(configuration: $0)) } }
-    func makeBody(configuration: Configuration) -> some View { make(configuration) }
-}
-

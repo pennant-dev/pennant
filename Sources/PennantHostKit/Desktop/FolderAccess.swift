@@ -143,7 +143,7 @@ actor FolderAsks {
         guard await check(key) != .granted else { return nil }
         let folder = FolderAccess.name(key)
         if let last = asked[key], now.timeIntervalSince(last) < Self.again {
-            return "macOS is keeping Pennant out of the owner's \(folder) folder, and Pennant asked them for it a little while ago. Tell them in a line that this needs their \(folder) folder: they allow it in Pennant's Settings › Permissions (\(DesktopPermissions.folderTitle(key)), Grant). Don't send them to System Settings. Carry on with what doesn't need it."
+            return "macOS is keeping Pennant out of the owner's \(folder) folder, and Pennant asked them for it a little while ago. Tell them in a line that this needs their \(folder) folder: they allow it in Pennant's Settings › Advanced › Permissions (\(DesktopPermissions.folderTitle(key)), Grant). Don't send them to System Settings. Carry on with what doesn't need it."
         }
         asked[key] = now
         let ask = self.ask

@@ -78,6 +78,12 @@ public actor FakeStore: StoreProtocol {
         if let after, let i = list.firstIndex(where: { $0.id == after }) { list = Array(list[(i + 1)...]) }
         return Array(list.prefix(limit))
     }
+    public func messagesWithWaitingCards() async throws -> [Message] {
+        messages.values.filter(\.holdsWaitingCard).sorted { $0.createdAt < $1.createdAt }
+    }
+    public func messagesWithReports() async throws -> [Message] {
+        messages.values.filter(\.holdsReport).sorted { $0.createdAt < $1.createdAt }
+    }
     public func searchMessages(text: String, agentID: AgentID?, limit: Int) async throws -> [Message] {
         let needle = text.lowercased()
         return Array(messages.values.filter { (agentID == nil || $0.agentID == agentID) && $0.text.lowercased().contains(needle) }.prefix(limit))
@@ -89,6 +95,20 @@ public actor FakeStore: StoreProtocol {
     public func task(_ id: TaskID) async throws -> TaskRecord? { tasks[id] }
     public func listTasks(agentID: AgentID?, includeFinished: Bool) async throws -> [TaskRecord] {
         tasks.values.filter { (agentID == nil || $0.agentID == agentID) && (includeFinished || !$0.state.isTerminal) }.sorted { $0.createdAt < $1.createdAt }
+    }
+    public func tasks(conversationID: ConversationID) async throws -> [TaskRecord] {
+        tasks.values.filter { $0.conversationID == conversationID }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+    public func latestTopLevelTasks(in conversations: Set<ConversationID>) async throws -> [ConversationID: TaskRecord] {
+        var latest: [ConversationID: TaskRecord] = [:]
+        for t in tasks.values where conversations.contains(t.conversationID) && t.parentTaskID == nil {
+            if let have = latest[t.conversationID], (have.createdAt, have.updatedAt) >= (t.createdAt, t.updatedAt) { continue }
+            latest[t.conversationID] = t
+        }
+        return latest
+    }
+    public func conversationsWithTasks(updatedSince date: Date) async throws -> Set<ConversationID> {
+        Set(tasks.values.filter { $0.updatedAt >= date }.map(\.conversationID))
     }
     public func recordTransition(_ transition: TaskTransition) async throws { transitionsByTask[transition.taskID, default: []].append(transition) }
     public func childTasks(parentTaskID: TaskID) async throws -> [TaskRecord] { tasks.values.filter { $0.parentTaskID == parentTaskID } }
@@ -198,4 +218,13 @@ public actor FakeStore: StoreProtocol {
     public func appendUsage(_ record: UsageRecord) async throws { usageRecords.append(record) }
     public func setSetting(_ key: String, value: String) async throws { settings[key] = value }
     public func setting(_ key: String) async throws -> String? { settings[key] }
+}
+
+extension HostConfig {
+    /// Every sign-off on (Settings › Ask me before…), for tests about the cards themselves. Out of the box they're off.
+    static var asking: HostConfig {
+        var config = HostConfig()
+        config.askFirst = AskFirst(publishes: true, spends: true, deletes: true)
+        return config
+    }
 }

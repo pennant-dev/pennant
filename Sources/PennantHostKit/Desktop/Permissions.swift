@@ -56,8 +56,10 @@ public enum PermissionCheck {
     public static func automation(target bundleID: String, ask: Bool = false) -> PermissionState {
         // macOS can block this call indefinitely (a target app launching, quitting or being removed, a stuck consent
         // prompt). Run it on its own thread with a time limit so a hung check never stalls the host; a target whose
-        // check is still hung is reported unknown, not asked again, until that check returns.
+        // check hung is reported unknown, not asked again, until that check returns and for ten minutes after it hung
+        // (one that hangs once tends to hang on every check).
         if hungTargets.get().contains(bundleID) { return .unknown }
+        if !ask, let until = hungUntil.get()[bundleID], until > Date() { return .unknown }
         let done = DispatchSemaphore(value: 0)
         let result = Locked(PermissionState.unknown)
         automationQueue.async {
@@ -67,6 +69,9 @@ public enum PermissionCheck {
         }
         if done.wait(timeout: .now() + (ask ? 120 : 2)) == .timedOut {
             hungTargets.set(hungTargets.get().union([bundleID]))
+            var until = hungUntil.get()
+            until[bundleID] = Date().addingTimeInterval(600)
+            hungUntil.set(until)
             log.warn("Automation permission check for \(bundleID) did not return; reporting unknown until it does", category: "desktop")
             return .unknown
         }
@@ -75,6 +80,7 @@ public enum PermissionCheck {
 
     private static let automationQueue = DispatchQueue(label: "dev.pennant.automation-permission", attributes: .concurrent)
     private static let hungTargets = Locked(Set<String>())
+    private static let hungUntil = Locked([String: Date]())
 
     private static func automationNow(target bundleID: String, ask: Bool) -> PermissionState {
         let descriptor = NSAppleEventDescriptor(bundleIdentifier: bundleID)
@@ -183,8 +189,11 @@ public enum PermissionCheck {
         return (path as NSString).lastPathComponent
     }
 
-    public static func current() -> DesktopPermissions {
-        DesktopPermissions(accessibility: accessibility(), screenRecording: screenRecording(), automation: automation(), inputMonitoring: inputMonitoring(), automationTargets: automationStates(), grantee: grantee(), folders: FolderAccess.states)
+    /// `includingAutomation: false` leaves out the per-app automation checks (the helper process's way: macOS doesn't
+    /// cache those per process, so the host's own answer is the one to use, and each can hang for seconds).
+    public static func current(includingAutomation: Bool = true) -> DesktopPermissions {
+        DesktopPermissions(accessibility: accessibility(), screenRecording: screenRecording(), automation: includingAutomation ? automation() : true, inputMonitoring: inputMonitoring(),
+                           automationTargets: includingAutomation ? automationStates() : [:], grantee: grantee(), folders: FolderAccess.states)
     }
 
     /// Request the listed permissions ("accessibility", "screenRecording", "inputMonitoring", "automation", or a

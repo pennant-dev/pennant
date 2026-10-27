@@ -207,25 +207,9 @@ public enum InferencePresets {
             notes: "The Router API only: Sonar chat completions at api.perplexity.ai end on 2026-09-27 and the Agent API is not chat-completions shaped. Image and tool support are unconfirmed; JSON mode is asked for in the prompt.",
             verified: true
         ),
-        InferencePreset(
-            id: "ollama-cloud", name: "Ollama Cloud", publisher: "Ollama",
-            baseURL: "https://ollama.com/v1",
-            keyHelpURL: "https://ollama.com/settings/keys",
-            docsURL: "https://docs.ollama.com/cloud",
-            exampleModels: ["kimi-k3", "glm-5.3", "deepseek-v4.1-flash", "gpt-oss:120b"],
-            notes: "API names differ from the app's (gemma4:31b, not gemma4:cloud). Images go as data URIs, which is what Pennant sends.",
-            verified: true
-        ),
 
         // MARK: Local and private servers, no key
 
-        InferencePreset(
-            id: "ollama", name: "Ollama on this Mac", publisher: "Ollama",
-            baseURL: "http://localhost:11434/v1",
-            docsURL: "https://docs.ollama.com/api/openai-compatibility",
-            exampleModels: ["gemma4:e2b-it-qat"],
-            verified: true, needsKey: false, symbol: "desktopcomputer"
-        ),
         InferencePreset(
             id: "lm-studio", name: "LM Studio", publisher: "LM Studio",
             baseURL: "http://localhost:1234/v1",

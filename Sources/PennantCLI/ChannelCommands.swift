@@ -51,7 +51,7 @@ func iMessageCommand(_ options: CLIOptions) async throws {
     if let im = o.channels.first(where: { $0.kind == .imessage }), im.enabled, let set = im.settings {
         let grantee = set["grantee"] ?? "Pennant Host"
         if set["fullDiskAccess"] != "granted" { out("iMessage needs: Full Disk Access for “\(grantee)” (System Settings › Privacy & Security › Full Disk Access)") }
-        if set["messagesControl"] != "granted" { out("iMessage needs: control of Messages (Settings › Channels › iMessage › Ask now, or the first reply asks)") }
+        if set["messagesControl"] != "granted" { out("iMessage needs: control of Messages (Settings › Connections › Channels › iMessage › Ask now, or the first reply asks)") }
     }
     if let groups = o.channels.first(where: { $0.kind == .imessage })?.settings?["groups"], !groups.isEmpty {
         out("Group chats in Messages: " + groups.split(separator: "\n").joined(separator: ", "))

@@ -16,7 +16,7 @@ final class PennantChatTests: XCTestCase {
     override func tearDown() async throws { try? FileManager.default.removeItem(at: paths.root) }
 
     private func service(_ provider: ScriptedProvider) async throws -> HostService {
-        var config = HostConfig()
+        var config = HostConfig.asking
         config.workingDirectory = paths.root.path
         config.desktop.pauseOnHumanInput = false
         let s = try HostService(paths: paths, config: config, desktop: FakeDesktop(), humanInput: NullHumanInput(), provider: provider)
@@ -121,6 +121,40 @@ final class PennantChatTests: XCTestCase {
         XCTAssertTrue(kickoff.contains("shell `echo step-1` → step-1"), kickoff)
         XCTAssertTrue(kickoff.contains("don't redo what worked"), kickoff)
         try await until("the thread's result reached the chat") { try await self.updates(s).contains { $0.kind == .finished } }
+        await s.stop()
+    }
+
+    func testWhatMemoryHasOnTheDraftIsReadyForTheReply() async throws {
+        let provider = ScriptedProvider([])
+        provider.chatTurns = [.init(text: "Maya lands at 7:55.")]
+        let s = try await service(provider)
+        let chat = try await s.runtime.ensureMainChat()
+        await s.runtime.prewarm(conversationID: chat.id, draft: "When does Maya land?  ")
+        let ready = await s.runtime.draftRecall[chat.id]
+        XCTAssertEqual(ready?.text, "When does Maya land?")
+        let (_, _, ask) = try await s.runtime.submitUserMessage(agentID: chat.agentID, conversationID: chat.id, text: "When does Maya land?", attachments: [])
+        try await wait(s, ask, .completed)
+        let left = await s.runtime.draftRecall[chat.id]
+        XCTAssertNil(left, "the reply used it")
+        await s.stop()
+    }
+
+    func testALineSaidWhileStartingAThreadIsTheWholeReply() async throws {
+        let start = ToolCall(id: ToolCallID("t1"), name: "start_thread", arguments: ["title": "Harbor newsletter", "instructions": "Draft the Harbor newsletter for Maya to review."])
+        let provider = ScriptedProvider([.init(text: "The draft is ready for Maya.")])
+        provider.chatTurns = [.init(text: "On it, I'll let you know.", toolCalls: [start]), .init(text: "Started it; I'll let you know.")]
+        let s = try await service(provider)
+        let chat = try await s.runtime.ensureMainChat()
+        let (_, _, ask) = try await s.runtime.submitUserMessage(agentID: chat.agentID, conversationID: chat.id, text: "Draft the Harbor newsletter", attachments: [])
+        try await wait(s, ask, .completed)
+
+        // One call: the line went out with the thread, and nothing asked the model to say it again.
+        let task = try await s.store.task(ask)
+        XCTAssertEqual(task?.resultSummary?.trimmingCharacters(in: .whitespaces), "On it, I'll let you know.")
+        let said = try await s.store.messages(taskID: ask).filter { $0.role == .assistant }.map(\.text)
+        XCTAssertFalse(said.contains("Started it; I'll let you know."), "\(said)")
+        let conversations = try await s.store.listConversations(agentID: chat.agentID)
+        XCTAssertTrue(conversations.contains { $0.parentID == chat.id && $0.title == "Harbor newsletter" })
         await s.stop()
     }
 
@@ -621,7 +655,7 @@ final class PennantChatSpeedTests: XCTestCase {
     override func tearDown() async throws { try? FileManager.default.removeItem(at: paths.root) }
 
     private func service(_ provider: ScriptedProvider) async throws -> HostService {
-        var config = HostConfig()
+        var config = HostConfig.asking
         config.workingDirectory = paths.root.path
         config.desktop.pauseOnHumanInput = false
         let s = try HostService(paths: paths, config: config, desktop: FakeDesktop(), humanInput: NullHumanInput(), provider: provider)
@@ -647,6 +681,14 @@ final class PennantChatSpeedTests: XCTestCase {
         // A model that's sent no effort anywhere else gets none in the chat either.
         let plain = TaskRuntime.ModelChoice(provider: ScriptedProvider([]), label: "Local", maxOutputTokens: 4000, reasoningEffort: nil)
         XCTAssertNil(TaskRuntime.chatEffort(agent: AgentProfile(name: "Pennant", role: "assistant"), model: plain))
+        // On a chat-completions endpoint (DeepSeek on Azure, say) the chat doesn't think at all; threads still do.
+        let endpoint = TaskRuntime.ModelChoice(provider: OpenAICompatibleProvider(config: HostConfig.Inference(baseURL: "http://endpoint.test/v1", model: "flash")),
+                                               label: "Flash", maxOutputTokens: 4000, reasoningEffort: "medium")
+        var flashAgent = AgentProfile(name: "Pennant", role: "assistant")
+        flashAgent.reasoningEffort = "low"
+        XCTAssertEqual(TaskRuntime.chatEffort(agent: flashAgent, model: endpoint), "none")
+        flashAgent.chatReasoningEffort = "low"
+        XCTAssertEqual(TaskRuntime.chatEffort(agent: flashAgent, model: endpoint), "low", "the owner's own choice stands")
     }
 
     func testTheChatCarriesAShortToolList() async throws {

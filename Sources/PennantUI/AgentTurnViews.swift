@@ -225,3 +225,38 @@ struct AgentText: View {
         return Color(hex: agent.accentColorHex).opacity(scheme == .dark ? 0.18 : 0.09)
     }
 }
+
+/// "Show work" under a reply: opens the thinking and steps behind it, with its time and cost.
+struct ShowWorkButton: View {
+    var open: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Text(open ? "Hide work" : "Show work")
+                Image(systemName: "chevron.right")
+                    .font(.zoomed(size: 8, weight: .semibold))
+                    .rotationEffect(.degrees(open ? 90 : 0))
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(ShowWorkStyle())
+        .accessibilityValue(open ? "Expanded" : "Collapsed")
+        .help(open ? "Hide the steps behind this reply" : "The thinking and steps behind this reply, and what it cost")
+    }
+}
+
+/// Quiet until pointed at: a soft fill on hover, like a Mac toolbar's plain buttons.
+private struct ShowWorkStyle: ButtonStyle {
+    @State private var hovering = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(hovering ? PennantTheme.ink : PennantTheme.inkTertiary)
+            .background(PennantTheme.hover.opacity(hovering || configuration.isPressed ? 1 : 0), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .onHover { hovering = $0 }
+            .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+}

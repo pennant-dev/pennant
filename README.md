@@ -4,7 +4,7 @@
 
 Pennant is a free, open-source AI agent that lives on your Mac, with an iPhone companion. Give it jobs in plain words: it
 triages the inbox, writes the posts, watches production and fixes the code, on your schedule and with whatever model you
-choose. Before it publishes, sends, deletes or spends, it hands you a card and waits for your OK.
+choose. Whatever you want to OK first (sending and posting, spending, deletes that can't be undone) waits on a card for you.
 
 [![Latest release](https://img.shields.io/github/v/release/pennant-dev/pennant?label=download&color=7A4FE6)](https://github.com/pennant-dev/pennant/releases/latest)
 ![macOS 15 or later](https://img.shields.io/badge/macOS-15%2B-7A4FE6)
@@ -38,11 +38,11 @@ choose. Before it publishes, sends, deletes or spends, it hands you a card and w
   cards come back to the chat, where you decide them. You can read any thread, but you only ever talk to Pennant.
 - **Jobs on a schedule.** "Every weekday at 8:30", "hourly" or cron. Each job follows a skill, every run gets a thread of its
   own, and a run ends in a report card rather than a wall of text. Big jobs bring in helpers on a cheaper model.
-- **Nothing goes out without you.** Publishing, sending email, deleting and spending always stop at an approval card, whatever
-  the skill or the model says, and approving runs exactly what the card shows. Edit the text, send it back with a note, or
-  reject it, on the Mac or the iPhone. Cards written in Markdown show formatted, with the plain text a click away.
-  Tidying a temporary folder isn't deleting, and "Allow deletes here for this thread" lets the rest of a job's clean-up
-  in that folder go ahead.
+- **You choose what waits for you.** Sending and posting, spending money, and deletes that can't be undone each have a switch
+  (Settings › General › Ask me before…). What you switch on stops at an approval card, whatever the skill or the model says,
+  and approving runs exactly what the card shows. Edit the text, send it back with a note, reject it or dismiss it, on the
+  Mac or the iPhone. A thread doesn't wait at its card: it carries on with the rest and the approved step runs when you say
+  yes. Files Pennant deletes on your Mac go to the Trash, and a card nobody answers goes away after a day.
 - **Goals.** Outcomes Pennant works toward on its own, with a measure, a weekly budget and a board of what's next, waiting on
   you, in progress and done, and a weekly review. Start, pause, edit or delete any goal yourself, or approve the ones it proposes.
 - **A heartbeat.** Every 30 minutes (you choose) Pennant looks over its work: it starts the goal sessions that are due, and
@@ -65,10 +65,11 @@ choose. Before it publishes, sends, deletes or spends, it hands you a card and w
   through an extension it adds to Chrome for you. It works in your Mac apps in the background, even behind
   your windows, without your pointer or keyboard. A cursor of its own shows where it is working. Only when nothing else
   will do does it borrow the screen, with a live view, and it lets go the moment you touch the mouse.
-- **Memory with receipts.** It remembers facts and the passages they came from, searches them by keyword and meaning, names its
-  sources, never lets something it guessed overwrite something you said, and forgets for good when you ask.
+- **Memory with receipts.** It remembers facts and the passages they came from, searches them by keyword and meaning (with an
+  embedding model it runs itself, on the Mac's GPU), names its sources, never lets something it guessed overwrite something
+  you said, and forgets for good when you ask.
 - **Any model.** Presets for OpenAI, Anthropic, Google, xAI, Mistral, DeepSeek, OpenRouter, Groq and more, any
-  OpenAI-compatible endpoint, Azure AI Foundry, a ChatGPT account, Ollama, LM Studio, vLLM or Apple's on-device model, with
+  OpenAI-compatible endpoint, Azure AI Foundry, a ChatGPT account, LM Studio, vLLM or Apple's on-device model, with
   fallbacks. Rate limits pause and resume a task; an outage moves it to your next model. Keys can live in the Vault, your
   Keychain, instead of a config file.
 - **Skills are folders.** The `SKILL.md` format used by Claude Code, Codex and Agent Skills, in a git repository you own, with
@@ -106,20 +107,21 @@ Pennant has no account with us, no telemetry and no cloud of its own.
 
 - macOS 15 or later, on Apple silicon or Intel.
 - A model. Any of the presets with a key, a ChatGPT account, or a local server. For a first run with no key at all,
-  [Ollama](https://ollama.com) with a vision and tools model works: `ollama pull gemma4:e2b-it-qat`.
+  [LM Studio](https://lmstudio.ai) serving a vision and tools model (Gemma 4, say) works.
 - For coding with Claude Code, the `claude` program installed and signed in. Pennant's own engine needs only a model.
-- The iPhone app needs iOS 18 or later. It isn't on the App Store yet; build it from the source.
+- The iPhone app needs iOS 18 or later. It's on the [App Store](https://apps.apple.com/app/id6816164256) (not yet in the EU), or
+  build it from the source.
 
 ## First launch
 
 1. Open the DMG, drag Pennant to Applications and open it. It starts its host, **Pennant Host**, in the background.
 2. Grant the permissions it asks for, so it can use your Mac: **Accessibility** and **Screen Recording**, plus **Input
    Monitoring** (so it lets go when you type) and **Automation** for the apps it scripts. In System Settings they appear under
-   the name Pennant. Settings › Permissions shows each one and can ask again.
+   the name Pennant. Settings › Advanced › Permissions shows each one and can ask again.
 3. Choose a model in **Settings › Models**: pick a preset, paste a key (or keep it in the Vault), and Test.
 4. Ask for something, or give it a job: "Every weekday at 8, tell me what needs me today."
-5. For coding, add your project folders in **Settings › Pennant › Coding**. For the iPhone, create your sign-in in
-   **Settings › People**.
+5. For coding, add your project folders in **Settings › Advanced › Pennant › Coding**. For the iPhone, create your sign-in in
+   **Settings › Connections › People**.
 
 ## Shortcuts
 
@@ -155,7 +157,7 @@ none), so macOS keeps the Accessibility and Screen Recording grants across rebui
 The host also runs on its own, with `pennant` as a terminal client for scripting and diagnostics:
 
 ```sh
-swift run pennant-host --endpoint http://localhost:11434/v1 --model gemma4:e2b-it-qat
+swift run pennant-host --endpoint http://localhost:1234/v1 --model <a model LM Studio serves>
 
 swift run pennant status                      # in another terminal
 swift run pennant send "List the files in ~/Documents and summarise them"
@@ -238,7 +240,7 @@ is verified in [docs/STATUS.md](docs/STATUS.md).
 
 ## Troubleshooting
 
-- **It can't see the screen or click.** Open Settings › Permissions. Grants belong to **Pennant Host**; Reset & ask again
+- **It can't see the screen or click.** Open Settings › Advanced › Permissions. Grants belong to **Pennant Host**; Reset & ask again
   clears a stuck row. Screen Recording takes effect after the host restarts, which the same screen offers.
 - **Old "pennant-host" rows in System Settings.** They belong to copies at other paths and do nothing; remove them with the
   minus button.

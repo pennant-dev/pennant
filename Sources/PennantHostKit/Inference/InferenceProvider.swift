@@ -45,6 +45,9 @@ public struct InferenceRequest: Sendable {
     public var jsonMode: Bool
     /// "low", "medium" or "high" for reasoning models; nil leaves the provider's default.
     public var reasoningEffort: String?
+    /// What the request continues (its conversation): a provider with a prompt cache keys it on this, so every call
+    /// of a conversation goes where its prompt is already cached. Nil: the provider's own key.
+    public var cacheKey: String?
 
     public init(messages: [ModelMessage], tools: [ToolSpec] = [], maxOutputTokens: Int = 4096, temperature: Double = 0.2, disableTools: Bool = false, jsonMode: Bool = false, reasoningEffort: String? = nil) {
         self.reasoningEffort = reasoningEffort
@@ -140,9 +143,14 @@ public protocol InferenceProvider: Sendable {
     func estimateTokens(_ messages: [ModelMessage], tools: [ToolSpec]) -> Int
     /// Quick reachability check; used for status display, never blocks work.
     func healthCheck() async -> Bool
+    /// Get ready for a request about to come (the owner is typing): renew a sign-in that's about to run out, so the
+    /// request doesn't wait on it.
+    func prewarm() async
 }
 
 public extension InferenceProvider {
+    func prewarm() async {}
+
     /// Convenience: run a request to completion and aggregate the result.
     func complete(_ request: InferenceRequest) async throws -> InferenceResponse {
         var response = InferenceResponse()
@@ -164,10 +172,13 @@ public protocol EmbeddingProvider: Sendable {
     /// The model's name, recorded with the vectors so a change of model re-embeds everything.
     var modelName: String { get }
     func embed(_ texts: [String]) async throws -> [[Float]]
+    /// Gets the model ready (a first download, say) before a long run of batches.
+    func prepare() async
 }
 
 public extension EmbeddingProvider {
     var modelName: String { "" }
+    func prepare() async {}
 }
 
 extension InferenceError {

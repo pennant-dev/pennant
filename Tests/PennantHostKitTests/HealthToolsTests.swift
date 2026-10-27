@@ -16,7 +16,7 @@ final class HealthToolsTests: XCTestCase {
     override func tearDown() async throws { try? FileManager.default.removeItem(at: paths.root) }
 
     private func service(_ provider: ScriptedProvider, coding: HostConfig.Coding? = nil) async throws -> HostService {
-        var config = HostConfig()
+        var config = HostConfig.asking
         config.workingDirectory = paths.root.path
         config.coding = coding
         config.desktop.pauseOnHumanInput = false
@@ -54,7 +54,7 @@ final class HealthToolsTests: XCTestCase {
 
     private func context(_ s: HostService, _ agentID: AgentID) async -> ToolContext {
         ToolContext(agentID: agentID, taskID: TaskID(), conversationID: ConversationID(), store: await s.store, desktop: FakeDesktop(),
-                    lease: DesktopLease(pauseOnHumanInput: false, desktop: FakeDesktop(), onChange: { _ in }), config: HostConfig(), runtimeHooks: nil)
+                    lease: DesktopLease(pauseOnHumanInput: false, desktop: FakeDesktop(), onChange: { _ in }), config: HostConfig.asking, runtimeHooks: nil)
     }
 
     func testOnlyAGrantedAgentSeesTheToolsAndNobodyCallsTheApplyTool() async throws {

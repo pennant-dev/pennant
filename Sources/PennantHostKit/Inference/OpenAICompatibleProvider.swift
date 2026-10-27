@@ -32,7 +32,7 @@ public extension EndpointAuthority {
 }
 
 /// Inference over any OpenAI-compatible `/chat/completions` endpoint: vLLM or SGLang serving
-/// a model served by vLLM or SGLang on your own GPU box, Ollama or LM Studio locally. Streams SSE, maps tool calls,
+/// a model served by vLLM or SGLang on your own GPU box, LM Studio locally. Streams SSE, maps tool calls,
 /// sends images as data URIs, and honours cancellation of the consuming task. With an `EndpointAuthority`
 /// the bearer token, base URL, and extra headers come from it per request (Azure AI Foundry, a token command), with
 /// one credential refresh and retry when the endpoint refuses the token.
@@ -119,6 +119,19 @@ public final class OpenAICompatibleProvider: InferenceProvider, Sendable {
     }
 
     /// Builds the JSON body for `/chat/completions`. Exposed for tests.
+    /// Endpoints (base URL and model) that refused `response_format`.
+    static let noJSONMode = Locked(Set<String>())
+
+    public func prewarm() async {
+        if let authority { _ = try? await authority.credential() }
+    }
+
+    /// A 400 saying the engine can't do structured output (vLLM-style engines without a grammar backend).
+    static func refusesJSONMode(_ body: String) -> Bool {
+        let b = body.lowercased()
+        return b.contains("response_format") || b.contains("structured output") || b.contains("guided_")
+    }
+
     public static func requestBody(for request: InferenceRequest, config: HostConfig.Inference) -> JSONValue {
         let useNativeTools = config.supportsTools && !request.disableTools && !request.tools.isEmpty
         let usePromptedTools = !config.supportsTools && !request.disableTools && !request.tools.isEmpty
@@ -266,6 +279,10 @@ public final class OpenAICompatibleProvider: InferenceProvider, Sendable {
         }
         var effortRetried = false
         var paramRetried = false
+        var jsonRetried = false
+        // An endpoint that refused JSON mode before is asked in plain text: callers that want JSON say so in the
+        // prompt and pull the object out of the reply.
+        if request.jsonMode, noJSONMode.get().contains(effortKey) { request.jsonMode = false }
         var credential: EndpointCredential?
         if let authority {
             do { credential = try await authority.credential() } catch let error as InferenceError { throw error } catch { throw InferenceError.unreachable(describeAuthorityError(error)) }
@@ -319,6 +336,14 @@ public final class OpenAICompatibleProvider: InferenceProvider, Sendable {
                     } catch {
                         throw InferenceError.httpStatus(http.statusCode, describeAuthorityError(error))
                     }
+                    continue
+                }
+                // An engine without structured output (response_format): remember it and ask again without, once.
+                if http.statusCode == 400, !jsonRetried, request.jsonMode, Self.refusesJSONMode(text) {
+                    jsonRetried = true
+                    request.jsonMode = false
+                    noJSONMode.set(noJSONMode.get().union([effortKey]))
+                    log.info("\(config.model) doesn't take JSON mode; asking in plain text", category: "inference")
                     continue
                 }
                 // An endpoint that wants max_completion_tokens instead of max_tokens: remember it and retry once.
