@@ -49,8 +49,8 @@ if [[ -n "$RESUME" ]]; then
 else
 echo "→ Tests"
 TESTS=$(swift test --skip LiveInferenceTests 2>&1 || true)
-FAILED=$(print -r -- "$TESTS" | grep -cE "with [1-9][0-9]* failures|error:" || true)
-[[ "$FAILED" == 0 ]] || { print -r -- "$TESTS" | grep -E "failed|error:" | head -10; echo "✗ The tests failed"; exit 1; }
+FAILED=$(print -r -- "$TESTS" | grep -cE "with [1-9][0-9]* failures|(^|\.swift:[0-9]+(:[0-9]+)?: )error:" || true)
+[[ "$FAILED" == 0 ]] || { print -r -- "$TESTS" | grep -E "failed|(^|\.swift:[0-9]+(:[0-9]+)?: )error:" | head -10; echo "✗ The tests failed"; exit 1; }
 print -r -- "$TESTS" | grep -A1 -E "Test Suite '.*\.xctest' passed" | grep -E "Executed [0-9]+ tests" | awk '{n += $2} END {print "  " n " tests passed"}'
 
 echo "→ Host, for Apple silicon and Intel"
