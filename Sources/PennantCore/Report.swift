@@ -11,12 +11,15 @@ public struct ReportCard: Hashable, Codable, Sendable, Identifiable {
     public var status: ReportStatus
     public var sections: [ReportSection]
     public var createdAt: Date
+    /// The card as a json-render spec (root, elements, state), drawn with its components where the app can; the
+    /// title, verdict and sections are the plain version (older apps, channels, the model's history).
+    public var spec: JSONValue?
 
-    public init(id: String = UUID().uuidString, title: String, subtitle: String? = nil, verdict: String, status: ReportStatus = .neutral, sections: [ReportSection] = [], createdAt: Date = Date()) {
-        self.id = id; self.title = title; self.subtitle = subtitle; self.verdict = verdict; self.status = status; self.sections = sections; self.createdAt = createdAt
+    public init(id: String = UUID().uuidString, title: String, subtitle: String? = nil, verdict: String, status: ReportStatus = .neutral, sections: [ReportSection] = [], createdAt: Date = Date(), spec: JSONValue? = nil) {
+        self.id = id; self.title = title; self.subtitle = subtitle; self.verdict = verdict; self.status = status; self.sections = sections; self.createdAt = createdAt; self.spec = spec
     }
 
-    private enum CodingKeys: String, CodingKey { case id, title, subtitle, verdict, status, sections, createdAt }
+    private enum CodingKeys: String, CodingKey { case id, title, subtitle, verdict, status, sections, createdAt, spec }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -26,11 +29,14 @@ public struct ReportCard: Hashable, Codable, Sendable, Identifiable {
         status = try c.decodeIfPresent(ReportStatus.self, forKey: .status) ?? .neutral
         sections = try c.decodeIfPresent([ReportSection].self, forKey: .sections) ?? []
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        spec = try c.decodeIfPresent(JSONValue.self, forKey: .spec)
     }
 
     /// The report as Markdown: what the model sees in history, what "Copy" puts on the pasteboard.
     public var markdown: String {
         var out = ["**\(title)**\(subtitle.map { " · \($0)" } ?? "")", "\(status.word): \(verdict)"]
+        // A card's words stand in for its sections (which only repeat them, for apps from before cards).
+        if let spec { return (out + [CardSpec(spec).plainText]).joined(separator: "\n") }
         for s in sections {
             var lines: [String] = []
             if let t = s.title, !t.isEmpty { lines.append("\n**\(t)**") }

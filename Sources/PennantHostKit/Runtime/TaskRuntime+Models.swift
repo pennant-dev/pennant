@@ -185,7 +185,7 @@ extension TaskRuntime {
         "memory_search", "memory_remember", "remember_instruction",
         "browser_read_page", "read_file", "list_directory", "share_file", "shell", "screenshot",
         "list_schedules", "schedule_job", "cancel_schedule", "list_goals", "goal_board", "update_goal",
-        "code",
+        "code", "post_report",
     ])
 
     /// A connected service's key in `activeServers`, from its tools' source: an MCP server's id, or "plugin:<id>" for a

@@ -15,3 +15,6 @@ dist/
 .vscode/
 /Apps/Signing.local.xcconfig
 /www/.deploy.env
+
+# The cards page's packages (Web/cards; `npm ci` restores them)
+/Web/cards/node_modules/

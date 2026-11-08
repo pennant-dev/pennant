@@ -88,7 +88,7 @@ public struct RequestApprovalTool: Tool {
             }
             // Checked before any card is withdrawn: an action that names no tool would only fail once approved.
             let tool = try await hooks.resolveTool(named)
-            action = ApprovalAction(tool: tool, arguments: spec["arguments"] ?? .object([:]), textField: field, label: spec["label"]?.stringValue ?? "Approve & send")
+            action = ApprovalAction(tool: tool, arguments: spec["arguments"] ?? .object([:]), textField: field, label: spec["label"]?.stringValue ?? (tool == "shell" ? "Approve & run" : "Approve & send"))
         }
         // A goal that only proposes puts it to the owner as a message in its thread, and nothing waits. Otherwise, when
         // they don't review posts and sends first (Settings › Ask me before…), it goes ahead without a card.

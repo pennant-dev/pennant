@@ -1110,7 +1110,9 @@ struct PartView: View {
         case .approval(let request):
             ApprovalCard(request: request)
         case .report(let report):
-            ReportCardView(report: report)
+            ReportCardView(report: report) { text in
+                Task { _ = try? await session.sendMessage(to: message.agentID, conversationID: message.conversationID, text: text) }
+            }
         case .choices(let question):
             ChoiceCard(question: question, task: task)
         case .update(let update):

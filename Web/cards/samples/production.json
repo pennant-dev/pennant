@@ -1,0 +1,31 @@
+{
+  "root": "prod",
+  "state": {
+    "latency": [
+      { "t": "10:00", "ms": 182 }, { "t": "11:00", "ms": 176 }, { "t": "12:00", "ms": 190 }, { "t": "13:00", "ms": 240 },
+      { "t": "14:00", "ms": 312 }, { "t": "15:00", "ms": 268 }, { "t": "16:00", "ms": 201 }
+    ],
+    "traffic": [ { "region": "US East", "share": 46 }, { "region": "EU West", "share": 31 }, { "region": "Asia", "share": 23 } ]
+  },
+  "elements": {
+    "prod": { "type": "Card", "props": { "title": "Harbor production · 16:40", "description": "5 clusters, Cloudflare and the database" }, "children": ["alert", "metrics", "tabs"] },
+    "alert": { "type": "Alert", "props": { "type": "warning", "title": "Latency is back down but worth watching", "message": "p95 peaked at 312 ms at 14:00 when the EU West node pool scaled. It's at 201 ms now." } },
+    "metrics": { "type": "Grid", "props": { "columns": 4, "gap": "md" }, "children": ["m1", "m2", "m3", "m4"] },
+    "m1": { "type": "Metric", "props": { "label": "Uptime", "value": "99.98%", "detail": "30 days", "trend": "neutral" } },
+    "m2": { "type": "Metric", "props": { "label": "p95 latency", "value": "201 ms", "detail": "peak 312 ms", "trend": "down" } },
+    "m3": { "type": "Metric", "props": { "label": "Nodes ready", "value": "27/27", "detail": null, "trend": null } },
+    "m4": { "type": "Metric", "props": { "label": "Errors", "value": "0.04%", "detail": "up from 0.01%", "trend": "up" } },
+    "tabs": { "type": "Tabs", "props": { "defaultValue": "latency", "tabs": [ { "value": "latency", "label": "Latency" }, { "value": "traffic", "label": "Traffic" }, { "value": "steps", "label": "What happened" } ] }, "children": ["t1", "t2", "t3"] },
+    "t1": { "type": "TabContent", "props": { "value": "latency" }, "children": ["line"] },
+    "line": { "type": "LineChart", "props": { "title": null, "data": { "$state": "/latency" }, "xKey": "t", "yKey": "ms", "aggregate": null, "color": null, "height": 180 } },
+    "t2": { "type": "TabContent", "props": { "value": "traffic" }, "children": ["pie"] },
+    "pie": { "type": "PieChart", "props": { "title": null, "data": { "$state": "/traffic" }, "nameKey": "region", "valueKey": "share", "height": 180 } },
+    "t3": { "type": "TabContent", "props": { "value": "steps" }, "children": ["timeline"] },
+    "timeline": { "type": "Timeline", "props": { "items": [
+      { "title": "EU West pool scaled from 5 to 8 nodes", "description": "Autoscaler, after the 13:50 traffic spike", "date": "13:52", "status": "completed" },
+      { "title": "p95 latency peaked at 312 ms", "description": "New nodes were still pulling images", "date": "14:00", "status": "completed" },
+      { "title": "Back under 250 ms", "description": null, "date": "15:10", "status": "completed" },
+      { "title": "Checking again at 18:00", "description": "I'll tell you if it climbs past 250 ms", "date": "18:00", "status": "upcoming" }
+    ] } }
+  }
+}

@@ -139,6 +139,47 @@ final class PennantChatTests: XCTestCase {
         await s.stop()
     }
 
+    /// The chat shows something easier seen than read as a card of its own, with a line around it.
+    func testTheChatPostsACardItself() async throws {
+        let card = try CardTests.sample("morning-brief")
+        let post = ToolCall(id: ToolCallID("p1"), name: "post_report", arguments: ["title": "Your morning", "verdict": "3 emails need you", "status": "watch", "card": card])
+        let provider = ScriptedProvider([])
+        provider.chatTurns = [.init(toolCalls: [post]), .init(text: "Here's your morning; the invoice is the one to look at.")]
+        let s = try await service(provider)
+        let chat = try await s.runtime.ensureMainChat()
+        let (_, _, ask) = try await s.runtime.submitUserMessage(agentID: chat.agentID, conversationID: chat.id, text: "What's waiting for me?", attachments: [])
+        try await wait(s, ask, .completed)
+        let messages = try await s.store.messagesAfter(conversationID: chat.id, after: nil, limit: 50)
+        let report = messages.flatMap(\.parts).compactMap { if case .report(let r) = $0 { return r }; return nil }.first
+        XCTAssertEqual(report?.spec, card)
+        XCTAssertTrue(messages.contains { $0.role == .assistant && $0.text.contains("the invoice is the one to look at") })
+        await s.stop()
+    }
+
+    /// A thread that posts a report card: the card goes up to the chat with the thread's news.
+    func testAThreadsCardGoesUpWithItsNews() async throws {
+        let card = try CardTests.sample("production")
+        let start = ToolCall(id: ToolCallID("t1"), name: "start_thread", arguments: ["title": "Harbor production check", "instructions": "Check Harbor production and post a report."])
+        let post = ToolCall(id: ToolCallID("p1"), name: "post_report", arguments: ["title": "Harbor production", "verdict": "Back to normal, worth watching", "status": "watch", "card": card])
+        let provider = ScriptedProvider([.init(toolCalls: [post]), .init(text: "Posted the check.")])
+        provider.chatTurns = [.init(toolCalls: [start]), .init(text: "Checking now.")]
+        let s = try await service(provider)
+        let chat = try await s.runtime.ensureMainChat()
+        let (_, _, ask) = try await s.runtime.submitUserMessage(agentID: chat.agentID, conversationID: chat.id, text: "How's production?", attachments: [])
+        try await wait(s, ask, .completed)
+
+        try await until("the card reached the chat") {
+            let messages = try await s.store.messagesAfter(conversationID: chat.id, after: nil, limit: 100)
+            return messages.contains { $0.parts.contains { if case .report = $0 { return true }; return false } }
+        }
+        let messages = try await s.store.messagesAfter(conversationID: chat.id, after: nil, limit: 100)
+        let news = try XCTUnwrap(messages.first { $0.parts.contains { if case .report = $0 { return true }; return false } })
+        XCTAssertTrue(news.parts.contains { if case .update(let u) = $0 { return u.kind == .finished }; return false }, "the card came with the thread's news")
+        let report = news.parts.compactMap { if case .report(let r) = $0 { return r }; return nil }.first
+        XCTAssertEqual(report?.spec, card)
+        await s.stop()
+    }
+
     func testALineSaidWhileStartingAThreadIsTheWholeReply() async throws {
         let start = ToolCall(id: ToolCallID("t1"), name: "start_thread", arguments: ["title": "Harbor newsletter", "instructions": "Draft the Harbor newsletter for Maya to review."])
         let provider = ScriptedProvider([.init(text: "The draft is ready for Maya.")])
@@ -698,8 +739,8 @@ final class PennantChatSpeedTests: XCTestCase {
         _ = try await ask(s, "Hello")
         let request = try XCTUnwrap(provider.requests.first { $0.messages.first?.text.contains("## The Pennant chat") == true })
         let tools = Set(request.tools.map(\.name))
-        XCTAssertTrue(tools.isSuperset(of: ["start_thread", "read_thread", "web_open", "web_read", "memory_search", "share_file", "find_tools"]), "\(tools.sorted())")
-        XCTAssertTrue(tools.isDisjoint(with: ["request_approval", "post_report", "delegate_task", "click", "send_message", "use_skill", "app_click"]), "\(tools.sorted())")
+        XCTAssertTrue(tools.isSuperset(of: ["start_thread", "read_thread", "web_open", "web_read", "memory_search", "share_file", "find_tools", "post_report"]), "\(tools.sorted())")
+        XCTAssertTrue(tools.isDisjoint(with: ["request_approval", "delegate_task", "click", "send_message", "use_skill", "app_click"]), "\(tools.sorted())")
         XCTAssertLessThanOrEqual(tools.count, TaskRuntime.chatTools.count + 1)
         await s.stop()
     }

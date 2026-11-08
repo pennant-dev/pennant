@@ -28,6 +28,19 @@ Pennant Voice, the helper that runs Talk mode's natural voice on a Mac, adds the
 | [swift-server/async-http-client](https://github.com/swift-server/async-http-client) and [swift-service-lifecycle](https://github.com/swift-server/swift-service-lifecycle) | Apache 2.0 |
 | apple/swift-crypto, swift-certificates, swift-asn1, swift-numerics, swift-algorithms, swift-async-algorithms, swift-configuration, swift-distributed-tracing, swift-service-context, swift-http-types, swift-http-structured-headers, swift-nio-ssl, swift-nio-http2, swift-nio-extras and swift-nio-transport-services; swiftlang/swift-syntax | Apache 2.0 |
 
+## Cards
+
+The cards Pennant draws in the chat come from a page built from `Web/cards` and shipped in the app (`Sources/PennantUI/Resources/PennantCards.html`). It bundles these, with their licenses kept in the page's sources (`Web/cards/package-lock.json` lists every package and version):
+
+| Package | License |
+| --- | --- |
+| [vercel-labs/json-render](https://github.com/vercel-labs/json-render): `@json-render/core`, `react` and `shadcn`, and the chat example's components and catalog (`Web/cards/src/vendor`, changed as noted at the top of each file) | Apache 2.0 |
+| [shadcn/ui](https://ui.shadcn.com) components, [Radix UI](https://github.com/radix-ui/primitives), [React](https://github.com/facebook/react), [Recharts](https://github.com/recharts/recharts), [Zod](https://github.com/colinhacks/zod), [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss), clsx, tailwind-merge, vaul, embla-carousel, lodash and the other MIT packages in the lock file | MIT |
+| [class-variance-authority](https://github.com/joe-bell/cva) | Apache 2.0 |
+| [Lucide](https://github.com/lucide-icons/lucide) icons and d3's array, color, format, interpolate, path, scale, shape, time and timer modules | ISC |
+| d3-ease and react-transition-group | BSD 3-Clause |
+| tslib | 0BSD |
+
 ## Voice models
 
 The natural voices aren't shipped with the app. The Mac downloads them from Hugging Face, at a fixed revision, when they're first used:

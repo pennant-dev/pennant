@@ -58,7 +58,8 @@ public struct ApprovalCard: View {
             if !request.tags.isEmpty { tagList }
             if !request.details.isEmpty { detailList }
             if !request.notes.isEmpty { notes }
-            if let action = request.action, pending { actionLine(action) }
+            // An email's preview or a command's already says what approving does.
+            if let action = request.action, pending, !previewSaysTheAction { actionLine(action) }
             if let error { Text(error).font(.zoomed(.caption)).foregroundStyle(PennantTheme.danger) }
             if pending { actions } else { outcome }
         }
@@ -192,6 +193,15 @@ public struct ApprovalCard: View {
         }
     }
 
+    private var previewSaysTheAction: Bool {
+        switch ApprovalPreview.Kind(request) { case .email, .command: return true; default: return false }
+    }
+
+    private var previewCounts: Bool {
+        if case .post(let p) = ApprovalPreview.Kind(request) { return p.limit != nil }
+        return false
+    }
+
     @ViewBuilder private var textBlock: some View {
         let shown = request.finalText
         let markdown = MarkdownDetector.looksLikeMarkdown(shown)
@@ -203,23 +213,13 @@ public struct ApprovalCard: View {
                 .frame(minHeight: 180)
                 .background(PennantTheme.fieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         } else {
-            Group {
-                if markdown, !showPlain {
-                    PennantMarkdown(shown, size: Self.textSize)
-                } else {
-                    Text(shown)
-                        .font(.zoomed(.callout))
-                        .foregroundStyle(PennantTheme.ink)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(PennantTheme.cardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            ApprovalPreview(request: request, text: shown, markdown: markdown, showPlain: showPlain, textSize: Self.textSize)
         }
         HStack(spacing: 8) {
-            Text("\((editing ? draft : shown).count) characters").font(.zoomed(.caption2).monospacedDigit()).foregroundStyle(PennantTheme.inkTertiary)
+            // A post's preview counts against the platform's limit itself.
+            if editing || !previewCounts {
+                Text("\((editing ? draft : shown).count) characters").font(.zoomed(.caption2).monospacedDigit()).foregroundStyle(PennantTheme.inkTertiary)
+            }
             if request.approvedText != nil, !pending { Chip("edited by you") }
             Spacer()
             // Formatted for reading; the plain text is what goes out.

@@ -399,6 +399,9 @@ public struct ContextBuilder: Sendable {
     message_thread in the same reply. For "how's it going?", use what's going on (in your notes below) or \
     read_thread. To stop one, stop_thread.
     - Several related steps belong in one thread; follow up in the same one with message_thread.
+    - When what you have is easier to see than read (a few numbers side by side, a list of things with times or \
+    states, a comparison, a choice for them to tap), show it as a card with post_report and say one line around it. \
+    Plain answers stay plain words.
     - Don't work things out in writing here: no restating what they said ("The user says…", "Maya asks…"), no "Let \
     me…", no weighing options. Think it through first; then write only what they should read, or call the tool.
 

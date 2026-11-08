@@ -478,9 +478,9 @@ extension TaskRuntime {
     }
 
     /// Posts an update in the chat, under what Pennant says about it when it says something.
-    func postUpdate(_ update: WorkUpdate, saying words: String? = nil) async {
+    func postUpdate(_ update: WorkUpdate, saying words: String? = nil, showing cards: [ContentPart] = []) async {
         guard let chat = try? await ensureMainChat() else { return }
-        let parts: [ContentPart] = words.map { [.text($0), .update(update)] } ?? [.update(update)]
+        let parts: [ContentPart] = (words.map { [.text($0)] } ?? []) + cards + [.update(update)]
         let message = Message(conversationID: chat.id, agentID: chat.agentID, role: .assistant, parts: parts)
         do {
             try await deps.store.appendMessage(message)
@@ -522,6 +522,10 @@ extension TaskRuntime {
             }
             guard made else { return }
         }
+        // The report card the work posted goes up with the news, so it's in the chat and not only in the thread.
+        let recent = task.state == .completed ? (try? await deps.store.listMessages(conversationID: task.conversationID, before: nil, limit: 200)) ?? [] : []
+        let latestReport = recent.lazy.filter { $0.taskID == task.id }.flatMap(\.parts).first { if case .report = $0 { return true }; return false }
+        let cards = latestReport.map { [$0] } ?? []
         let text: String
         if task.state == .failed {
             text = task.stateReason
@@ -535,11 +539,11 @@ extension TaskRuntime {
         // Pennant tells them in its own words, or nothing when they already know.
         Task { [self] in
             switch await self.wordUpdate(update) {
-            case .say(let words)?: await self.postUpdate(update, saying: words)
+            case .say(let words)?: await self.postUpdate(update, saying: words, showing: cards)
             case .quiet?:
                 update.silent = true
                 await self.postUpdate(update)
-            case nil: await self.postUpdate(update)
+            case nil: await self.postUpdate(update, showing: cards)
             }
         }
     }

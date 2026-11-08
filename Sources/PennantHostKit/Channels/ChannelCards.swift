@@ -122,6 +122,10 @@ enum ChannelCards {
         var body: [JSONValue] = [text("\(agentName) · report", subtle: true, small: true), heading(r.title)]
         if let s = r.subtitle, !s.isEmpty { body.append(text(s, subtle: true)) }
         body.append(["type": "TextBlock", "text": .string("\(dot(r.status)) \(r.verdict)"), "weight": "Bolder", "wrap": true, "color": .string(color(r.status))])
+        if let spec = r.spec {
+            let drawn = Self.body(of: CardSpec(spec))
+            return .card(card(body + drawn.body, actions: drawn.actions), fallback: r.markdown)
+        }
         for section in r.sections.prefix(8) {
             if let t = section.title, !t.isEmpty { body.append(["type": "TextBlock", "text": .string(t), "weight": "Bolder", "spacing": "Medium", "wrap": true]) }
             if let stats = section.stats, !stats.isEmpty {

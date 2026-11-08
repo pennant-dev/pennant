@@ -1,0 +1,215 @@
+{
+  "root": "brief",
+  "state": {
+    "mail": [
+      {
+        "from": "Dana Okafor",
+        "subject": "Harbor renewal: redlines back",
+        "when": "6:12"
+      },
+      {
+        "from": "Maya Chen",
+        "subject": "Can we move Thursday's review?",
+        "when": "6:40"
+      },
+      {
+        "from": "Lena Brandt",
+        "subject": "Invoice 2026-118 is overdue",
+        "when": "7:05"
+      }
+    ],
+    "signups": [
+      {
+        "day": "Sun",
+        "count": 42
+      },
+      {
+        "day": "Mon",
+        "count": 61
+      },
+      {
+        "day": "Tue",
+        "count": 58
+      },
+      {
+        "day": "Wed",
+        "count": 77
+      },
+      {
+        "day": "Thu",
+        "count": 70
+      },
+      {
+        "day": "Fri",
+        "count": 93
+      },
+      {
+        "day": "Sat",
+        "count": 88
+      }
+    ]
+  },
+  "elements": {
+    "brief": {
+      "type": "Card",
+      "props": {
+        "title": "Good morning, Maya",
+        "description": "Saturday 7 November \u00b7 what's waiting for you"
+      },
+      "children": [
+        "metrics",
+        "callout",
+        "mailTable",
+        "chart",
+        "actions"
+      ]
+    },
+    "metrics": {
+      "type": "Grid",
+      "props": {
+        "columns": 3,
+        "gap": "md"
+      },
+      "children": [
+        "m1",
+        "m2",
+        "m3"
+      ]
+    },
+    "m1": {
+      "type": "Metric",
+      "props": {
+        "label": "Mail that needs you",
+        "value": "3",
+        "detail": "of 41 overnight",
+        "trend": "down"
+      }
+    },
+    "m2": {
+      "type": "Metric",
+      "props": {
+        "label": "Meetings today",
+        "value": "2",
+        "detail": "first at 10:30",
+        "trend": "neutral"
+      }
+    },
+    "m3": {
+      "type": "Metric",
+      "props": {
+        "label": "Harbor sign-ups",
+        "value": "489",
+        "detail": "this week, up 18%",
+        "trend": "up"
+      }
+    },
+    "callout": {
+      "type": "Callout",
+      "props": {
+        "type": "important",
+        "title": "Invoice 2026-118 is 9 days overdue",
+        "content": "Lena from Brandt & Co wrote again at 7:05. I drafted a polite nudge with the invoice attached."
+      }
+    },
+    "mailTable": {
+      "type": "Table",
+      "props": {
+        "data": {
+          "$state": "/mail"
+        },
+        "columns": [
+          {
+            "key": "from",
+            "label": "From"
+          },
+          {
+            "key": "subject",
+            "label": "Subject"
+          },
+          {
+            "key": "when",
+            "label": "Time"
+          }
+        ],
+        "emptyMessage": null
+      }
+    },
+    "chart": {
+      "type": "BarChart",
+      "props": {
+        "title": "Sign-ups this week",
+        "data": {
+          "$state": "/signups"
+        },
+        "xKey": "day",
+        "yKey": "count",
+        "aggregate": null,
+        "color": null,
+        "height": 160
+      }
+    },
+    "actions": {
+      "type": "Stack",
+      "props": {
+        "direction": "horizontal",
+        "gap": "sm"
+      },
+      "children": [
+        "b1",
+        "b2",
+        "b3"
+      ]
+    },
+    "b1": {
+      "type": "Button",
+      "props": {
+        "label": "Send the nudge",
+        "variant": "default",
+        "size": "sm",
+        "disabled": null
+      },
+      "on": {
+        "press": {
+          "action": "reply",
+          "params": {
+            "text": "Send Lena the nudge"
+          }
+        }
+      }
+    },
+    "b2": {
+      "type": "Button",
+      "props": {
+        "label": "Move Thursday's review",
+        "variant": "outline",
+        "size": "sm",
+        "disabled": null
+      },
+      "on": {
+        "press": {
+          "action": "reply",
+          "params": {
+            "text": "Move Thursday's review with Maya"
+          }
+        }
+      }
+    },
+    "b3": {
+      "type": "Button",
+      "props": {
+        "label": "Later",
+        "variant": "ghost",
+        "size": "sm",
+        "disabled": null
+      },
+      "on": {
+        "press": {
+          "action": "reply",
+          "params": {
+            "text": "Remind me about these at noon"
+          }
+        }
+      }
+    }
+  }
+}

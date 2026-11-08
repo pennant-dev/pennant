@@ -5,9 +5,19 @@ import SwiftUI
 struct ReportCardView: View {
     @Environment(\.offscreenStaticLayout) private var staticLayout
     var report: ReportCard
+    /// Sends a card button's words to the conversation as the owner's reply.
+    var reply: ((String) -> Void)? = nil
     @State private var copied = false
 
     var body: some View {
+        if let spec = report.spec {
+            SpecCardView(id: report.id, spec: spec, reply: reply)
+        } else {
+            plain
+        }
+    }
+
+    private var plain: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             verdict
